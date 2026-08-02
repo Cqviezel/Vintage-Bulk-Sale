@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Crazed TCG — Vintage Bulk Cards</title>
+<meta name="description" content="Curated vintage trading card singles. PayNow checkout, tracked mailing, cards from $2.">
+<link rel="icon" href="/img/favicon.png" sizes="64x64">
+<link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+<meta property="og:title" content="Crazed TCG — Vintage Bulk Cards">
+<meta property="og:description" content="Curated vintage trading card singles. PayNow checkout, tracked mailing, cards from $2.">
+<meta property="og:image" content="/img/logo.jpg">
+<meta property="og:type" content="website">
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+
+<div id="storeView" class="app">
+  <div class="store-shell">
+    <header class="store-nav">
+      <div class="store-nav-left">
+        <button id="browseSets">Browse Sets &#9662;</button>
+        <a href="#catalogue">All Cards</a>
+        <a href="#catalogue">Latest Drop</a>
+      </div>
+      <div class="store-nav-right">
+        <button class="cart" id="cartOpen">Cart <span class="count" id="cartCount">0</span></button>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div class="hero-copy">
+        <div class="eyebrow">Curated Vintage Singles</div>
+        <h1>Crazed TCG</h1>
+        <div class="hero-title">Vintage Bulk Cards</div>
+        <div class="hero-actions">
+          <a class="hero-primary" href="#catalogue">Browse Cards</a>
+          <a class="hero-secondary" href="#" id="joinTelegram">Join Telegram</a>
+        </div>
+      </div>
+      <div class="hero-art">
+        <div class="hero-card"><img src="/img/logo-460.jpg" alt="Crazed TCG logo" width="230" height="230"></div>
+      </div>
+    </section>
+
+    <section class="benefits">
+      <span>Cards from $2</span><span class="dot"></span>
+      <span>PayNow Checkout</span><span class="dot"></span>
+      <span>Tracked Mailing</span>
+    </section>
+
+    <section class="set-row" id="setRow"></section>
+
+    <main class="catalogue" id="catalogue">
+      <div class="catalogue-head">
+        <div>
+          <h2>Available Singles</h2>
+          <p>Reference images shown. Actual condition is stated on each listing.</p>
+        </div>
+        <span class="small muted" id="resultCount"></span>
+      </div>
+      <div class="filters">
+        <input id="storeSearch" placeholder="Search cards" aria-label="Search cards">
+        <select id="storeSet" aria-label="Filter by set"><option value="">All sets</option></select>
+        <select id="storePrice" aria-label="Filter by price">
+          <option value="">All prices</option>
+          <option value="2">Up to $2</option>
+          <option value="5">Up to $5</option>
+          <option value="10">Up to $10</option>
+        </select>
+        <select id="storeCondition" aria-label="Filter by condition">
+          <option value="">All conditions</option>
+          <option>NM</option><option>LP</option><option>MP</option><option>HP</option>
+        </select>
+      </div>
+      <div class="grid" id="productGrid"></div>
+    </main>
+
+    <footer class="footer">
+      <div>
+        <strong>Crazed TCG</strong>
+        <span>Vintage cards made easy to browse.</span>
+      </div>
+      <nav>
+        <a href="#catalogue">All Cards</a>
+        <a href="#" id="conditionGuide">Condition Guide</a>
+        <a href="#" id="shippingInfo">Shipping &amp; Pickup</a>
+        <a href="/admin/login">Seller Login</a>
+      </nav>
+    </footer>
+  </div>
+</div>
+
+<div class="overlay" id="overlay"></div>
+
+<aside class="drawer" id="cartDrawer" aria-label="Shopping cart">
+  <div class="panel-head">
+    <h3>Your Cart</h3>
+    <button class="close" id="cartClose" aria-label="Close cart">&times;</button>
+  </div>
+  <div class="cart-items" id="cartItems"></div>
+  <div class="drawer-foot">
+    <div class="summary"><span>Cards</span><span id="cartSubtotal">$0.00</span></div>
+    <div class="summary"><span>Tracked Mailing</span><span id="cartMailing">$0.00</span></div>
+    <div class="summary total"><span>Total</span><span id="cartTotal">$0.00</span></div>
+    <div class="small muted" id="cartHint" style="margin-top:8px"></div>
+    <button class="checkout" id="checkoutOpen">Continue to Checkout</button>
+  </div>
+</aside>
+
+<div class="modal-bg" id="checkoutModal">
+  <div class="modal" style="width:min(680px,100%)">
+    <div class="panel-head">
+      <div>
+        <h2>Checkout</h2>
+        <div class="small muted">Enter your details and place your order.</div>
+      </div>
+      <button class="close modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body">
+      <div class="form-grid">
+        <div><label for="buyerName">Name</label><input id="buyerName" placeholder="Your name" autocomplete="name"></div>
+        <div><label for="buyerTelegram">Telegram Username</label><input id="buyerTelegram" placeholder="@username"></div>
+        <div><label for="buyerEmail">Email (optional)</label><input id="buyerEmail" type="email" placeholder="you@example.com" autocomplete="email"></div>
+        <div>
+          <label for="buyerDelivery">Delivery</label>
+          <select id="buyerDelivery"><option>Tracked Mailing</option><option>Self-Pickup</option></select>
+        </div>
+        <div><label for="buyerPayment">Payment Method</label><select id="buyerPayment"><option>PayNow</option></select></div>
+        <div class="full">
+          <label for="buyerAddress">Mailing Address / Pickup Note</label>
+          <textarea id="buyerAddress" autocomplete="street-address"></textarea>
+        </div>
+      </div>
+      <div class="summary total"><span>Order Total</span><span id="checkoutTotal">$0.00</span></div>
+      <div id="checkoutError" class="notice error hidden" style="margin-top:12px"></div>
+      <button class="checkout" id="submitOrder">Place Order</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="confirmationModal">
+  <div class="modal" style="width:min(620px,100%)">
+    <div class="panel-head">
+      <div>
+        <h2>Order Confirmed</h2>
+        <div class="small muted">Your cards are reserved.</div>
+      </div>
+      <button class="close modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body" id="confirmationContent"></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="infoModal">
+  <div class="modal" style="width:min(560px,100%)">
+    <div class="panel-head">
+      <h2 id="infoTitle"></h2>
+      <button class="close modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body" id="infoBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="/js/store.js"></script>
+</body>
+</html>

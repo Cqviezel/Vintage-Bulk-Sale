@@ -1,0 +1,13 @@
+# Normalise to LF in the repository so Windows and the Linux VPS agree.
+* text=auto eol=lf
+
+# Shell scripts must keep LF or they will not run on the server.
+*.sh text eol=lf
+deploy/crazed-tcg.service text eol=lf
+deploy/Caddyfile text eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary

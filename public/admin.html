@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Seller Admin — Crazed TCG</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/img/favicon.png" sizes="64x64">
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+
+<div class="admin-layout">
+  <aside class="sidebar">
+    <div class="brand">CRAZED TCG<small>SELLER ADMIN</small></div>
+    <nav class="admin-nav">
+      <button class="active" data-admin-tab="dashboard">Dashboard</button>
+      <button data-admin-tab="products">Products</button>
+      <button data-admin-tab="orders">Orders</button>
+      <button data-admin-tab="settings">Settings</button>
+    </nav>
+    <div class="sidebar-foot">
+      <a href="/" target="_blank" rel="noopener">View storefront &nearr;</a>
+      <button id="logout">Sign out</button>
+    </div>
+  </aside>
+
+  <main class="admin-main">
+    <section class="admin-tab active" id="dashboard">
+      <div class="admin-top">
+        <div>
+          <h1>Dashboard</h1>
+          <p>Live inventory and orders, straight from the database.</p>
+        </div>
+        <div class="actions"><button class="btn primary open-product-modal">Add Product</button></div>
+      </div>
+      <div class="stats">
+        <div class="stat"><span>Live Products</span><strong id="statLive">—</strong></div>
+        <div class="stat"><span>Reserved</span><strong id="statReserved">—</strong></div>
+        <div class="stat"><span>Pending Orders</span><strong id="statOrders">—</strong></div>
+        <div class="stat"><span>Sales Value</span><strong id="statSales">—</strong></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <div><h2>Recent Orders</h2><div class="small muted">Latest checkout submissions.</div></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Order</th><th>Buyer</th><th>Total</th><th>Status</th></tr></thead>
+            <tbody id="recentOrders"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="admin-tab" id="products">
+      <div class="admin-top">
+        <div><h1>Products</h1><p>Manage inventory, images and storefront visibility.</p></div>
+        <div class="actions">
+          <button class="btn" id="openBulkImport">Bulk Import CSV</button>
+          <a class="btn" href="/api/admin/products/export.csv" style="display:inline-flex;align-items:center">Export CSV</a>
+          <button class="btn primary open-product-modal">Add Product</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <div><h2>Inventory</h2><div class="small muted">Live products with stock appear immediately on the storefront.</div></div>
+          <input id="adminProductSearch" placeholder="Search inventory" style="max-width:230px">
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Card</th><th>Set</th><th>Cond.</th><th>Price</th><th>Qty</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody id="inventoryBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="admin-tab" id="orders">
+      <div class="admin-top">
+        <div><h1>Orders</h1><p>Move orders from awaiting payment through completion.</p></div>
+        <div class="actions"><button class="btn" id="refreshOrders">Refresh</button></div>
+      </div>
+      <div class="panel">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Order</th><th>Buyer</th><th>Items</th><th>Total</th><th>Delivery</th><th>Status</th><th>Telegram</th><th>Actions</th></tr></thead>
+            <tbody id="ordersBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="admin-tab" id="settings">
+      <div class="admin-top">
+        <div><h1>Settings</h1><p>Storefront copy, fees and Telegram status.</p></div>
+        <button class="btn primary" id="saveSettings">Save Changes</button>
+      </div>
+      <div class="panel"><div class="panel-body"><div class="form-grid">
+        <div><label for="settingStoreName">Store Name</label><input id="settingStoreName"></div>
+        <div><label for="settingTelegram">Public Telegram Channel</label><input id="settingTelegram" placeholder="@crazedtcg"></div>
+        <div><label for="settingMailing">Tracked Mailing Fee</label><input id="settingMailing" type="number" step="0.01" min="0"></div>
+        <div><label for="settingMinimum">Minimum Card Subtotal</label><input id="settingMinimum" type="number" step="0.01" min="0"></div>
+        <div><label for="settingReservation">Reservation Minutes</label><input id="settingReservation" type="number" min="0"></div>
+        <div><label for="settingContactTelegram">Order Contact Telegram</label><input id="settingContactTelegram" placeholder="@Cqvie"></div>
+        <div><label for="settingPaynowPayee">PayNow Payee Name (optional)</label><input id="settingPaynowPayee" placeholder="Shown under the QR"></div>
+        <div class="full"><label for="settingPaynow">PayNow Instructions</label><textarea id="settingPaynow"></textarea></div>
+
+        <div class="full">
+          <label>PayNow QR Code</label>
+          <div class="upload-row">
+            <div class="image-preview" style="aspect-ratio:1"><img id="paynowQrPreview" alt="PayNow QR"></div>
+            <div style="flex:1;min-width:220px">
+              <input id="paynowQrFile" type="file" accept="image/*">
+              <div class="small muted" style="margin-top:8px">
+                Shown to buyers on the order confirmation screen. Upload a screenshot of your
+                PayNow QR from your banking app.
+              </div>
+              <div class="actions" style="margin-top:10px">
+                <button class="btn" id="uploadPaynowQr" type="button">Upload QR</button>
+                <button class="btn danger" id="removePaynowQr" type="button">Remove</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="full" id="telegramStatus"></div>
+      </div></div></div>
+    </section>
+  </main>
+</div>
+
+<div class="modal-bg" id="productModal">
+  <div class="modal">
+    <div class="panel-head">
+      <div><h2 id="productModalTitle">Add Product</h2><div class="small muted">Search the API or upload your own photo.</div></div>
+      <button class="close modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body">
+      <div class="api-box">
+        <label for="apiName">Find Reference Image from Pok&eacute;mon TCG API</label>
+        <div class="api-actions">
+          <input id="apiName" placeholder="Card name e.g. Pikachu">
+          <input id="apiSet" placeholder="Set e.g. Base Set">
+          <input id="apiNumber" placeholder="No. e.g. 58">
+          <button class="btn" id="apiSearch" type="button">Search API</button>
+        </div>
+        <div class="small muted" style="margin-top:8px">Select a result to fill in the card details and reference image.</div>
+        <div class="api-results" id="apiResults"></div>
+      </div>
+
+      <div class="form-grid" style="margin-top:16px">
+        <input type="hidden" id="productId">
+        <div><label for="productName">Card Name</label><input id="productName"></div>
+        <div><label for="productSet">Set</label><input id="productSet"></div>
+        <div><label for="productNumber">Card Number</label><input id="productNumber"></div>
+        <div><label for="productCondition">Condition</label>
+          <select id="productCondition"><option>NM</option><option>LP</option><option>MP</option><option>HP</option></select>
+        </div>
+        <div><label for="productPrice">Price</label><input id="productPrice" type="number" step="0.01" min="0"></div>
+        <div><label for="productQty">Quantity</label><input id="productQty" type="number" min="0" value="1"></div>
+        <div><label for="productStatus">Inventory Status</label>
+          <select id="productStatus">
+            <option value="live">Live</option><option value="draft">Draft</option>
+            <option value="reserved">Reserved</option><option value="sold">Sold</option>
+            <option value="hidden">Hidden</option>
+          </select>
+        </div>
+        <div><label for="productImageUrl">Image URL</label><input id="productImageUrl"></div>
+        <div class="full">
+          <label>Upload Actual Card Photo</label>
+          <div class="upload-row">
+            <div class="image-preview"><img id="productPreview" alt=""></div>
+            <div style="flex:1;min-width:220px">
+              <input id="productImageFile" type="file" accept="image/*">
+              <div class="small muted" style="margin-top:8px">JPG, PNG, WEBP or GIF up to 6&nbsp;MB. Uploads are stored on the server and replace the URL above.</div>
+              <button class="btn" id="clearUploadedImage" type="button" style="margin-top:10px">Clear image</button>
+            </div>
+          </div>
+        </div>
+        <div class="full"><label for="productNotes">Condition Notes</label><textarea id="productNotes" placeholder="Optional wear or defect notes"></textarea></div>
+      </div>
+
+      <div id="productError" class="notice error hidden" style="margin-top:12px"></div>
+      <div class="actions" style="justify-content:flex-end;margin-top:16px">
+        <button class="btn modal-close" type="button">Cancel</button>
+        <button class="btn primary" id="saveProduct" type="button">Save Product</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="bulkModal">
+  <div class="modal" style="width:min(1000px,100%)">
+    <div class="panel-head">
+      <div><h2>Bulk Import</h2><div class="small muted">Upload a CSV, preview what it will do, then commit.</div></div>
+      <button class="close modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body">
+      <div class="api-box">
+        <div class="form-grid">
+          <div class="full">
+            <label for="bulkFile">CSV File</label>
+            <input id="bulkFile" type="file" accept=".csv,text/csv">
+            <div class="small muted" style="margin-top:8px">
+              Columns: <code>name, set, number, condition, price, qty, status, image, notes</code>.
+              Only <b>name</b> is required. Missing price becomes 0, missing qty becomes 1,
+              missing status becomes <b>draft</b> so nothing goes on sale by accident.
+              <a href="/api/admin/products/template.csv" style="text-decoration:underline">Download template</a>
+            </div>
+          </div>
+          <div class="full">
+            <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:12px;color:var(--ink)">
+              <input type="checkbox" id="bulkFetchImages" checked style="width:auto;min-height:0">
+              Look up card images from the Pok&eacute;mon TCG API for rows with no image
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;margin:8px 0 0;font-size:12px;color:var(--ink)">
+              <input type="checkbox" id="bulkSkipDuplicates" checked style="width:auto;min-height:0">
+              Skip rows that already exist (same name, set, number and condition)
+            </label>
+          </div>
+        </div>
+        <div class="actions" style="margin-top:12px">
+          <button class="btn primary" id="bulkPreview" type="button">Preview Import</button>
+        </div>
+      </div>
+
+      <div id="bulkResult" style="margin-top:16px"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="orderModal">
+  <div class="modal" style="width:min(720px,100%)">
+    <div class="panel-head">
+      <div><h2>Order Details</h2><div class="small muted" id="orderModalId"></div></div>
+      <button class="close modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body" id="orderDetail"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="/js/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,126 @@
+'use strict';
+
+const path = require('path');
+const fs = require('fs');
+const Database = require('better-sqlite3');
+
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(__dirname, '..', 'data');
+
+fs.mkdirSync(DATA_DIR, { recursive: true });
+
+const db = new Database(path.join(DATA_DIR, 'store.db'));
+
+// WAL keeps reads fast while a write is in flight, and survives restarts better.
+db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS products (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    set_name    TEXT NOT NULL DEFAULT '',
+    number      TEXT NOT NULL DEFAULT '',
+    condition   TEXT NOT NULL DEFAULT 'NM',
+    price       REAL NOT NULL DEFAULT 0,
+    qty         INTEGER NOT NULL DEFAULT 0,
+    status      TEXT NOT NULL DEFAULT 'draft',
+    image       TEXT NOT NULL DEFAULT '',
+    notes       TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
+
+  CREATE TABLE IF NOT EXISTS orders (
+    id            TEXT PRIMARY KEY,
+    buyer         TEXT NOT NULL,
+    telegram      TEXT NOT NULL DEFAULT '',
+    email         TEXT NOT NULL DEFAULT '',
+    address       TEXT NOT NULL DEFAULT '',
+    delivery      TEXT NOT NULL DEFAULT 'Tracked Mailing',
+    subtotal      REAL NOT NULL DEFAULT 0,
+    fee           REAL NOT NULL DEFAULT 0,
+    total         REAL NOT NULL DEFAULT 0,
+    status        TEXT NOT NULL DEFAULT 'awaiting payment',
+    notify_state  TEXT NOT NULL DEFAULT 'pending',
+    notify_error  TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS order_items (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id    TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    product_id  TEXT,
+    name        TEXT NOT NULL,
+    set_name    TEXT NOT NULL DEFAULT '',
+    number      TEXT NOT NULL DEFAULT '',
+    condition   TEXT NOT NULL DEFAULT '',
+    price       REAL NOT NULL DEFAULT 0
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key    TEXT PRIMARY KEY,
+    value  TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS admin_users (
+    username       TEXT PRIMARY KEY,
+    password_hash  TEXT NOT NULL,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
+const DEFAULT_SETTINGS = {
+  storeName: 'Crazed TCG',
+  telegram: '@crazedtcg',
+  mailing: '3.50',
+  minimum: '0',
+  reservation: '30',
+  paynow:
+    'Scan the PayNow QR below, enter the exact total, and put your order ID in the ' +
+    'payment reference/comment field.',
+  // Payment + contact details shown to the buyer after checkout.
+  paynowQr: '/uploads/paynow-qr.jpg',
+  paynowPayee: '',
+  contactTelegram: '@Cqvie',
+};
+
+const insertSetting = db.prepare(
+  'INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)'
+);
+for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
+  insertSetting.run(key, value);
+}
+
+function getSettings() {
+  const rows = db.prepare('SELECT key, value FROM settings').all();
+  const out = { ...DEFAULT_SETTINGS };
+  for (const row of rows) out[row.key] = row.value;
+  // Numbers are stored as text; hand callers real numbers.
+  out.mailing = Number(out.mailing) || 0;
+  out.minimum = Number(out.minimum) || 0;
+  out.reservation = Number(out.reservation) || 30;
+  return out;
+}
+
+const upsertSetting = db.prepare(
+  'INSERT INTO settings (key, value) VALUES (@key, @value) ' +
+    'ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+);
+
+const saveSettings = db.transaction((patch) => {
+  for (const [key, value] of Object.entries(patch)) {
+    if (!Object.prototype.hasOwnProperty.call(DEFAULT_SETTINGS, key)) continue;
+    upsertSetting.run({ key, value: String(value) });
+  }
+});
+
+module.exports = { db, DATA_DIR, getSettings, saveSettings, DEFAULT_SETTINGS };

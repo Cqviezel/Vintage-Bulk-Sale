@@ -1,0 +1,28 @@
+# Caddy gets you automatic HTTPS with no certificate work.
+#
+#   sudo apt install caddy
+#   sudo cp Caddyfile /etc/caddy/Caddyfile     (edit the domain first)
+#   sudo systemctl reload caddy
+#
+# Point your domain's A record at the VPS before reloading.
+
+crazedtcg.example.com {
+	encode zstd gzip
+
+	# Uploaded card photos have random filenames, so they can cache hard.
+	@uploads path /uploads/*
+	header @uploads Cache-Control "public, max-age=2592000, immutable"
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	# The admin area should never be indexed.
+	@admin path /admin*
+	header @admin X-Robots-Tag "noindex, nofollow"
+
+	reverse_proxy 127.0.0.1:3000
+}

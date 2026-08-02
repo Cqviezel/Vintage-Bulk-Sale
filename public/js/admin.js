@@ -1,0 +1,794 @@
+'use strict';
+
+/* Crazed TCG seller admin. Every action is a call to /api/admin/*, which is
+   session-guarded on the server — nothing here is trusted. */
+
+const LOGO = '/img/logo-460.jpg';
+
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+
+let productCache = [];
+let orderCache = [];
+let apiResultCache = [];
+
+/* ------------------------------------------------------------- helpers --- */
+
+function money(n) {
+  return '$' + Number(n || 0).toFixed(2);
+}
+
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function slug(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+}
+
+function toast(msg, isError) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.toggle('error', Boolean(isError));
+  t.classList.add('show');
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => t.classList.remove('show'), isError ? 4500 : 2000);
+}
+
+async function api(url, options = {}) {
+  const res = await fetch(url, {
+    headers: options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' },
+    ...options,
+  });
+
+  if (res.status === 401) {
+    window.location.href = '/admin/login';
+    throw new Error('Session expired');
+  }
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+function openModal(sel) {
+  $(sel).classList.add('show');
+}
+function closeModals() {
+  $$('.modal-bg').forEach((m) => m.classList.remove('show'));
+}
+
+/* ------------------------------------------------------------ dashboard --- */
+
+async function loadStats() {
+  try {
+    const s = await api('/api/admin/stats');
+    $('#statLive').textContent = s.live;
+    $('#statReserved').textContent = s.reserved;
+    $('#statOrders').textContent = s.pending;
+    $('#statSales').textContent = money(s.sales);
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+function renderRecentOrders() {
+  $('#recentOrders').innerHTML = orderCache.length
+    ? orderCache
+        .slice(0, 5)
+        .map(
+          (o) => `<tr>
+            <td>${esc(o.id)}</td>
+            <td>${esc(o.buyer)}</td>
+            <td>${money(o.total)}</td>
+            <td><span class="status order-${slug(o.status)}">${esc(o.status)}</span></td>
+          </tr>`
+        )
+        .join('')
+    : '<tr><td colspan="4" class="muted">No orders yet.</td></tr>';
+}
+
+/* -------------------------------------------------------------- products --- */
+
+async function loadProducts() {
+  try {
+    productCache = await api('/api/admin/products');
+    renderInventory();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+function renderInventory() {
+  const q = ($('#adminProductSearch').value || '').trim().toLowerCase();
+  const list = productCache.filter(
+    (p) => !q || `${p.name} ${p.set} ${p.number}`.toLowerCase().includes(q)
+  );
+
+  $('#inventoryBody').innerHTML = list.length
+    ? list
+        .map(
+          (p) => `<tr>
+      <td>${esc(p.name)}<div class="small muted">${esc(p.number)}</div></td>
+      <td>${esc(p.set)}</td>
+      <td>${esc(p.condition)}</td>
+      <td>${money(p.price)}</td>
+      <td>${p.qty}</td>
+      <td><span class="status status-${esc(p.status)}">${esc(p.status)}</span></td>
+      <td><div class="row-actions">
+        <button data-edit="${esc(p.id)}">Edit</button>
+        <button data-toggle="${esc(p.id)}">${p.status === 'live' ? 'Hide' : 'Set Live'}</button>
+        <button data-delete="${esc(p.id)}">Delete</button>
+      </div></td>
+    </tr>`
+        )
+        .join('')
+    : `<tr><td colspan="7" class="muted">${
+        q ? 'No products match that search.' : 'No products yet — add your first card.'
+      }</td></tr>`;
+
+  $$('[data-edit]').forEach((b) => (b.onclick = () => openProductModal(b.dataset.edit)));
+  $$('[data-toggle]').forEach((b) => (b.onclick = () => toggleVisibility(b.dataset.toggle)));
+  $$('[data-delete]').forEach((b) => (b.onclick = () => removeProduct(b.dataset.delete)));
+}
+
+async function toggleVisibility(id) {
+  const p = productCache.find((x) => x.id === id);
+  if (!p) return;
+  try {
+    await api(`/api/admin/products/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...p, status: p.status === 'live' ? 'hidden' : 'live' }),
+    });
+    await Promise.all([loadProducts(), loadStats()]);
+    toast('Storefront updated');
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+async function removeProduct(id) {
+  const p = productCache.find((x) => x.id === id);
+  if (!p) return;
+  if (!confirm(`Delete "${p.name}"? Past orders keep their own copy of the details.`)) return;
+  try {
+    await api(`/api/admin/products/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await Promise.all([loadProducts(), loadStats()]);
+    toast('Product deleted');
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+/* ---------------------------------------------------------- product form --- */
+
+let pendingUpload = null;
+
+function resetProductForm() {
+  [
+    'productId', 'productName', 'productSet', 'productNumber', 'productPrice',
+    'productImageUrl', 'productNotes', 'apiName', 'apiSet', 'apiNumber',
+  ].forEach((id) => ($('#' + id).value = ''));
+
+  $('#productCondition').value = 'NM';
+  $('#productQty').value = 1;
+  $('#productStatus').value = 'live';
+  $('#productImageFile').value = '';
+  $('#productPreview').src = LOGO;
+  $('#apiResults').innerHTML = '';
+  $('#productError').classList.add('hidden');
+  $('#productModalTitle').textContent = 'Add Product';
+  pendingUpload = null;
+  apiResultCache = [];
+}
+
+function openProductModal(id) {
+  resetProductForm();
+
+  if (id) {
+    const p = productCache.find((x) => x.id === id);
+    if (!p) return;
+    $('#productModalTitle').textContent = 'Edit Product';
+    $('#productId').value = p.id;
+    $('#productName').value = p.name;
+    $('#productSet').value = p.set;
+    $('#productNumber').value = p.number;
+    $('#productCondition').value = p.condition;
+    $('#productPrice').value = p.price;
+    $('#productQty').value = p.qty;
+    $('#productStatus').value = p.status;
+    $('#productImageUrl').value = p.image;
+    $('#productNotes').value = p.notes || '';
+    $('#productPreview').src = p.image || LOGO;
+  }
+  openModal('#productModal');
+}
+
+async function saveProduct() {
+  const button = $('#saveProduct');
+  const errorBox = $('#productError');
+  errorBox.classList.add('hidden');
+  button.disabled = true;
+  button.textContent = 'Saving…';
+
+  try {
+    // Upload the chosen photo first so we can store a real URL on the product.
+    let image = $('#productImageUrl').value.trim();
+    if (pendingUpload) {
+      const form = new FormData();
+      form.append('image', pendingUpload);
+      const uploaded = await api('/api/admin/upload', { method: 'POST', body: form });
+      image = uploaded.url;
+    }
+
+    const id = $('#productId').value;
+    const payload = {
+      name: $('#productName').value.trim(),
+      set: $('#productSet').value.trim(),
+      number: $('#productNumber').value.trim(),
+      condition: $('#productCondition').value,
+      price: $('#productPrice').value,
+      qty: $('#productQty').value,
+      status: $('#productStatus').value,
+      image,
+      notes: $('#productNotes').value.trim(),
+    };
+
+    if (id) {
+      await api(`/api/admin/products/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await api('/api/admin/products', { method: 'POST', body: JSON.stringify(payload) });
+    }
+
+    closeModals();
+    await Promise.all([loadProducts(), loadStats()]);
+    toast('Product saved — storefront updated');
+  } catch (err) {
+    errorBox.textContent = err.message;
+    errorBox.classList.remove('hidden');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Save Product';
+  }
+}
+
+$('#productImageFile').onchange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.size > 6 * 1024 * 1024) {
+    toast('Image must be under 6 MB.', true);
+    e.target.value = '';
+    return;
+  }
+  pendingUpload = file;
+  const reader = new FileReader();
+  reader.onload = () => ($('#productPreview').src = reader.result);
+  reader.readAsDataURL(file);
+};
+
+$('#clearUploadedImage').onclick = () => {
+  pendingUpload = null;
+  $('#productImageFile').value = '';
+  $('#productImageUrl').value = '';
+  $('#productPreview').src = LOGO;
+};
+
+$('#productImageUrl').oninput = (e) => {
+  if (!pendingUpload) $('#productPreview').src = e.target.value.trim() || LOGO;
+};
+
+/* ----------------------------------------------------------- bulk import --- */
+
+const MATCH_LABEL = {
+  exact: ['status-live', 'exact match'],
+  number: ['status-live', 'matched by number'],
+  set: ['status-reserved', 'matched by set'],
+  'name-only': ['status-reserved', 'name only — check it'],
+  ambiguous: ['status-reserved', 'ambiguous — check the art'],
+  none: ['status-sold', 'no match'],
+};
+
+function bulkFormData(commit) {
+  const file = $('#bulkFile').files[0];
+  if (!file) throw new Error('Choose a CSV file first.');
+
+  const form = new FormData();
+  form.append('file', file);
+  form.append('commit', commit ? 'true' : 'false');
+  form.append('fetchImages', $('#bulkFetchImages').checked ? 'true' : 'false');
+  form.append('skipDuplicates', $('#bulkSkipDuplicates').checked ? 'true' : 'false');
+  return form;
+}
+
+function renderBulkPreview(data) {
+  const c = data.counts;
+
+  const warnings = [];
+  if (data.rateLimited) {
+    warnings.push(
+      'The Pok&eacute;mon TCG API rate-limited us part way through, so some images are missing. ' +
+        'Import anyway and fill them in later, or add a free POKEMON_TCG_API_KEY to .env.'
+    );
+  }
+  if (!data.apiKey && $('#bulkFetchImages').checked) {
+    warnings.push(
+      'Running without a POKEMON_TCG_API_KEY: about 1,000 lookups a day. ' +
+        'A free key at dev.pokemontcg.io raises that to 20,000.'
+    );
+  }
+
+  $('#bulkResult').innerHTML = `
+    <div class="stats" style="margin-bottom:14px">
+      <div class="stat"><span>Rows read</span><strong>${c.total}</strong></div>
+      <div class="stat"><span>Will import</span><strong>${c.importable}</strong></div>
+      <div class="stat"><span>Images found</span><strong>${c.imagesFound}</strong></div>
+      <div class="stat"><span>Skipped</span><strong>${c.invalid + c.duplicates}</strong></div>
+    </div>
+
+    ${warnings.map((w) => `<div class="notice warn" style="margin-bottom:10px">${w}</div>`).join('')}
+
+    ${
+      c.invalid
+        ? `<div class="notice error" style="margin-bottom:10px"><b>${c.invalid}</b> row${
+            c.invalid === 1 ? '' : 's'
+          } cannot be imported — see the red rows below. Fix them in your spreadsheet and re-upload.</div>`
+        : ''
+    }
+    ${
+      c.duplicates
+        ? `<div class="notice" style="margin-bottom:10px"><b>${c.duplicates}</b> row${
+            c.duplicates === 1 ? ' looks' : 's look'
+          } like cards you already have. ${
+            $('#bulkSkipDuplicates').checked
+              ? 'They will be skipped.'
+              : 'They WILL be imported again — untick "skip duplicates" only if you mean it.'
+          }</div>`
+        : ''
+    }
+
+    <div class="panel"><div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Img</th><th>Card</th><th>Set</th><th>Cond.</th><th>Price</th><th>Qty</th><th>Status</th><th>Result</th></tr></thead>
+        <tbody>${data.rows.map(bulkRow).join('')}</tbody>
+      </table>
+    </div></div>
+
+    <div class="actions" style="justify-content:flex-end;margin-top:16px">
+      <button class="btn modal-close" type="button">Cancel</button>
+      <button class="btn primary" id="bulkCommit" type="button" ${c.importable ? '' : 'disabled'}>
+        Import ${c.importable} Card${c.importable === 1 ? '' : 's'}
+      </button>
+    </div>`;
+
+  const commitButton = $('#bulkCommit');
+  if (commitButton) commitButton.onclick = commitBulkImport;
+  $$('#bulkResult .modal-close').forEach((b) => (b.onclick = closeModals));
+}
+
+function bulkRow(r) {
+  let result;
+  if (r.errors.length) {
+    result = `<span class="status status-sold">${esc(r.errors.join('; '))}</span>`;
+  } else if (r.duplicate && $('#bulkSkipDuplicates').checked) {
+    result = '<span class="status status-hidden">duplicate, skipping</span>';
+  } else if (r.duplicate) {
+    result = '<span class="status status-reserved">duplicate, importing anyway</span>';
+  } else if (r.setMismatch) {
+    result = `<span class="status status-sold">set differs &mdash; API says "${esc(r.matchedSet)}"</span>`;
+  } else if (r.imageMatch) {
+    const [cls, label] = MATCH_LABEL[r.imageMatch] || ['status-draft', r.imageMatch];
+    result = `<span class="status ${cls}">${esc(label)}</span>`;
+  } else {
+    result = '<span class="status status-live">ready</span>';
+  }
+
+  const price =
+    r.marketPrice != null && r.price === 0
+      ? `<span class="muted">${money(r.price)}</span><div class="small muted">mkt ${money(r.marketPrice)}</div>`
+      : money(r.price);
+
+  return `<tr${r.errors.length ? ' style="background:#fdf5f4"' : ''}>
+    <td class="muted">${r.line}</td>
+    <td>${
+      r.image
+        ? `<img src="${esc(r.image)}" alt="" style="width:30px;height:40px;object-fit:contain">`
+        : '<span class="muted small">—</span>'
+    }</td>
+    <td>${esc(r.name) || '<span class="muted">(no name)</span>'}<div class="small muted">${esc(r.number)}</div></td>
+    <td>${esc(r.set)}</td>
+    <td>${esc(r.condition)}</td>
+    <td>${price}</td>
+    <td>${r.qty}</td>
+    <td><span class="status status-${esc(r.status)}">${esc(r.status)}</span></td>
+    <td>${result}</td>
+  </tr>`;
+}
+
+$('#bulkPreview').onclick = async () => {
+  const button = $('#bulkPreview');
+  button.disabled = true;
+  button.textContent = $('#bulkFetchImages').checked ? 'Reading CSV and looking up images…' : 'Reading CSV…';
+  $('#bulkResult').innerHTML = '';
+
+  try {
+    const data = await api('/api/admin/products/bulk', { method: 'POST', body: bulkFormData(false) });
+    renderBulkPreview(data);
+  } catch (err) {
+    $('#bulkResult').innerHTML = `<div class="notice error">${esc(err.message)}</div>`;
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Preview Import';
+  }
+};
+
+async function commitBulkImport() {
+  const button = $('#bulkCommit');
+  button.disabled = true;
+  button.textContent = 'Importing…';
+
+  try {
+    // Re-send the file so the server re-validates; the preview is not trusted.
+    const data = await api('/api/admin/products/bulk', { method: 'POST', body: bulkFormData(true) });
+    closeModals();
+    $('#bulkFile').value = '';
+    $('#bulkResult').innerHTML = '';
+    await Promise.all([loadProducts(), loadStats()]);
+    toast(
+      `Imported ${data.imported} card${data.imported === 1 ? '' : 's'}` +
+        (data.skipped ? ` — ${data.skipped} skipped` : '')
+    );
+  } catch (err) {
+    toast(err.message, true);
+    button.disabled = false;
+    button.textContent = 'Import';
+  }
+}
+
+$('#openBulkImport').onclick = () => {
+  $('#bulkResult').innerHTML = '';
+  $('#bulkFile').value = '';
+  openModal('#bulkModal');
+};
+
+/* ------------------------------------------------------- Pokémon TCG API --- */
+
+$('#apiSearch').onclick = async () => {
+  const name = $('#apiName').value.trim();
+  const set = $('#apiSet').value.trim();
+  const number = $('#apiNumber').value.trim();
+
+  if (!name && !number) return toast('Enter a card name or number.', true);
+
+  $('#apiResults').innerHTML = '<div class="muted small">Searching…</div>';
+
+  const parts = [];
+  if (name) parts.push(`name:"${name}"`);
+  if (set) parts.push(`set.name:"${set}"`);
+  if (number) parts.push(`number:"${number}"`);
+
+  try {
+    const res = await fetch(
+      'https://api.pokemontcg.io/v2/cards?pageSize=12&q=' + encodeURIComponent(parts.join(' '))
+    );
+    if (!res.ok) throw new Error(`API returned ${res.status}`);
+    const json = await res.json();
+    apiResultCache = json.data || [];
+
+    $('#apiResults').innerHTML = apiResultCache.length
+      ? apiResultCache
+          .map(
+            (c, i) => `<div class="api-card">
+        <img src="${esc((c.images && (c.images.small || c.images.large)) || LOGO)}" alt="${esc(c.name)}">
+        <div class="small" style="margin-top:6px"><b>${esc(c.name)}</b><br>${esc(
+              (c.set && c.set.name) || ''
+            )} &middot; ${esc(c.number || '')}</div>
+        <button class="btn" data-api-index="${i}" type="button">Use Card</button>
+      </div>`
+          )
+          .join('')
+      : '<div class="muted small">No matches. Try fewer fields.</div>';
+
+    $$('[data-api-index]').forEach((b) => {
+      b.onclick = () => {
+        const c = apiResultCache[Number(b.dataset.apiIndex)];
+        if (!c) return;
+        $('#productName').value = c.name || '';
+        $('#productSet').value = (c.set && c.set.name) || '';
+        $('#productNumber').value = c.number || '';
+        $('#productImageUrl').value = (c.images && (c.images.large || c.images.small)) || '';
+        pendingUpload = null;
+        $('#productImageFile').value = '';
+        $('#productPreview').src = $('#productImageUrl').value || LOGO;
+        toast('Card details filled in');
+      };
+    });
+  } catch (err) {
+    $('#apiResults').innerHTML = `<div class="muted small">Could not reach the Pok&eacute;mon TCG API (${esc(
+      err.message
+    )}). Paste an image URL or upload a photo instead.</div>`;
+  }
+};
+
+/* ---------------------------------------------------------------- orders --- */
+
+async function loadOrders() {
+  try {
+    orderCache = await api('/api/admin/orders');
+    renderOrders();
+    renderRecentOrders();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+function renderOrders() {
+  $('#ordersBody').innerHTML = orderCache.length
+    ? orderCache
+        .map(
+          (o) => `<tr>
+      <td>${esc(o.id)}<div class="small muted">${esc((o.createdAt || '').replace('T', ' '))}</div></td>
+      <td>${esc(o.buyer)}<div class="small muted">${esc(o.telegram || o.email || '')}</div></td>
+      <td>${o.items.length}</td>
+      <td>${money(o.total)}</td>
+      <td>${esc(o.delivery)}</td>
+      <td><span class="status order-${slug(o.status)}">${esc(o.status)}</span></td>
+      <td><span class="status notify-${slug(o.notifyState)}">${esc(o.notifyState)}</span></td>
+      <td><div class="row-actions">
+        <button data-order="${esc(o.id)}">View</button>
+        <button data-advance="${esc(o.id)}">Advance</button>
+        <button data-resend="${esc(o.id)}">Resend</button>
+      </div></td>
+    </tr>`
+        )
+        .join('')
+    : '<tr><td colspan="8" class="muted">No orders yet.</td></tr>';
+
+  $$('[data-order]').forEach((b) => (b.onclick = () => openOrder(b.dataset.order)));
+  $$('[data-advance]').forEach((b) => (b.onclick = () => advanceOrder(b.dataset.advance)));
+  $$('[data-resend]').forEach((b) => (b.onclick = () => resendNotification(b.dataset.resend)));
+}
+
+async function advanceOrder(id, explicitStatus) {
+  try {
+    await api(`/api/admin/orders/${encodeURIComponent(id)}/status`, {
+      method: 'POST',
+      body: JSON.stringify(explicitStatus ? { status: explicitStatus } : {}),
+    });
+    await Promise.all([loadOrders(), loadProducts(), loadStats()]);
+    closeModals();
+    toast('Order updated');
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+async function cancelOrder(id) {
+  if (!confirm('Cancel this order and return its cards to the storefront?')) return;
+  await advanceOrder(id, 'cancelled');
+}
+
+async function resendNotification(id) {
+  try {
+    await api(`/api/admin/orders/${encodeURIComponent(id)}/notify`, { method: 'POST' });
+    await loadOrders();
+    toast('Telegram notification sent');
+  } catch (err) {
+    toast('Telegram: ' + err.message, true);
+  }
+}
+
+function openOrder(id) {
+  const o = orderCache.find((x) => x.id === id);
+  if (!o) return;
+
+  $('#orderModalId').textContent = `${o.id} · ${(o.createdAt || '').replace('T', ' ')}`;
+  $('#orderDetail').innerHTML = `
+    <div class="order-detail-grid">
+      <div><label>Buyer</label><div>${esc(o.buyer)}</div></div>
+      <div><label>Telegram</label><div>${esc(o.telegram || '—')}</div></div>
+      <div><label>Email</label><div>${esc(o.email || '—')}</div></div>
+      <div><label>Delivery</label><div>${esc(o.delivery)}</div></div>
+      <div><label>Status</label><div><span class="status order-${slug(o.status)}">${esc(o.status)}</span></div></div>
+      <div><label>Telegram Notification</label><div>
+        <span class="status notify-${slug(o.notifyState)}">${esc(o.notifyState)}</span>
+        ${o.notifyError ? `<div class="small muted" style="margin-top:6px">${esc(o.notifyError)}</div>` : ''}
+      </div></div>
+      <div class="full"><label>Address / Note</label><div style="white-space:pre-wrap">${esc(o.address || '—')}</div></div>
+      <div class="full order-items">
+        ${o.items
+          .map(
+            (i) =>
+              `<div class="summary"><span>${esc(i.name)} &middot; ${esc(i.condition)}</span><span>${money(
+                i.price
+              )}</span></div>`
+          )
+          .join('')}
+        <div class="summary"><span>${esc(o.delivery)}</span><span>${money(o.fee)}</span></div>
+        <div class="summary total"><span>Total</span><span>${money(o.total)}</span></div>
+      </div>
+    </div>
+    <div class="actions" style="margin-top:16px;flex-wrap:wrap">
+      <button class="btn" id="orderResend" type="button">Resend Telegram</button>
+      <button class="btn danger" id="orderCancel" type="button">Cancel &amp; Restock</button>
+      <button class="btn primary" id="orderAdvance" type="button">Advance Status</button>
+    </div>`;
+
+  $('#orderResend').onclick = () => resendNotification(o.id);
+  $('#orderCancel').onclick = () => cancelOrder(o.id);
+  $('#orderAdvance').onclick = () => advanceOrder(o.id);
+  $('#orderAdvance').disabled = o.status === 'completed' || o.status === 'cancelled';
+  $('#orderCancel').disabled = o.status === 'cancelled';
+
+  openModal('#orderModal');
+}
+
+/* -------------------------------------------------------------- settings --- */
+
+let currentPaynowQr = '';
+
+async function loadSettings() {
+  try {
+    const s = await api('/api/admin/settings');
+    $('#settingStoreName').value = s.storeName;
+    $('#settingTelegram').value = s.telegram;
+    $('#settingMailing').value = s.mailing;
+    $('#settingMinimum').value = s.minimum;
+    $('#settingReservation').value = s.reservation;
+    $('#settingPaynow').value = s.paynow;
+    $('#settingPaynowPayee').value = s.paynowPayee || '';
+    $('#settingContactTelegram').value = s.contactTelegram || '';
+
+    currentPaynowQr = s.paynowQr || '';
+    $('#paynowQrPreview').src = currentPaynowQr || LOGO;
+
+    $('#telegramStatus').innerHTML = s.telegramConfigured
+      ? `<div class="notice">
+           <strong>Telegram is connected.</strong> New orders are pushed to your admin chat automatically.
+           <div style="margin-top:10px"><button class="btn" id="testTelegram" type="button">Send test message</button></div>
+         </div>`
+      : `<div class="notice warn">
+           <strong>Telegram is not configured.</strong> Orders will still be saved, but you will not be pinged.
+           Set <code>TELEGRAM_BOT_TOKEN</code> and <code>TELEGRAM_ADMIN_CHAT_ID</code> in your <code>.env</code>
+           and restart the server. These live on the server only — never in the browser.
+         </div>`;
+
+    const testButton = $('#testTelegram');
+    if (testButton) {
+      testButton.onclick = async () => {
+        testButton.disabled = true;
+        try {
+          await api('/api/admin/telegram/test', { method: 'POST' });
+          toast('Test message sent — check Telegram');
+        } catch (err) {
+          toast('Telegram: ' + err.message, true);
+        } finally {
+          testButton.disabled = false;
+        }
+      };
+    }
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+$('#saveSettings').onclick = async () => {
+  const button = $('#saveSettings');
+  button.disabled = true;
+  try {
+    await api('/api/admin/settings', {
+      method: 'PUT',
+      body: JSON.stringify({
+        storeName: $('#settingStoreName').value,
+        telegram: $('#settingTelegram').value,
+        mailing: $('#settingMailing').value,
+        minimum: $('#settingMinimum').value,
+        reservation: $('#settingReservation').value,
+        paynow: $('#settingPaynow').value,
+        paynowPayee: $('#settingPaynowPayee').value,
+        contactTelegram: $('#settingContactTelegram').value,
+        paynowQr: currentPaynowQr,
+      }),
+    });
+    toast('Settings saved');
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    button.disabled = false;
+  }
+};
+
+$('#paynowQrFile').onchange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => ($('#paynowQrPreview').src = reader.result);
+  reader.readAsDataURL(file);
+};
+
+$('#uploadPaynowQr').onclick = async () => {
+  const file = $('#paynowQrFile').files[0];
+  if (!file) return toast('Choose a QR image first.', true);
+
+  const button = $('#uploadPaynowQr');
+  button.disabled = true;
+  try {
+    const form = new FormData();
+    form.append('image', file);
+    const uploaded = await api('/api/admin/upload', { method: 'POST', body: form });
+    currentPaynowQr = uploaded.url;
+    $('#paynowQrPreview').src = currentPaynowQr;
+    $('#paynowQrFile').value = '';
+
+    // Persist straight away so a forgotten "Save Changes" cannot lose the QR.
+    await api('/api/admin/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ paynowQr: currentPaynowQr }),
+    });
+    toast('PayNow QR updated — scan it yourself to confirm it is correct');
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    button.disabled = false;
+  }
+};
+
+$('#removePaynowQr').onclick = async () => {
+  if (!confirm('Remove the PayNow QR? Buyers will only see the text instructions.')) return;
+  try {
+    await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify({ paynowQr: '' }) });
+    currentPaynowQr = '';
+    $('#paynowQrPreview').src = LOGO;
+    $('#paynowQrFile').value = '';
+    toast('PayNow QR removed');
+  } catch (err) {
+    toast(err.message, true);
+  }
+};
+
+/* ---------------------------------------------------------------- wiring --- */
+
+$$('[data-admin-tab]').forEach((b) => {
+  b.onclick = () => {
+    $$('.admin-tab').forEach((t) => t.classList.toggle('active', t.id === b.dataset.adminTab));
+    $$('[data-admin-tab]').forEach((x) => x.classList.toggle('active', x === b));
+    if (b.dataset.adminTab === 'products') loadProducts();
+    if (b.dataset.adminTab === 'orders') loadOrders();
+    if (b.dataset.adminTab === 'settings') loadSettings();
+    if (b.dataset.adminTab === 'dashboard') loadStats();
+  };
+});
+
+$$('.open-product-modal').forEach((b) => (b.onclick = () => openProductModal()));
+$('#saveProduct').onclick = saveProduct;
+$('#adminProductSearch').oninput = renderInventory;
+$('#refreshOrders').onclick = loadOrders;
+
+$('#logout').onclick = async () => {
+  try {
+    await api('/api/admin/logout', { method: 'POST' });
+  } catch { /* leaving anyway */ }
+  window.location.href = '/';
+};
+
+$$('.modal-close').forEach((b) => (b.onclick = closeModals));
+$$('.modal-bg').forEach((m) => {
+  m.onclick = (e) => {
+    if (e.target === m) closeModals();
+  };
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModals();
+});
+
+loadStats();
+loadProducts();
+loadOrders();
+loadSettings();

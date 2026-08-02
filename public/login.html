@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Seller Sign In — Crazed TCG</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/img/favicon.png" sizes="64x64">
+<link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+<div class="login-wrap">
+  <form class="login-card" id="loginForm" autocomplete="on">
+    <img src="/img/logo-460.jpg" alt="" width="72" height="72"
+         style="border-radius:14px;margin-bottom:14px">
+    <h1>Seller Admin</h1>
+    <p class="sub">Crazed TCG inventory and orders</p>
+
+    <label for="username">Username</label>
+    <input id="username" name="username" autocomplete="username" required autofocus>
+
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+    <button class="checkout" type="submit" id="loginButton">Sign In</button>
+    <div class="login-error hidden" id="loginError"></div>
+
+    <a class="login-back" href="/">&larr; Back to storefront</a>
+  </form>
+</div>
+
+<script>
+'use strict';
+const form = document.getElementById('loginForm');
+const errorBox = document.getElementById('loginError');
+const button = document.getElementById('loginButton');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errorBox.classList.add('hidden');
+  button.disabled = true;
+  button.textContent = 'Signing in…';
+
+  try {
+    const res = await fetch('/api/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: document.getElementById('username').value.trim(),
+        password: document.getElementById('password').value,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Sign in failed.');
+    window.location.href = '/admin';
+  } catch (err) {
+    errorBox.textContent = err.message;
+    errorBox.classList.remove('hidden');
+    document.getElementById('password').value = '';
+    button.disabled = false;
+    button.textContent = 'Sign In';
+  }
+});
+</script>
+</body>
+</html>
