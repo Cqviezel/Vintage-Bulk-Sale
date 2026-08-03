@@ -124,6 +124,25 @@ function renderSetOptions() {
       renderProducts();
     };
   });
+
+  $('#browseSetsMenu').innerHTML = ['', ...sets]
+    .map(
+      (s) =>
+        `<button data-set="${esc(s)}"${s === current ? ' class="active"' : ''}>${
+          esc(s || 'All Sets')
+        }</button>`
+    )
+    .join('');
+
+  $$('#browseSetsMenu button').forEach((btn) => {
+    btn.onclick = () => {
+      $('#storeSet').value = btn.dataset.set;
+      renderProducts();
+      renderSetOptions();
+      closeBrowseSetsMenu();
+      $('#catalogue').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  });
 }
 
 function renderProducts() {
@@ -131,13 +150,15 @@ function renderProducts() {
   const set = $('#storeSet').value;
   const limit = Number($('#storePrice').value || 0);
   const condition = $('#storeCondition').value;
+  const variant = $('#storeVariant').value;
 
   const list = products.filter(
     (p) =>
       (!q || `${p.name} ${p.set} ${p.number}`.toLowerCase().includes(q)) &&
       (!set || p.set === set) &&
       (!limit || p.price <= limit) &&
-      (!condition || p.condition === condition)
+      (!condition || p.condition === condition) &&
+      (!variant || p.variant === variant)
   );
 
   $('#resultCount').textContent = `${list.length} card${list.length === 1 ? '' : 's'}`;
@@ -157,7 +178,8 @@ function renderProducts() {
         <div class="meta">${esc(p.set)}${p.number ? ' &middot; ' + esc(p.number) : ''}</div>
         <div class="tags">
           <span class="tag">${esc(p.condition)}</span>
-          <span class="tag">${p.qty} available</span>
+          ${p.variant && p.variant !== 'Normal' ? `<span class="tag">${esc(p.variant)}</span>` : ''}
+          <span class="tag stock${p.qty <= 1 ? ' low' : ''}">${p.qty} left</span>
         </div>
         <button class="add${inCart ? ' added' : ''}" data-add="${esc(p.id)}">
           ${inCart ? '&check; Added' : 'Add to Cart'}
@@ -196,7 +218,9 @@ function renderCart() {
       <img src="${esc(p.image || LOGO)}" alt="" onerror="this.onerror=null;this.src='${LOGO}'">
       <div>
         <h4>${esc(p.name)}</h4>
-        <div class="small muted">${esc(p.set)} &middot; ${esc(p.condition)}</div>
+        <div class="small muted">${esc(p.set)} &middot; ${esc(
+              p.variant && p.variant !== 'Normal' ? `${p.condition}, ${p.variant}` : p.condition
+            )}</div>
       </div>
       <div style="text-align:right">
         <b>${money(p.price)}</b><br>
@@ -308,48 +332,51 @@ function showCheckoutError(message) {
 }
 
 /**
- * The pay-now instructions. Amount and reference are repeated in text as well as
- * shown on the QR, because a shopper on a phone often cannot scan a QR displayed
- * on that same phone — they need to type the details into their banking app.
+ * The pay-now instructions. Reference is repeated as text below the QR because a
+ * shopper on a phone often cannot scan a QR displayed on that same phone — they
+ * need to type it into their banking app. order.paynow is free text the seller
+ * controls in Admin -> Settings, so it may carry real payment details and must
+ * stay visible even though the default copy just repeats the steps below.
  */
 function paymentBlock(order) {
   const handle = String(order.contactTelegram || '').replace(/^@/, '');
 
   const qr = order.paynowQr
-    ? `<div style="text-align:center;margin:16px 0">
+    ? `<div style="text-align:center;margin:14px 0">
          <img src="${esc(order.paynowQr)}" alt="PayNow QR code"
-              style="width:min(240px,70%);border:1px solid var(--line);border-radius:12px;background:#fff;padding:8px">
-         ${order.paynowPayee ? `<div class="small muted" style="margin-top:8px">Paying: <b>${esc(order.paynowPayee)}</b></div>` : ''}
-         <div class="small muted" style="margin-top:6px">Scan with your banking app</div>
+              style="display:block;margin:0 auto;width:min(220px,65%);border:1px solid var(--line);border-radius:12px;background:#fff;padding:8px">
+         ${order.paynowPayee ? `<div class="small muted" style="margin-top:6px">Paying: <b>${esc(order.paynowPayee)}</b></div>` : ''}
        </div>`
     : '';
 
   return `
-    <div class="notice" style="margin-top:14px">
-      <strong>Step 1 &mdash; Pay ${money(order.total)}</strong><br>
-      ${esc(order.paynow)}
+    <div class="notice" style="text-align:center">
+      <strong style="font-size:16px">Step 1 &middot; Scan &amp; pay ${money(order.total)}</strong>
     </div>
 
     ${qr}
 
-    <div class="order-items">
-      <div class="summary"><span>Amount</span><span><b>${money(order.total)}</b></span></div>
-      <div class="summary"><span>Reference / comment</span><span><b>${esc(order.id)}</b></span></div>
+    <div class="order-items" style="text-align:center">
+      <div class="small muted">Reference</div>
+      <div style="font-size:17px;font-weight:800;letter-spacing:.02em">${esc(order.id)}</div>
     </div>
 
+    ${order.paynow ? `<p class="small muted" style="text-align:center;margin-top:8px">${esc(order.paynow)}</p>` : ''}
+
     <div class="notice" style="margin-top:12px">
-      <strong>Step 2 &mdash; Send your payment screenshot</strong><br>
+      <strong>Step 2 &middot; Send your screenshot</strong><br>
       ${
         handle
           ? `Message <a href="https://t.me/${encodeURIComponent(handle)}" target="_blank" rel="noopener"
-               style="font-weight:800;text-decoration:underline">@${esc(handle)}</a> on Telegram with your
-             screenshot and order ID so we can confirm and post your cards.`
-          : 'Send your payment screenshot to the seller so we can confirm and post your cards.'
+               style="font-weight:800;text-decoration:underline">@${esc(handle)}</a> with the payment
+             screenshot and this order ID.`
+          : 'Send the payment screenshot to the seller with this order ID.'
       }
-      <br><br>
-      Your cards stay reserved until then. Please screenshot this page &mdash; it is your
-      only copy of the order number.
-    </div>`;
+    </div>
+
+    <p class="small muted" style="text-align:center;margin-top:12px">
+      Cards stay reserved until then &mdash; screenshot this page, it&rsquo;s your only copy of the order ID.
+    </p>`;
 }
 
 function showConfirmation(order) {
@@ -363,12 +390,18 @@ function showConfirmation(order) {
 
     <div class="order-items">
       ${order.items
-        .map(
-          (i) =>
-            `<div class="summary"><span>${esc(i.name)} &middot; ${esc(i.condition)}</span><span>${money(
-              i.price
-            )}</span></div>`
-        )
+        .map((i) => {
+          const tag = i.variant && i.variant !== 'Normal' ? `${i.condition}, ${i.variant}` : i.condition;
+          const detail = [i.set, i.number].filter(Boolean).map(esc).join(' &middot; ');
+          return `<div class="order-line">
+            <img src="${esc(i.image || LOGO)}" alt="" onerror="this.onerror=null;this.src='${LOGO}'">
+            <div class="order-line-info">
+              <div class="order-line-name">${esc(i.name)}</div>
+              <div class="small muted">${detail ? detail + ' &middot; ' : ''}${esc(tag)}</div>
+            </div>
+            <b>${money(i.price)}</b>
+          </div>`;
+        })
         .join('')}
       <div class="summary"><span>${esc(order.delivery)}</span><span>${money(order.fee)}</span></div>
       <div class="summary total"><span>Total</span><span>${money(order.total)}</span></div>
@@ -387,12 +420,22 @@ function showConfirmation(order) {
 
 /* ---------------------------------------------------------------- wiring --- */
 
-['storeSearch', 'storeSet', 'storePrice', 'storeCondition'].forEach((id) => {
+['storeSearch', 'storeSet', 'storePrice', 'storeCondition', 'storeVariant'].forEach((id) => {
   $('#' + id).addEventListener('input', renderProducts);
 });
 
-$('#browseSets').onclick = () =>
-  $('#setRow').scrollIntoView({ behavior: 'smooth', block: 'center' });
+function closeBrowseSetsMenu() {
+  $('#browseSetsMenu').classList.add('hidden');
+}
+
+$('#browseSets').onclick = (e) => {
+  e.stopPropagation();
+  $('#browseSetsMenu').classList.toggle('hidden');
+};
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.nav-dropdown')) closeBrowseSetsMenu();
+});
 
 $('#cartOpen').onclick = () => {
   $('#cartDrawer').classList.add('show');

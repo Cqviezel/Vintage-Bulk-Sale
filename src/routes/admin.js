@@ -21,6 +21,7 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const CONDITIONS = new Set(['NM', 'LP', 'MP', 'HP']);
+const VARIANTS = new Set(['Normal', 'Holo', 'Reverse Holo', '1st Edition']);
 const STATUSES = new Set(['live', 'draft', 'reserved', 'sold', 'hidden']);
 const ORDER_FLOW = ['awaiting payment', 'paid', 'packed', 'mailed', 'completed'];
 const ORDER_STATUSES = new Set([...ORDER_FLOW, 'cancelled']);
@@ -73,6 +74,7 @@ function toAdminProduct(row) {
     set: row.set_name,
     number: row.number,
     condition: row.condition,
+    variant: row.variant,
     price: row.price,
     qty: row.qty,
     status: row.status,
@@ -84,12 +86,12 @@ function toAdminProduct(row) {
 const allProducts = db.prepare('SELECT * FROM products ORDER BY updated_at DESC');
 const oneProduct = db.prepare('SELECT * FROM products WHERE id = ?');
 const insertProduct = db.prepare(
-  `INSERT INTO products (id, name, set_name, number, condition, price, qty, status, image, notes)
-   VALUES (@id, @name, @set_name, @number, @condition, @price, @qty, @status, @image, @notes)`
+  `INSERT INTO products (id, name, set_name, number, condition, variant, price, qty, status, image, notes)
+   VALUES (@id, @name, @set_name, @number, @condition, @variant, @price, @qty, @status, @image, @notes)`
 );
 const updateProduct = db.prepare(
   `UPDATE products SET name = @name, set_name = @set_name, number = @number,
-     condition = @condition, price = @price, qty = @qty, status = @status,
+     condition = @condition, variant = @variant, price = @price, qty = @qty, status = @status,
      image = @image, notes = @notes, updated_at = datetime('now')
    WHERE id = @id`
 );
@@ -106,6 +108,7 @@ function readProductBody(body) {
   if (!Number.isInteger(qty) || qty < 0) errors.push('Quantity must be a whole number.');
 
   const condition = CONDITIONS.has(body.condition) ? body.condition : 'NM';
+  const variant = VARIANTS.has(body.variant) ? body.variant : 'Normal';
   const status = STATUSES.has(body.status) ? body.status : 'draft';
 
   return {
@@ -115,6 +118,7 @@ function readProductBody(body) {
       set_name: String(body.set || '').trim().slice(0, 160),
       number: String(body.number || '').trim().slice(0, 40),
       condition,
+      variant,
       price: Math.round(price * 100) / 100,
       qty,
       status,
@@ -170,13 +174,13 @@ router.delete('/products/:id', (req, res) => {
 
 /* ----------------------------------------------------------- bulk import --- */
 
-const TEMPLATE_HEADERS = ['name', 'set', 'number', 'condition', 'price', 'qty', 'status', 'image', 'notes'];
+const TEMPLATE_HEADERS = ['name', 'set', 'number', 'condition', 'variant', 'price', 'qty', 'status', 'image', 'notes'];
 const MAX_IMPORT_ROWS = 500;
 
 router.get('/products/template.csv', (req, res) => {
   const sample = [
-    { name: 'Pikachu', set: 'Base', number: '58/102', condition: 'LP', price: '5.00', qty: '1', status: 'live', image: '', notes: 'light edge wear' },
-    { name: 'Charizard', set: 'Base', number: '4/102', condition: 'MP', price: '250.00', qty: '1', status: 'draft', image: '', notes: '' },
+    { name: 'Pikachu', set: 'Base', number: '58/102', condition: 'LP', variant: 'Normal', price: '5.00', qty: '1', status: 'live', image: '', notes: 'light edge wear' },
+    { name: 'Charizard', set: 'Base', number: '4/102', condition: 'MP', variant: 'Reverse Holo', price: '250.00', qty: '1', status: 'draft', image: '', notes: '' },
   ];
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="crazed-tcg-template.csv"');
@@ -189,6 +193,7 @@ router.get('/products/export.csv', (req, res) => {
     set: p.set_name,
     number: p.number,
     condition: p.condition,
+    variant: p.variant,
     price: p.price.toFixed(2),
     qty: p.qty,
     status: p.status,
@@ -227,6 +232,12 @@ function readImportRow(record) {
     errors.push(`condition "${condition}" must be NM, LP, MP or HP`);
   }
 
+  const rawVariant = String(record.variant || '').trim();
+  const variant = [...VARIANTS].find((v) => v.toLowerCase() === rawVariant.toLowerCase());
+  if (rawVariant && !variant) {
+    errors.push(`variant "${rawVariant}" must be Normal, Holo, Reverse Holo or 1st Edition`);
+  }
+
   const status = String(record.status || '').trim().toLowerCase();
   if (status && !STATUSES.has(status)) {
     errors.push(`status "${status}" is not valid`);
@@ -240,6 +251,7 @@ function readImportRow(record) {
       set_name: String(record.set || '').trim().slice(0, 160),
       number: String(record.number || '').trim().slice(0, 40),
       condition: condition || 'NM',
+      variant: variant || 'Normal',
       price: Math.round(price * 100) / 100,
       qty,
       status: status || 'draft',
@@ -251,7 +263,7 @@ function readImportRow(record) {
 
 const findDuplicate = db.prepare(
   'SELECT id FROM products WHERE lower(name) = lower(?) AND lower(set_name) = lower(?) ' +
-    'AND lower(number) = lower(?) AND condition = ? LIMIT 1'
+    'AND lower(number) = lower(?) AND condition = ? AND variant = ? LIMIT 1'
 );
 
 router.post('/products/bulk', (req, res) => {
@@ -294,7 +306,13 @@ router.post('/products/bulk', (req, res) => {
       for (const row of parsed) {
         row.duplicate = Boolean(
           !row.errors.length &&
-            findDuplicate.get(row.values.name, row.values.set_name, row.values.number, row.values.condition)
+            findDuplicate.get(
+              row.values.name,
+              row.values.set_name,
+              row.values.number,
+              row.values.condition,
+              row.values.variant
+            )
         );
       }
 
@@ -389,6 +407,80 @@ router.post('/products/bulk', (req, res) => {
   });
 });
 
+/* ------------------------------------------------------------ add by set --- */
+
+router.get('/sets', async (req, res) => {
+  try {
+    res.json(await ptcg.listSets());
+  } catch (err) {
+    console.error('[sets]', err);
+    res.status(502).json({ error: 'Could not reach the Pokémon TCG API for the set list.' });
+  }
+});
+
+router.get('/sets/:id/cards', async (req, res) => {
+  try {
+    res.json(await ptcg.listSetCards(req.params.id));
+  } catch (err) {
+    console.error('[set cards]', err);
+    res.status(502).json({ error: 'Could not reach the Pokémon TCG API for this set.' });
+  }
+});
+
+const MAX_SET_IMPORT_ROWS = 500;
+
+router.post('/products/bulk-set', (req, res) => {
+  const body = req.body || {};
+  const setName = String(body.setName || '').trim().slice(0, 160);
+  const cards = Array.isArray(body.cards) ? body.cards : [];
+
+  if (!cards.length) return res.status(400).json({ error: 'No cards were sent.' });
+  if (cards.length > MAX_SET_IMPORT_ROWS) {
+    return res.status(400).json({
+      error: `That is ${cards.length} cards; the limit is ${MAX_SET_IMPORT_ROWS} per import.`,
+    });
+  }
+
+  // Only rows the seller actually gave a positive quantity get added — the rest of
+  // the set was just there to browse, not to list.
+  const rows = [];
+  for (const c of cards) {
+    const name = String((c && c.name) || '').trim().slice(0, 160);
+    const qty = Number.parseInt(c && c.qty, 10);
+    if (!name || !Number.isInteger(qty) || qty <= 0) continue;
+
+    const price = Number(c.price);
+    if (!Number.isFinite(price) || price < 0) continue;
+
+    rows.push({
+      id: 'p' + crypto.randomBytes(8).toString('hex'),
+      name,
+      set_name: setName,
+      number: String(c.number || '').trim().slice(0, 40),
+      condition: CONDITIONS.has(c.condition) ? c.condition : 'NM',
+      variant: VARIANTS.has(c.variant) ? c.variant : 'Normal',
+      price: Math.round(price * 100) / 100,
+      qty,
+      status: STATUSES.has(c.status) ? c.status : 'draft',
+      image: String(c.image || '').trim().slice(0, 500),
+      notes: String(c.notes || '').trim().slice(0, 2000),
+    });
+  }
+
+  if (!rows.length) {
+    return res.status(400).json({
+      error: 'Nothing to import — set a quantity of at least 1 on the cards you want to add.',
+    });
+  }
+
+  const insertMany = db.transaction((list) => {
+    for (const row of list) insertProduct.run(row);
+  });
+  insertMany(rows);
+
+  res.status(201).json({ imported: rows.length });
+});
+
 /* --------------------------------------------------------------- uploads --- */
 
 const ALLOWED_IMAGE = new Map([
@@ -457,7 +549,9 @@ function toAdminOrder(row, items) {
       set: i.set_name,
       number: i.number,
       condition: i.condition,
+      variant: i.variant,
       price: i.price,
+      image: i.image,
     })),
   };
 }
@@ -523,6 +617,25 @@ router.post('/orders/:id/status', (req, res) => {
 
   setOrderStatus.run(next, row.id);
   res.json(toAdminOrder(oneOrder.get(row.id), itemsForOrder.all(row.id)));
+});
+
+/**
+ * Only cancelled or completed orders can be deleted — both are terminal states where
+ * stock has already been settled (restocked on cancel, sold on completion), so removing
+ * the record can't silently strand reserved inventory.
+ */
+router.delete('/orders/:id', (req, res) => {
+  const row = oneOrder.get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Order not found.' });
+
+  if (row.status !== 'cancelled' && row.status !== 'completed') {
+    return res.status(409).json({
+      error: 'Only cancelled or completed orders can be deleted. Cancel it first to release the stock.',
+    });
+  }
+
+  db.prepare('DELETE FROM orders WHERE id = ?').run(row.id);
+  res.json({ ok: true });
 });
 
 router.post('/orders/:id/notify', async (req, res) => {

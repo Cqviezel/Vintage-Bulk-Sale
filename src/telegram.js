@@ -34,9 +34,11 @@ function buildMessage(order, items) {
   lines.push('', '<b>Items</b>');
   for (const item of items) {
     const detail = [item.set_name, item.number].filter(Boolean).join(' ');
+    // "Normal" is the overwhelming default — only call it out when it's not.
+    const tag = item.variant && item.variant !== 'Normal' ? `${item.condition}, ${item.variant}` : item.condition;
     lines.push(
       `• ${escapeHtml(item.name)}${detail ? ' — ' + escapeHtml(detail) : ''} ` +
-        `[${escapeHtml(item.condition)}] ${money(item.price)}`
+        `[${escapeHtml(tag)}] ${money(item.price)}`
     );
   }
 

@@ -57,6 +57,7 @@
       <div class="admin-top">
         <div><h1>Products</h1><p>Manage inventory, images and storefront visibility.</p></div>
         <div class="actions">
+          <button class="btn" id="openSetImport">Add by Set</button>
           <button class="btn" id="openBulkImport">Bulk Import CSV</button>
           <a class="btn" href="/api/admin/products/export.csv" style="display:inline-flex;align-items:center">Export CSV</a>
           <button class="btn primary open-product-modal">Add Product</button>
@@ -65,14 +66,22 @@
       <div class="panel">
         <div class="panel-head">
           <div><h2>Inventory</h2><div class="small muted">Live products with stock appear immediately on the storefront.</div></div>
-          <input id="adminProductSearch" placeholder="Search inventory" style="max-width:230px">
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <div class="view-toggle">
+              <button class="active" data-view="list" type="button">List</button>
+              <button data-view="grid" type="button">Grid</button>
+            </div>
+            <select id="adminSetFilter" style="max-width:200px"><option value="">All sets</option></select>
+            <input id="adminProductSearch" placeholder="Search inventory" style="max-width:230px">
+          </div>
         </div>
-        <div class="table-wrap">
+        <div class="table-wrap" id="inventoryListView">
           <table>
-            <thead><tr><th>Card</th><th>Set</th><th>Cond.</th><th>Price</th><th>Qty</th><th>Status</th><th>Actions</th></tr></thead>
+            <thead><tr><th></th><th>Card</th><th>Set</th><th>Cond.</th><th>Variant</th><th>Price</th><th>Qty</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody id="inventoryBody"></tbody>
           </table>
         </div>
+        <div class="panel-body hidden" id="inventoryGridView"></div>
       </div>
     </section>
 
@@ -157,6 +166,9 @@
         <div><label for="productCondition">Condition</label>
           <select id="productCondition"><option>NM</option><option>LP</option><option>MP</option><option>HP</option></select>
         </div>
+        <div><label for="productVariant">Variant</label>
+          <select id="productVariant"><option>Normal</option><option>Holo</option><option>Reverse Holo</option><option>1st Edition</option></select>
+        </div>
         <div><label for="productPrice">Price</label><input id="productPrice" type="number" step="0.01" min="0"></div>
         <div><label for="productQty">Quantity</label><input id="productQty" type="number" min="0" value="1"></div>
         <div><label for="productStatus">Inventory Status</label>
@@ -203,7 +215,8 @@
             <label for="bulkFile">CSV File</label>
             <input id="bulkFile" type="file" accept=".csv,text/csv">
             <div class="small muted" style="margin-top:8px">
-              Columns: <code>name, set, number, condition, price, qty, status, image, notes</code>.
+              Columns: <code>name, set, number, condition, variant, price, qty, status, image, notes</code>.
+              Variant is one of <code>Normal, Holo, Reverse Holo, 1st Edition</code> (blank means Normal).
               Only <b>name</b> is required. Missing price becomes 0, missing qty becomes 1,
               missing status becomes <b>draft</b> so nothing goes on sale by accident.
               <a href="/api/admin/products/template.csv" style="text-decoration:underline">Download template</a>
@@ -226,6 +239,56 @@
       </div>
 
       <div id="bulkResult" style="margin-top:16px"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="setModal">
+  <div class="modal" style="width:min(1100px,100%)">
+    <div class="panel-head">
+      <div><h2>Add by Set</h2><div class="small muted">Pick a set, then fill in quantity, condition and price for the cards you actually have.</div></div>
+      <button class="close modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body">
+
+      <div id="setPickerView">
+        <input id="setSearch" placeholder="Search sets e.g. Base Set, Evolving Skies">
+        <div id="setPickerResult" style="margin-top:14px"></div>
+      </div>
+
+      <div id="setCardsView" class="hidden">
+        <div class="actions" style="justify-content:space-between;flex-wrap:wrap">
+          <button class="btn" id="backToSetPicker" type="button">&larr; Choose a different set</button>
+          <div id="setCardsTitle" class="small muted"></div>
+        </div>
+
+        <div class="form-grid" style="margin-top:12px">
+          <div><label for="cardFilter">Filter this set</label><input id="cardFilter" placeholder="Name or number"></div>
+          <div><label for="setDefaultCondition">Default condition</label>
+            <select id="setDefaultCondition"><option>NM</option><option>LP</option><option>MP</option><option>HP</option></select>
+          </div>
+          <div><label for="setDefaultStatus">Default status</label>
+            <select id="setDefaultStatus">
+              <option value="live">Live</option><option value="draft" selected>Draft</option>
+              <option value="reserved">Reserved</option><option value="hidden">Hidden</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="table-wrap" style="margin-top:12px">
+          <table>
+            <thead><tr><th>Img</th><th>Card</th><th>No.</th><th>Variant</th><th>Mkt</th><th>Qty</th><th>Cond.</th><th>Price</th><th>Status</th></tr></thead>
+            <tbody id="setCardsBody"></tbody>
+          </table>
+        </div>
+
+        <div id="setCardsError" class="notice error hidden" style="margin-top:12px"></div>
+        <div class="actions" style="justify-content:flex-end;margin-top:16px">
+          <button class="btn modal-close" type="button">Cancel</button>
+          <button class="btn primary" id="setCommit" type="button" disabled>Add Selected Cards</button>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>

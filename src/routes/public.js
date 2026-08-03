@@ -19,6 +19,7 @@ function toPublicProduct(row) {
     set: row.set_name,
     number: row.number,
     condition: row.condition,
+    variant: row.variant,
     price: row.price,
     qty: row.qty,
     image: row.image,
@@ -80,8 +81,8 @@ const insertOrder = db.prepare(
    VALUES (@id, @buyer, @telegram, @email, @address, @delivery, @subtotal, @fee, @total, 'awaiting payment', 'pending')`
 );
 const insertOrderItem = db.prepare(
-  `INSERT INTO order_items (order_id, product_id, name, set_name, number, condition, price)
-   VALUES (@order_id, @product_id, @name, @set_name, @number, @condition, @price)`
+  `INSERT INTO order_items (order_id, product_id, name, set_name, number, condition, variant, price, image)
+   VALUES (@order_id, @product_id, @name, @set_name, @number, @condition, @variant, @price, @image)`
 );
 
 /**
@@ -140,7 +141,9 @@ const placeOrder = db.transaction((input) => {
     set_name: p.set_name,
     number: p.number,
     condition: p.condition,
+    variant: p.variant,
     price: p.price,
+    image: p.image,
   }));
   for (const item of items) insertOrderItem.run(item);
 
@@ -216,7 +219,9 @@ router.post('/orders', orderLimiter, async (req, res, next) => {
         set: i.set_name,
         number: i.number,
         condition: i.condition,
+        variant: i.variant,
         price: i.price,
+        image: i.image,
       })),
     });
 

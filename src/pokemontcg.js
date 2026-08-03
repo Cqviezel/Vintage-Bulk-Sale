@@ -12,9 +12,17 @@
  */
 
 const API = 'https://api.pokemontcg.io/v2/cards';
+const SETS_API = 'https://api.pokemontcg.io/v2/sets';
 
 const cache = new Map();
 const CACHE_MAX = 5000;
+
+// Sets and their card lists are historical data — they don't change once printed,
+// so a long TTL just saves the day's quota for the lookups that actually need it.
+const CATALOG_TTL = 24 * 60 * 60 * 1000;
+let setsCache = null;
+let setsCacheAt = 0;
+const setCardsCache = new Map();
 
 function cacheKey(name, set, number) {
   return `${name}|${set}|${number}`.toLowerCase();
@@ -240,4 +248,129 @@ async function lookupMany(rows, { concurrency = 4, onProgress } = {}) {
   return { results, rateLimited };
 }
 
-module.exports = { lookup, lookupMany, normaliseNumber, hasApiKey: () => Boolean(process.env.POKEMON_TCG_API_KEY) };
+function apiHeaders() {
+  const headers = { Accept: 'application/json' };
+  if (process.env.POKEMON_TCG_API_KEY) headers['X-Api-Key'] = process.env.POKEMON_TCG_API_KEY;
+  return headers;
+}
+
+/** Same flaky-5xx retry as request() above, for the catalog endpoints (sets/set cards). */
+async function fetchJson(url, attempt = 0) {
+  let res;
+  try {
+    res = await fetch(url, { headers: apiHeaders() });
+  } catch (err) {
+    if (attempt < 2) {
+      await sleep(400 * (attempt + 1));
+      return fetchJson(url, attempt + 1);
+    }
+    throw err;
+  }
+
+  if (res.status === 429) throw Object.assign(new Error('rate limited'), { rateLimited: true });
+
+  if (!res.ok) {
+    if (res.status >= 500 && attempt < 2) {
+      await sleep(400 * (attempt + 1));
+      return fetchJson(url, attempt + 1);
+    }
+    throw new Error(`API ${res.status}`);
+  }
+
+  return res.json();
+}
+
+// tcgplayer prices one card by print style — this is exactly where "reverse holo" lives:
+// the same card number, priced separately, because it's a different physical print.
+const VARIANT_PRICE_KEYS = {
+  normal: 'Normal',
+  holofoil: 'Holo',
+  reverseHolofoil: 'Reverse Holo',
+  '1stEditionNormal': '1st Edition',
+  '1stEditionHolofoil': '1st Edition',
+};
+
+/** Sorts "4/102" before "58/102" before "TG10" — numeric first, then alphabetically. */
+function compareCardNumbers(a, b) {
+  const an = parseInt(a, 10);
+  const bn = parseInt(b, 10);
+  if (Number.isFinite(an) && Number.isFinite(bn) && an !== bn) return an - bn;
+  if (Number.isFinite(an) !== Number.isFinite(bn)) return Number.isFinite(an) ? -1 : 1;
+  return String(a).localeCompare(String(b));
+}
+
+/** Every set ever printed, newest first — the picker for "add by set". */
+async function listSets() {
+  if (setsCache && Date.now() - setsCacheAt < CATALOG_TTL) return setsCache;
+
+  const json = await fetchJson(`${SETS_API}?orderBy=-releaseDate&pageSize=250`);
+
+  const sets = (Array.isArray(json.data) ? json.data : []).map((s) => ({
+    id: s.id,
+    name: s.name,
+    series: s.series || '',
+    total: s.printedTotal || s.total || null,
+    releaseDate: s.releaseDate || '',
+    logo: (s.images && s.images.logo) || '',
+    symbol: (s.images && s.images.symbol) || '',
+  }));
+
+  setsCache = sets;
+  setsCacheAt = Date.now();
+  return sets;
+}
+
+/**
+ * Every card in one set, in card-number order. Sets top out around 250-300 cards
+ * (secret rares push past the printed total), so a couple of pages covers any of them.
+ */
+async function listSetCards(setId) {
+  const cached = setCardsCache.get(setId);
+  if (cached && Date.now() - cached.at < CATALOG_TTL) return cached.cards;
+
+  const cards = [];
+  for (let page = 1; page <= 4; page++) {
+    const url = `${API}?q=${encodeURIComponent(`set.id:${setId}`)}&orderBy=number&pageSize=250&page=${page}`;
+    const json = await fetchJson(url);
+    const data = Array.isArray(json.data) ? json.data : [];
+    cards.push(...data);
+    if (data.length < 250) break;
+  }
+
+  const shaped = cards
+    .map((c) => {
+      const prices = (c.tcgplayer && c.tcgplayer.prices) || {};
+
+      // Every priced print style becomes its own row candidate — a card sold as both
+      // Normal and Reverse Holo shows up as two rows, each with its own market price.
+      const variants = [];
+      for (const [key, variant] of Object.entries(VARIANT_PRICE_KEYS)) {
+        const p = prices[key];
+        if (p && typeof p.market === 'number' && !variants.some((v) => v.variant === variant)) {
+          variants.push({ variant, marketPrice: p.market });
+        }
+      }
+      if (!variants.length) variants.push({ variant: 'Normal', marketPrice: null });
+
+      return {
+        name: c.name,
+        number: c.number || '',
+        rarity: c.rarity || '',
+        image: (c.images && (c.images.small || c.images.large)) || '',
+        variants,
+      };
+    })
+    .sort((a, b) => compareCardNumbers(a.number, b.number));
+
+  setCardsCache.set(setId, { at: Date.now(), cards: shaped });
+  return shaped;
+}
+
+module.exports = {
+  lookup,
+  lookupMany,
+  listSets,
+  listSetCards,
+  normaliseNumber,
+  hasApiKey: () => Boolean(process.env.POKEMON_TCG_API_KEY),
+};

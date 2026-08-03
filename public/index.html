@@ -19,7 +19,10 @@
   <div class="store-shell">
     <header class="store-nav">
       <div class="store-nav-left">
-        <button id="browseSets">Browse Sets &#9662;</button>
+        <div class="nav-dropdown">
+          <button id="browseSets">Browse Sets &#9662;</button>
+          <div class="nav-dropdown-menu hidden" id="browseSetsMenu"></div>
+        </div>
         <a href="#catalogue">All Cards</a>
         <a href="#catalogue">Latest Drop</a>
       </div>
@@ -71,6 +74,10 @@
         <select id="storeCondition" aria-label="Filter by condition">
           <option value="">All conditions</option>
           <option>NM</option><option>LP</option><option>MP</option><option>HP</option>
+        </select>
+        <select id="storeVariant" aria-label="Filter by variant">
+          <option value="">All variants</option>
+          <option>Normal</option><option>Holo</option><option>Reverse Holo</option><option>1st Edition</option>
         </select>
       </div>
       <div class="grid" id="productGrid"></div>

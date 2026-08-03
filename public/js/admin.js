@@ -98,44 +98,160 @@ function renderRecentOrders() {
 async function loadProducts() {
   try {
     productCache = await api('/api/admin/products');
+    renderSetFilterOptions();
     renderInventory();
   } catch (err) {
     toast(err.message, true);
   }
 }
 
-function renderInventory() {
-  const q = ($('#adminProductSearch').value || '').trim().toLowerCase();
-  const list = productCache.filter(
-    (p) => !q || `${p.name} ${p.set} ${p.number}`.toLowerCase().includes(q)
-  );
+let inventoryView = localStorage.getItem('ctcg_inventory_view') === 'grid' ? 'grid' : 'list';
 
-  $('#inventoryBody').innerHTML = list.length
-    ? list
-        .map(
-          (p) => `<tr>
-      <td>${esc(p.name)}<div class="small muted">${esc(p.number)}</div></td>
-      <td>${esc(p.set)}</td>
-      <td>${esc(p.condition)}</td>
-      <td>${money(p.price)}</td>
-      <td>${p.qty}</td>
-      <td><span class="status status-${esc(p.status)}">${esc(p.status)}</span></td>
-      <td><div class="row-actions">
-        <button data-edit="${esc(p.id)}">Edit</button>
-        <button data-toggle="${esc(p.id)}">${p.status === 'live' ? 'Hide' : 'Set Live'}</button>
-        <button data-delete="${esc(p.id)}">Delete</button>
-      </div></td>
-    </tr>`
-        )
-        .join('')
-    : `<tr><td colspan="7" class="muted">${
-        q ? 'No products match that search.' : 'No products yet — add your first card.'
-      }</td></tr>`;
+/** Rebuilds the set dropdown from whatever sets exist right now, keeping the current pick if it still exists. */
+function renderSetFilterOptions() {
+  const current = $('#adminSetFilter').value;
+  const sets = [...new Set(productCache.map((p) => p.set).filter(Boolean))].sort();
 
+  $('#adminSetFilter').innerHTML =
+    '<option value="">All sets</option>' +
+    sets.map((s) => `<option${s === current ? ' selected' : ''}>${esc(s)}</option>`).join('');
+}
+
+function rowActionsHtml(p) {
+  return `<div class="row-actions">
+    <button data-edit="${esc(p.id)}">Edit</button>
+    <button data-toggle="${esc(p.id)}">${p.status === 'live' ? 'Hide' : 'Set Live'}</button>
+    <button data-delete="${esc(p.id)}">Delete</button>
+  </div>`;
+}
+
+function wireRowActions() {
   $$('[data-edit]').forEach((b) => (b.onclick = () => openProductModal(b.dataset.edit)));
   $$('[data-toggle]').forEach((b) => (b.onclick = () => toggleVisibility(b.dataset.toggle)));
   $$('[data-delete]').forEach((b) => (b.onclick = () => removeProduct(b.dataset.delete)));
 }
+
+function renderInventoryList(list, q) {
+  $('#inventoryBody').innerHTML = list.length
+    ? list
+        .map(
+          (p) => `<tr>
+      <td><img src="${esc(p.image || LOGO)}" alt="" style="width:30px;height:40px;object-fit:contain" onerror="this.onerror=null;this.src='${LOGO}'"></td>
+      <td>${esc(p.name)}<div class="small muted">${esc(p.number)}</div></td>
+      <td>${esc(p.set)}</td>
+      <td>${esc(p.condition)}</td>
+      <td>${p.variant && p.variant !== 'Normal' ? esc(p.variant) : '<span class="muted">Normal</span>'}</td>
+      <td>${money(p.price)}</td>
+      <td>${p.qty}</td>
+      <td><span class="status status-${esc(p.status)}">${esc(p.status)}</span></td>
+      <td>${rowActionsHtml(p)}</td>
+    </tr>`
+        )
+        .join('')
+    : `<tr><td colspan="9" class="muted">${
+        q ? 'No products match that search.' : 'No products yet — add your first card.'
+      }</td></tr>`;
+}
+
+function invCardHtml(p) {
+  return `<article class="product inv-card">
+    <div class="product-image">
+      <img src="${esc(p.image || LOGO)}" alt="" onerror="this.onerror=null;this.src='${LOGO}'">
+      <span class="price">${money(p.price)}</span>
+    </div>
+    <h3>${esc(p.name)}</h3>
+    <div class="meta">${esc(p.number)}</div>
+    <div class="tags">
+      <span class="tag">${esc(p.condition)}</span>
+      ${p.variant && p.variant !== 'Normal' ? `<span class="tag">${esc(p.variant)}</span>` : ''}
+      <span class="status status-${esc(p.status)}">${esc(p.status)}</span>
+      <span class="tag">qty ${p.qty}</span>
+    </div>
+    ${rowActionsHtml(p)}
+  </article>`;
+}
+
+/** Which sets start collapsed, remembered across visits by set name. */
+function collapsedSets() {
+  try {
+    return JSON.parse(localStorage.getItem('ctcg_inventory_collapsed') || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function renderInventoryGrid(list, q) {
+  if (!list.length) {
+    $('#inventoryGridView').innerHTML = `<div class="empty">${
+      q ? 'No products match that search.' : 'No products yet — add your first card.'
+    }</div>`;
+    return;
+  }
+
+  const groups = new Map();
+  list.forEach((p) => {
+    const key = p.set || '(No set)';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(p);
+  });
+
+  const collapsed = collapsedSets();
+
+  $('#inventoryGridView').innerHTML = [...groups.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(
+      ([set, items]) => `
+      <div class="set-group${collapsed[set] ? ' collapsed' : ''}" data-set-group="${esc(set)}">
+        <div class="set-group-head">
+          <h3>${esc(set)} <span class="muted small">(${items.length})</span></h3>
+          <span class="chev">&#9660;</span>
+        </div>
+        <div class="set-group-grid grid">${items.map(invCardHtml).join('')}</div>
+      </div>`
+    )
+    .join('');
+
+  $$('.set-group-head').forEach((head) => {
+    head.onclick = () => {
+      const group = head.closest('.set-group');
+      group.classList.toggle('collapsed');
+      const state = collapsedSets();
+      state[group.dataset.setGroup] = group.classList.contains('collapsed');
+      localStorage.setItem('ctcg_inventory_collapsed', JSON.stringify(state));
+    };
+  });
+}
+
+function applyInventoryView() {
+  $$('.view-toggle button').forEach((b) => b.classList.toggle('active', b.dataset.view === inventoryView));
+  $('#inventoryListView').classList.toggle('hidden', inventoryView !== 'list');
+  $('#inventoryGridView').classList.toggle('hidden', inventoryView !== 'grid');
+}
+
+function renderInventory() {
+  const q = ($('#adminProductSearch').value || '').trim().toLowerCase();
+  const set = $('#adminSetFilter').value;
+  const list = productCache.filter(
+    (p) =>
+      (!q || `${p.name} ${p.set} ${p.number} ${p.variant}`.toLowerCase().includes(q)) &&
+      (!set || p.set === set)
+  );
+
+  if (inventoryView === 'grid') renderInventoryGrid(list, q);
+  else renderInventoryList(list, q);
+
+  wireRowActions();
+}
+
+$$('.view-toggle button').forEach((b) => {
+  b.onclick = () => {
+    inventoryView = b.dataset.view;
+    localStorage.setItem('ctcg_inventory_view', inventoryView);
+    applyInventoryView();
+    renderInventory();
+  };
+});
+applyInventoryView();
 
 async function toggleVisibility(id) {
   const p = productCache.find((x) => x.id === id);
@@ -176,6 +292,7 @@ function resetProductForm() {
   ].forEach((id) => ($('#' + id).value = ''));
 
   $('#productCondition').value = 'NM';
+  $('#productVariant').value = 'Normal';
   $('#productQty').value = 1;
   $('#productStatus').value = 'live';
   $('#productImageFile').value = '';
@@ -199,6 +316,7 @@ function openProductModal(id) {
     $('#productSet').value = p.set;
     $('#productNumber').value = p.number;
     $('#productCondition').value = p.condition;
+    $('#productVariant').value = p.variant || 'Normal';
     $('#productPrice').value = p.price;
     $('#productQty').value = p.qty;
     $('#productStatus').value = p.status;
@@ -232,6 +350,7 @@ async function saveProduct() {
       set: $('#productSet').value.trim(),
       number: $('#productNumber').value.trim(),
       condition: $('#productCondition').value,
+      variant: $('#productVariant').value,
       price: $('#productPrice').value,
       qty: $('#productQty').value,
       status: $('#productStatus').value,
@@ -356,7 +475,7 @@ function renderBulkPreview(data) {
 
     <div class="panel"><div class="table-wrap">
       <table>
-        <thead><tr><th>#</th><th>Img</th><th>Card</th><th>Set</th><th>Cond.</th><th>Price</th><th>Qty</th><th>Status</th><th>Result</th></tr></thead>
+        <thead><tr><th>#</th><th>Img</th><th>Card</th><th>Set</th><th>Cond.</th><th>Variant</th><th>Price</th><th>Qty</th><th>Status</th><th>Result</th></tr></thead>
         <tbody>${data.rows.map(bulkRow).join('')}</tbody>
       </table>
     </div></div>
@@ -405,6 +524,7 @@ function bulkRow(r) {
     <td>${esc(r.name) || '<span class="muted">(no name)</span>'}<div class="small muted">${esc(r.number)}</div></td>
     <td>${esc(r.set)}</td>
     <td>${esc(r.condition)}</td>
+    <td>${esc(r.variant)}</td>
     <td>${price}</td>
     <td>${r.qty}</td>
     <td><span class="status status-${esc(r.status)}">${esc(r.status)}</span></td>
@@ -456,6 +576,198 @@ $('#openBulkImport').onclick = () => {
   $('#bulkResult').innerHTML = '';
   $('#bulkFile').value = '';
   openModal('#bulkModal');
+};
+
+/* -------------------------------------------------------------- add by set --- */
+
+let setsCache = null; // lazy-loaded, kept for the life of the page
+let setRowsCache = null; // the currently open set, flattened one row per priced variant
+
+function renderSetPicker() {
+  const q = ($('#setSearch').value || '').trim().toLowerCase();
+  const list = !q
+    ? setsCache
+    : setsCache.filter((s) => `${s.name} ${s.series}`.toLowerCase().includes(q));
+
+  $('#setPickerResult').innerHTML = list.length
+    ? `<div class="set-grid">${list
+        .map(
+          (s, i) => `<button class="set-card" type="button" data-set-index="${i}">
+            <img src="${esc(s.logo || s.symbol || LOGO)}" alt="">
+            <b>${esc(s.name)}</b>
+            <div class="small muted">${esc(s.series)}${s.total ? ` &middot; ${s.total} cards` : ''}</div>
+          </button>`
+        )
+        .join('')}</div>`
+    : '<div class="muted small">No sets match that search.</div>';
+
+  $$('[data-set-index]').forEach((b) => {
+    b.onclick = () => openSetCards(list[Number(b.dataset.setIndex)]);
+  });
+}
+
+async function openSetImport() {
+  $('#setPickerView').classList.remove('hidden');
+  $('#setCardsView').classList.add('hidden');
+  $('#setSearch').value = '';
+  openModal('#setModal');
+
+  if (setsCache) {
+    renderSetPicker();
+    return;
+  }
+
+  $('#setPickerResult').innerHTML = '<div class="muted small">Loading sets…</div>';
+  try {
+    setsCache = await api('/api/admin/sets');
+    renderSetPicker();
+  } catch (err) {
+    $('#setPickerResult').innerHTML = `<div class="notice error">${esc(err.message)}</div>`;
+  }
+}
+
+const VARIANT_OPTIONS = ['Normal', 'Holo', 'Reverse Holo', '1st Edition'];
+
+/** One card becomes one row per priced print style — that's where Reverse Holo shows up. */
+function flattenSetCards(cards) {
+  const rows = [];
+  cards.forEach((card, ci) => {
+    card.variants.forEach((v, vi) => {
+      rows.push({
+        key: `${ci}-${vi}`,
+        name: card.name,
+        number: card.number,
+        image: card.image,
+        variant: v.variant,
+        marketPrice: v.marketPrice,
+      });
+    });
+  });
+  return rows;
+}
+
+function setCardRow(row, i) {
+  return `<tr data-row-index="${i}">
+    <td>${row.image ? `<img src="${esc(row.image)}" alt="">` : ''}</td>
+    <td>${esc(row.name)}</td>
+    <td class="small muted">${esc(row.number)}</td>
+    <td><select data-field="variant">
+      ${VARIANT_OPTIONS.map((v) => `<option${v === row.variant ? ' selected' : ''}>${v}</option>`).join('')}
+    </select></td>
+    <td class="small muted">${row.marketPrice != null ? money(row.marketPrice) : '—'}</td>
+    <td><input type="number" min="0" value="0" data-field="qty"></td>
+    <td><select data-field="condition">
+      <option${$('#setDefaultCondition').value === 'NM' ? ' selected' : ''}>NM</option>
+      <option${$('#setDefaultCondition').value === 'LP' ? ' selected' : ''}>LP</option>
+      <option${$('#setDefaultCondition').value === 'MP' ? ' selected' : ''}>MP</option>
+      <option${$('#setDefaultCondition').value === 'HP' ? ' selected' : ''}>HP</option>
+    </select></td>
+    <td><input type="number" min="0" step="0.01" placeholder="0.00" data-field="price"></td>
+    <td><select data-field="status">
+      <option value="live"${$('#setDefaultStatus').value === 'live' ? ' selected' : ''}>Live</option>
+      <option value="draft"${$('#setDefaultStatus').value === 'draft' ? ' selected' : ''}>Draft</option>
+      <option value="reserved"${$('#setDefaultStatus').value === 'reserved' ? ' selected' : ''}>Reserved</option>
+      <option value="hidden"${$('#setDefaultStatus').value === 'hidden' ? ' selected' : ''}>Hidden</option>
+    </select></td>
+  </tr>`;
+}
+
+async function openSetCards(set) {
+  $('#setPickerView').classList.add('hidden');
+  $('#setCardsView').classList.remove('hidden');
+  $('#setCardsTitle').textContent = set.name;
+  $('#setCardsError').classList.add('hidden');
+  $('#cardFilter').value = '';
+  $('#setCardsBody').innerHTML = '<tr><td colspan="9" class="muted">Loading cards…</td></tr>';
+  $('#setCommit').disabled = true;
+  $('#setCommit').dataset.setName = set.name;
+
+  try {
+    const cards = await api(`/api/admin/sets/${encodeURIComponent(set.id)}/cards`);
+    setRowsCache = flattenSetCards(cards);
+    $('#setCardsBody').innerHTML = setRowsCache.length
+      ? setRowsCache.map(setCardRow).join('')
+      : '<tr><td colspan="9" class="muted">No cards found for this set.</td></tr>';
+    $('#setCommit').disabled = !setRowsCache.length;
+  } catch (err) {
+    $('#setCardsBody').innerHTML = '';
+    $('#setCardsError').textContent = err.message;
+    $('#setCardsError').classList.remove('hidden');
+  }
+}
+
+function filterSetCards() {
+  const q = ($('#cardFilter').value || '').trim().toLowerCase();
+  $$('#setCardsBody tr[data-row-index]').forEach((row) => {
+    const card = setRowsCache[Number(row.dataset.rowIndex)];
+    const match = !q || `${card.name} ${card.number}`.toLowerCase().includes(q);
+    row.classList.toggle('hidden', !match);
+  });
+}
+
+async function commitSetImport() {
+  const button = $('#setCommit');
+  const errorBox = $('#setCardsError');
+  errorBox.classList.add('hidden');
+
+  const cards = [];
+  $$('#setCardsBody tr[data-row-index]').forEach((row) => {
+    const i = Number(row.dataset.rowIndex);
+    const card = setRowsCache[i];
+    const qty = Number.parseInt(row.querySelector('[data-field="qty"]').value, 10);
+    if (!Number.isInteger(qty) || qty <= 0) return;
+
+    cards.push({
+      name: card.name,
+      number: card.number,
+      image: card.image,
+      qty,
+      variant: row.querySelector('[data-field="variant"]').value,
+      condition: row.querySelector('[data-field="condition"]').value,
+      price: row.querySelector('[data-field="price"]').value,
+      status: row.querySelector('[data-field="status"]').value,
+    });
+  });
+
+  if (!cards.length) {
+    errorBox.textContent = 'Set a quantity of at least 1 on the cards you want to add.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = 'Adding…';
+  try {
+    const data = await api('/api/admin/products/bulk-set', {
+      method: 'POST',
+      body: JSON.stringify({ setName: button.dataset.setName || '', cards }),
+    });
+    closeModals();
+    await Promise.all([loadProducts(), loadStats()]);
+    toast(`Added ${data.imported} card${data.imported === 1 ? '' : 's'}`);
+  } catch (err) {
+    errorBox.textContent = err.message;
+    errorBox.classList.remove('hidden');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Add Selected Cards';
+  }
+}
+
+$('#openSetImport').onclick = openSetImport;
+$('#setSearch').oninput = renderSetPicker;
+$('#backToSetPicker').onclick = () => {
+  $('#setCardsView').classList.add('hidden');
+  $('#setPickerView').classList.remove('hidden');
+};
+$('#cardFilter').oninput = filterSetCards;
+$('#setCommit').onclick = commitSetImport;
+
+$('#setDefaultCondition').onchange = (e) => {
+  $$('#setCardsBody [data-field="condition"]').forEach((sel) => (sel.value = e.target.value));
+};
+$('#setDefaultStatus').onchange = (e) => {
+  $$('#setCardsBody [data-field="status"]').forEach((sel) => (sel.value = e.target.value));
 };
 
 /* ------------------------------------------------------- Pokémon TCG API --- */
@@ -545,6 +857,7 @@ function renderOrders() {
         <button data-order="${esc(o.id)}">View</button>
         <button data-advance="${esc(o.id)}">Advance</button>
         <button data-resend="${esc(o.id)}">Resend</button>
+        <button data-delete-order="${esc(o.id)}" ${isDeletableOrder(o) ? '' : 'disabled'}>Delete</button>
       </div></td>
     </tr>`
         )
@@ -554,6 +867,26 @@ function renderOrders() {
   $$('[data-order]').forEach((b) => (b.onclick = () => openOrder(b.dataset.order)));
   $$('[data-advance]').forEach((b) => (b.onclick = () => advanceOrder(b.dataset.advance)));
   $$('[data-resend]').forEach((b) => (b.onclick = () => resendNotification(b.dataset.resend)));
+  $$('[data-delete-order]').forEach((b) => (b.onclick = () => removeOrder(b.dataset.deleteOrder)));
+}
+
+/** Only cancelled/completed orders are safe to delete — stock is already settled either way. */
+function isDeletableOrder(o) {
+  return o.status === 'cancelled' || o.status === 'completed';
+}
+
+async function removeOrder(id) {
+  const o = orderCache.find((x) => x.id === id);
+  if (!o) return;
+  if (!confirm(`Delete order ${o.id}? This cannot be undone.`)) return;
+  try {
+    await api(`/api/admin/orders/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    closeModals();
+    await Promise.all([loadOrders(), loadStats()]);
+    toast('Order deleted');
+  } catch (err) {
+    toast(err.message, true);
+  }
 }
 
 async function advanceOrder(id, explicitStatus) {
@@ -604,12 +937,18 @@ function openOrder(id) {
       <div class="full"><label>Address / Note</label><div style="white-space:pre-wrap">${esc(o.address || '—')}</div></div>
       <div class="full order-items">
         ${o.items
-          .map(
-            (i) =>
-              `<div class="summary"><span>${esc(i.name)} &middot; ${esc(i.condition)}</span><span>${money(
-                i.price
-              )}</span></div>`
-          )
+          .map((i) => {
+            const tag = i.variant && i.variant !== 'Normal' ? `${i.condition}, ${i.variant}` : i.condition;
+            const detail = [i.set, i.number].filter(Boolean).map(esc).join(' &middot; ');
+            return `<div class="order-line">
+              <img src="${esc(i.image || LOGO)}" alt="" onerror="this.onerror=null;this.src='${LOGO}'">
+              <div class="order-line-info">
+                <div class="order-line-name">${esc(i.name)}</div>
+                <div class="small muted">${detail ? detail + ' &middot; ' : ''}${esc(tag)}</div>
+              </div>
+              <b>${money(i.price)}</b>
+            </div>`;
+          })
           .join('')}
         <div class="summary"><span>${esc(o.delivery)}</span><span>${money(o.fee)}</span></div>
         <div class="summary total"><span>Total</span><span>${money(o.total)}</span></div>
@@ -619,13 +958,17 @@ function openOrder(id) {
       <button class="btn" id="orderResend" type="button">Resend Telegram</button>
       <button class="btn danger" id="orderCancel" type="button">Cancel &amp; Restock</button>
       <button class="btn primary" id="orderAdvance" type="button">Advance Status</button>
+      <button class="btn danger" id="orderDelete" type="button">Delete Order</button>
     </div>`;
 
   $('#orderResend').onclick = () => resendNotification(o.id);
   $('#orderCancel').onclick = () => cancelOrder(o.id);
   $('#orderAdvance').onclick = () => advanceOrder(o.id);
+  $('#orderDelete').onclick = () => removeOrder(o.id);
   $('#orderAdvance').disabled = o.status === 'completed' || o.status === 'cancelled';
   $('#orderCancel').disabled = o.status === 'cancelled';
+  $('#orderDelete').disabled = !isDeletableOrder(o);
+  $('#orderDelete').title = isDeletableOrder(o) ? '' : 'Cancel the order first to release its stock, then delete.';
 
   openModal('#orderModal');
 }
@@ -769,6 +1112,7 @@ $$('[data-admin-tab]').forEach((b) => {
 $$('.open-product-modal').forEach((b) => (b.onclick = () => openProductModal()));
 $('#saveProduct').onclick = saveProduct;
 $('#adminProductSearch').oninput = renderInventory;
+$('#adminSetFilter').onchange = renderInventory;
 $('#refreshOrders').onclick = loadOrders;
 
 $('#logout').onclick = async () => {

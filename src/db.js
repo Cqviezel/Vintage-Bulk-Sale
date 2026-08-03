@@ -23,6 +23,7 @@ db.exec(`
     set_name    TEXT NOT NULL DEFAULT '',
     number      TEXT NOT NULL DEFAULT '',
     condition   TEXT NOT NULL DEFAULT 'NM',
+    variant     TEXT NOT NULL DEFAULT 'Normal',
     price       REAL NOT NULL DEFAULT 0,
     qty         INTEGER NOT NULL DEFAULT 0,
     status      TEXT NOT NULL DEFAULT 'draft',
@@ -61,6 +62,7 @@ db.exec(`
     set_name    TEXT NOT NULL DEFAULT '',
     number      TEXT NOT NULL DEFAULT '',
     condition   TEXT NOT NULL DEFAULT '',
+    variant     TEXT NOT NULL DEFAULT 'Normal',
     price       REAL NOT NULL DEFAULT 0
   );
 
@@ -78,15 +80,24 @@ db.exec(`
   );
 `);
 
+/** Adds a column to a table that already exists on disk from before this field was added. */
+function ensureColumn(table, column, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!columns.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+ensureColumn('products', 'variant', "TEXT NOT NULL DEFAULT 'Normal'");
+ensureColumn('order_items', 'variant', "TEXT NOT NULL DEFAULT 'Normal'");
+ensureColumn('order_items', 'image', "TEXT NOT NULL DEFAULT ''");
+
 const DEFAULT_SETTINGS = {
   storeName: 'Crazed TCG',
   telegram: '@crazedtcg',
   mailing: '3.50',
   minimum: '0',
   reservation: '30',
-  paynow:
-    'Scan the PayNow QR below, enter the exact total, and put your order ID in the ' +
-    'payment reference/comment field.',
+  paynow: '',
   // Payment + contact details shown to the buyer after checkout.
   paynowQr: '/uploads/paynow-qr.jpg',
   paynowPayee: '',
