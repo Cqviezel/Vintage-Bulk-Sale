@@ -11,6 +11,7 @@ const $$ = (s) => Array.from(document.querySelectorAll(s));
 
 let products = [];
 let settings = { mailing: 0, minimum: 0, telegram: '', paynow: '' };
+let tradeShows = [];
 let cart = new Set(loadCart());
 
 /* ------------------------------------------------------------- helpers --- */
@@ -95,6 +96,14 @@ async function load() {
     $('#productGrid').innerHTML =
       `<div class="empty">Could not load the catalogue.<br><span class="small">${esc(err.message)}</span></div>`;
   }
+
+  // Non-critical: a failed fetch here shouldn't block the catalogue from loading.
+  try {
+    tradeShows = await api('/api/trade-shows');
+  } catch {
+    tradeShows = [];
+  }
+  renderTradeShows();
 }
 
 /* ------------------------------------------------------------ rendering --- */
@@ -143,6 +152,48 @@ function renderSetOptions() {
       $('#catalogue').scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
   });
+}
+
+const SHOW_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "2026-08-16" -> { y, m, d } for compact date-badge formatting. */
+function parseIsoDate(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return { y, m, d };
+}
+
+function formatShowDate(startDate, endDate) {
+  const start = parseIsoDate(startDate);
+  const mon = SHOW_MONTHS[start.m - 1] || '';
+  if (!endDate || endDate === startDate) return { mon, day: String(start.d) };
+
+  const end = parseIsoDate(endDate);
+  if (end.y === start.y && end.m === start.m) return { mon, day: `${start.d}–${end.d}` };
+  return { mon, day: `${start.d}–${SHOW_MONTHS[end.m - 1] || ''} ${end.d}` };
+}
+
+function renderTradeShows() {
+  const section = $('#showsSection');
+  if (!tradeShows.length) {
+    section.classList.add('hidden');
+    return;
+  }
+  section.classList.remove('hidden');
+
+  $('#showsRow').innerHTML = tradeShows
+    .map((s) => {
+      const { mon, day } = formatShowDate(s.startDate, s.endDate);
+      return `
+      <div class="show-card">
+        <div class="show-date"><span class="mon">${esc(mon)}</span><span class="day">${esc(day)}</span></div>
+        <div class="show-body">
+          <div class="venue">${esc(s.venue)}</div>
+          <div class="place">${esc(s.location)}</div>
+        </div>
+        ${s.tableNo ? `<div class="show-table">${esc(s.tableNo)}</div>` : ''}
+      </div>`;
+    })
+    .join('');
 }
 
 function renderProducts() {

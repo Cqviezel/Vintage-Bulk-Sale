@@ -17,6 +17,7 @@
       <button class="active" data-admin-tab="dashboard">Dashboard</button>
       <button data-admin-tab="products">Products</button>
       <button data-admin-tab="orders">Orders</button>
+      <button data-admin-tab="tradeShows">Trade Shows</button>
       <button data-admin-tab="settings">Settings</button>
     </nav>
     <div class="sidebar-foot">
@@ -95,6 +96,24 @@
           <table>
             <thead><tr><th>Order</th><th>Buyer</th><th>Items</th><th>Total</th><th>Delivery</th><th>Status</th><th>Telegram</th><th>Actions</th></tr></thead>
             <tbody id="ordersBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="admin-tab" id="tradeShows">
+      <div class="admin-top">
+        <div><h1>Trade Shows</h1><p>Venues and dates shown to shoppers on the storefront.</p></div>
+        <div class="actions"><button class="btn primary" id="openTradeShowModal">Add Show</button></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <div><h2>Upcoming &amp; Past Shows</h2><div class="small muted">Shows drop off the storefront automatically once their date has passed.</div></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Dates</th><th>Venue</th><th>Location</th><th>Table #</th><th>Actions</th></tr></thead>
+            <tbody id="tradeShowsBody"></tbody>
           </table>
         </div>
       </div>
@@ -289,6 +308,30 @@
         </div>
       </div>
 
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="tradeShowModal">
+  <div class="modal" style="width:min(560px,100%)">
+    <div class="panel-head">
+      <div><h2 id="tradeShowModalTitle">Add Show</h2></div>
+      <button class="close modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body">
+      <div class="form-grid">
+        <input type="hidden" id="tradeShowId">
+        <div class="full"><label for="tradeShowVenue">Venue / Event Name</label><input id="tradeShowVenue" placeholder="Suntec Card Fest"></div>
+        <div class="full"><label for="tradeShowLocation">Location</label><input id="tradeShowLocation" placeholder="Suntec Convention Centre"></div>
+        <div><label for="tradeShowStart">Start Date</label><input id="tradeShowStart" type="date"></div>
+        <div><label for="tradeShowEnd">End Date (optional)</label><input id="tradeShowEnd" type="date"></div>
+        <div><label for="tradeShowTable">Table / Booth Number</label><input id="tradeShowTable" placeholder="Table 42"></div>
+      </div>
+      <div id="tradeShowError" class="notice error hidden" style="margin-top:12px"></div>
+      <div class="actions" style="justify-content:flex-end;margin-top:16px">
+        <button class="btn modal-close" type="button">Cancel</button>
+        <button class="btn primary" id="saveTradeShow" type="button">Save Show</button>
+      </div>
     </div>
   </div>
 </div>

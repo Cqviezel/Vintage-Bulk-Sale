@@ -648,6 +648,94 @@ router.post('/orders/:id/notify', async (req, res) => {
   res.json({ ok: true });
 });
 
+/* ----------------------------------------------------------- trade shows --- */
+
+function toAdminTradeShow(row) {
+  return {
+    id: row.id,
+    venue: row.venue,
+    location: row.location,
+    startDate: row.start_date,
+    endDate: row.end_date || '',
+    tableNo: row.table_no,
+  };
+}
+
+const allTradeShows = db.prepare('SELECT * FROM trade_shows ORDER BY start_date ASC');
+const oneTradeShow = db.prepare('SELECT * FROM trade_shows WHERE id = ?');
+const insertTradeShow = db.prepare(
+  `INSERT INTO trade_shows (id, venue, location, start_date, end_date, table_no)
+   VALUES (@id, @venue, @location, @start_date, @end_date, @table_no)`
+);
+const updateTradeShow = db.prepare(
+  `UPDATE trade_shows SET venue = @venue, location = @location, start_date = @start_date,
+     end_date = @end_date, table_no = @table_no
+   WHERE id = @id`
+);
+const deleteTradeShow = db.prepare('DELETE FROM trade_shows WHERE id = ?');
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function readTradeShowBody(body) {
+  const errors = [];
+
+  const venue = String(body.venue || '').trim().slice(0, 120);
+  if (!venue) errors.push('Venue is required.');
+
+  const startDate = String(body.startDate || '').trim();
+  if (!DATE_RE.test(startDate)) errors.push('Start date must be a valid date.');
+
+  let endDate = String(body.endDate || '').trim();
+  if (endDate && !DATE_RE.test(endDate)) errors.push('End date must be a valid date.');
+  if (endDate && DATE_RE.test(startDate) && DATE_RE.test(endDate) && endDate < startDate) {
+    errors.push('End date must be on or after the start date.');
+  }
+  if (!endDate) endDate = null;
+
+  return {
+    errors,
+    values: {
+      venue,
+      location: String(body.location || '').trim().slice(0, 120),
+      start_date: startDate,
+      end_date: endDate,
+      table_no: String(body.tableNo || '').trim().slice(0, 40),
+    },
+  };
+}
+
+router.get('/trade-shows', (req, res) => {
+  res.json(allTradeShows.all().map(toAdminTradeShow));
+});
+
+router.post('/trade-shows', (req, res) => {
+  const { errors, values } = readTradeShowBody(req.body || {});
+  if (errors.length) return res.status(400).json({ error: errors.join(' ') });
+
+  const id = 'ts' + crypto.randomBytes(8).toString('hex');
+  insertTradeShow.run({ id, ...values });
+  res.status(201).json(toAdminTradeShow(oneTradeShow.get(id)));
+});
+
+router.put('/trade-shows/:id', (req, res) => {
+  const existing = oneTradeShow.get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Trade show not found.' });
+
+  const { errors, values } = readTradeShowBody(req.body || {});
+  if (errors.length) return res.status(400).json({ error: errors.join(' ') });
+
+  updateTradeShow.run({ id: existing.id, ...values });
+  res.json(toAdminTradeShow(oneTradeShow.get(existing.id)));
+});
+
+router.delete('/trade-shows/:id', (req, res) => {
+  const existing = oneTradeShow.get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Trade show not found.' });
+
+  deleteTradeShow.run(existing.id);
+  res.json({ ok: true });
+});
+
 /* -------------------------------------------------------------- settings --- */
 
 router.get('/settings', (req, res) => {

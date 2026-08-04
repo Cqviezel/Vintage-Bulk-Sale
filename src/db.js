@@ -79,6 +79,18 @@ db.exec(`
     password_hash  TEXT NOT NULL,
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS trade_shows (
+    id          TEXT PRIMARY KEY,
+    venue       TEXT NOT NULL,
+    location    TEXT NOT NULL DEFAULT '',
+    start_date  TEXT NOT NULL,
+    end_date    TEXT,
+    table_no    TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_trade_shows_start ON trade_shows(start_date);
 `);
 
 /** Adds a column to a table that already exists on disk from before this field was added. */

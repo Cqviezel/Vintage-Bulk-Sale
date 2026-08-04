@@ -34,6 +34,25 @@ router.get('/products', (req, res) => {
   res.json(listLive.all().map(toPublicProduct));
 });
 
+/** Only shows that haven't finished yet, soonest first. */
+const listUpcomingShows = db.prepare(
+  "SELECT * FROM trade_shows WHERE COALESCE(end_date, start_date) >= @today ORDER BY start_date ASC"
+);
+
+router.get('/trade-shows', (req, res) => {
+  const today = new Date().toISOString().slice(0, 10);
+  res.json(
+    listUpcomingShows.all({ today }).map((row) => ({
+      id: row.id,
+      venue: row.venue,
+      location: row.location,
+      startDate: row.start_date,
+      endDate: row.end_date || '',
+      tableNo: row.table_no,
+    }))
+  );
+});
+
 router.get('/settings', (req, res) => {
   const s = getSettings();
   // Only the fields the storefront legitimately needs.

@@ -33,6 +33,20 @@ img{display:block;max-width:100%;height:auto}
 .hero-art{display:grid;place-items:center;padding:28px}
 .hero-card{width:min(62%,230px);padding:10px;border-radius:22px;background:#fff;box-shadow:0 22px 48px #121d1638}
 .hero-card img{border-radius:14px}
+.shows{margin-top:22px}
+.shows-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
+.shows-head h2{margin:0;font-size:14px;font-weight:750;letter-spacing:.01em}
+.shows-head h2 .pin{margin-right:7px}
+.shows-row{display:flex;gap:10px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.shows-row::-webkit-scrollbar{display:none}
+.show-card{flex:0 0 auto;display:flex;align-items:center;gap:12px;min-width:252px;padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.show-date{flex:0 0 auto;width:46px;text-align:center;padding:6px 0;border-radius:8px;background:var(--surface2);line-height:1.15}
+.show-date .mon{display:block;font-size:9px;font-weight:750;letter-spacing:.06em;text-transform:uppercase;color:var(--forest2)}
+.show-date .day{display:block;font-size:16px;font-weight:800}
+.show-body{min-width:0}
+.show-body .venue{font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.show-body .place{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.show-table{flex:0 0 auto;padding:5px 9px;border-radius:6px;background:#f6ecd8;color:#8a6a2c;font-size:10px;font-weight:750;white-space:nowrap}
 .benefits{display:flex;justify-content:center;gap:14px;padding:12px;border-bottom:1px solid var(--line);font-size:12px;font-weight:650;color:#56605a;white-space:nowrap}
 .dot{width:3px;height:3px;align-self:center;border-radius:50%;background:#aeb4ad}
 .set-row{display:flex;gap:8px;margin-top:24px;overflow:auto;scrollbar-width:none}

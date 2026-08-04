@@ -974,6 +974,120 @@ function openOrder(id) {
   openModal('#orderModal');
 }
 
+/* ----------------------------------------------------------- trade shows --- */
+
+let tradeShowCache = [];
+
+async function loadTradeShows() {
+  try {
+    tradeShowCache = await api('/api/admin/trade-shows');
+    renderTradeShowRows();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+function formatShowRange(startDate, endDate) {
+  return endDate && endDate !== startDate ? `${startDate} &ndash; ${endDate}` : startDate;
+}
+
+function renderTradeShowRows() {
+  $('#tradeShowsBody').innerHTML = tradeShowCache.length
+    ? tradeShowCache
+        .map(
+          (s) => `<tr>
+            <td>${formatShowRange(esc(s.startDate), esc(s.endDate))}</td>
+            <td>${esc(s.venue)}</td>
+            <td>${esc(s.location)}</td>
+            <td>${esc(s.tableNo)}</td>
+            <td><div class="row-actions">
+              <button data-edit-show="${esc(s.id)}">Edit</button>
+              <button data-delete-show="${esc(s.id)}">Delete</button>
+            </div></td>
+          </tr>`
+        )
+        .join('')
+    : '<tr><td colspan="5" class="muted">No trade shows added yet.</td></tr>';
+
+  $$('[data-edit-show]').forEach((b) => (b.onclick = () => openTradeShowModal(b.dataset.editShow)));
+  $$('[data-delete-show]').forEach((b) => (b.onclick = () => removeTradeShow(b.dataset.deleteShow)));
+}
+
+function openTradeShowModal(id) {
+  $('#tradeShowError').classList.add('hidden');
+  $('#tradeShowId').value = '';
+  $('#tradeShowVenue').value = '';
+  $('#tradeShowLocation').value = '';
+  $('#tradeShowStart').value = '';
+  $('#tradeShowEnd').value = '';
+  $('#tradeShowTable').value = '';
+  $('#tradeShowModalTitle').textContent = 'Add Show';
+
+  if (id) {
+    const s = tradeShowCache.find((x) => x.id === id);
+    if (!s) return;
+    $('#tradeShowModalTitle').textContent = 'Edit Show';
+    $('#tradeShowId').value = s.id;
+    $('#tradeShowVenue').value = s.venue;
+    $('#tradeShowLocation').value = s.location;
+    $('#tradeShowStart').value = s.startDate;
+    $('#tradeShowEnd').value = s.endDate || '';
+    $('#tradeShowTable').value = s.tableNo;
+  }
+  openModal('#tradeShowModal');
+}
+
+async function saveTradeShow() {
+  const button = $('#saveTradeShow');
+  const errorBox = $('#tradeShowError');
+  errorBox.classList.add('hidden');
+  button.disabled = true;
+  button.textContent = 'Saving…';
+
+  try {
+    const id = $('#tradeShowId').value;
+    const payload = {
+      venue: $('#tradeShowVenue').value.trim(),
+      location: $('#tradeShowLocation').value.trim(),
+      startDate: $('#tradeShowStart').value,
+      endDate: $('#tradeShowEnd').value,
+      tableNo: $('#tradeShowTable').value.trim(),
+    };
+
+    if (id) {
+      await api(`/api/admin/trade-shows/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await api('/api/admin/trade-shows', { method: 'POST', body: JSON.stringify(payload) });
+    }
+
+    closeModals();
+    await loadTradeShows();
+    toast('Trade show saved — storefront updated');
+  } catch (err) {
+    errorBox.textContent = err.message;
+    errorBox.classList.remove('hidden');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Save Show';
+  }
+}
+
+async function removeTradeShow(id) {
+  const s = tradeShowCache.find((x) => x.id === id);
+  if (!s) return;
+  if (!confirm(`Delete "${s.venue}"?`)) return;
+  try {
+    await api(`/api/admin/trade-shows/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await loadTradeShows();
+    toast('Trade show deleted');
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
 /* -------------------------------------------------------------- settings --- */
 
 let currentPaynowQr = '';
@@ -1105,6 +1219,7 @@ $$('[data-admin-tab]').forEach((b) => {
     $$('[data-admin-tab]').forEach((x) => x.classList.toggle('active', x === b));
     if (b.dataset.adminTab === 'products') loadProducts();
     if (b.dataset.adminTab === 'orders') loadOrders();
+    if (b.dataset.adminTab === 'tradeShows') loadTradeShows();
     if (b.dataset.adminTab === 'settings') loadSettings();
     if (b.dataset.adminTab === 'dashboard') loadStats();
   };
@@ -1112,6 +1227,8 @@ $$('[data-admin-tab]').forEach((b) => {
 
 $$('.open-product-modal').forEach((b) => (b.onclick = () => openProductModal()));
 $('#saveProduct').onclick = saveProduct;
+$('#openTradeShowModal').onclick = () => openTradeShowModal();
+$('#saveTradeShow').onclick = saveTradeShow;
 $('#adminProductSearch').oninput = renderInventory;
 $('#adminSetFilter').onchange = renderInventory;
 $('#refreshOrders').onclick = loadOrders;
@@ -1136,4 +1253,5 @@ document.addEventListener('keydown', (e) => {
 loadStats();
 loadProducts();
 loadOrders();
+loadTradeShows();
 loadSettings();
