@@ -74,9 +74,11 @@ img{display:block;max-width:100%;height:auto}
 .add{width:100%;padding:10px;border:1px solid var(--forest);border-radius:7px;background:transparent;color:var(--forest);font-size:12px;font-weight:750}
 .add:hover,.add.added{background:var(--forest);color:#fff}
 .empty{grid-column:1/-1;padding:60px 20px;text-align:center;color:var(--muted)}
-.footer{display:flex;justify-content:space-between;gap:20px;margin-top:60px;padding:28px 0;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
-.footer strong{display:block;margin-bottom:5px;color:var(--ink)}
-.footer nav{display:flex;gap:16px;flex-wrap:wrap}
+.footer{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-top:60px;padding:26px 28px;border-radius:16px;background:var(--surface2);color:var(--muted);font-size:12px}
+.footer strong{display:block;margin-bottom:5px;color:var(--forest);font-size:15px;letter-spacing:-.01em}
+.footer nav{display:flex;gap:20px;flex-wrap:wrap}
+.footer nav a{color:var(--ink);font-weight:650}
+.footer nav a:hover{color:var(--forest);text-decoration:underline}
 
 /* CART */
 .overlay{position:fixed;inset:0;z-index:80;background:#10171280;opacity:0;pointer-events:none;transition:.2s}
@@ -256,7 +258,7 @@ th{background:#fafaf8;color:var(--muted);font-size:10px;text-transform:uppercase
   .price{top:7px;right:7px;padding:5px 8px;font-size:12px}
   .product h3{font-size:14px}
   .meta{font-size:10px}
-  .footer{flex-direction:column}
+  .footer{flex-direction:column;align-items:flex-start;padding:22px 20px}
   .form-grid,.order-detail-grid{grid-template-columns:1fr}
   .full{grid-column:auto}
   .api-actions{grid-template-columns:1fr 1fr}

@@ -560,10 +560,15 @@ $('#shippingInfo').onclick = (e) => {
   e.preventDefault();
   openInfo(
     'Shipping &amp; Pickup',
-    `<div class="notice">
-       Tracked mailing is ${money(settings.mailing)} per order, regardless of how many cards you buy.
-       Self-pickup is free &mdash; leave your preferred time in the order note.
-       ${settings.minimum > 0 ? `<br><br>Minimum card subtotal: ${money(settings.minimum)}.` : ''}
+    `<div class="order-items">
+       <div class="summary"><span><b>Tracked Mailing</b></span><span>${money(settings.mailing)} per order</span></div>
+       <div class="summary"><span><b>Self-Pickup</b></span><span>Free</span></div>
+     </div>
+     <div class="notice" style="margin-top:12px">
+       Tracked mailing applies regardless of how many cards you order.
+       Self-pickup is available at a listed trade show, or for orders of $50 or more &mdash;
+       leave your preferred time/location in the order note and we'll confirm with you.
+       ${settings.minimum > 0 ? `<br><br>Minimum card subtotal to check out: ${money(settings.minimum)}.` : ''}
      </div>`
   );
 };
