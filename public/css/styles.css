@@ -33,6 +33,8 @@ img{display:block;max-width:100%;height:auto}
 .hero-art{display:grid;place-items:center;padding:28px}
 .hero-card{width:min(62%,230px);padding:10px;border-radius:22px;background:#fff;box-shadow:0 22px 48px #121d1638}
 .hero-card img{border-radius:14px}
+.hero-benefits{grid-column:1/-1;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:9px 20px;margin:0 24px 24px;padding-top:18px;border-top:1px solid #ffffff26;font-size:11px;font-weight:750;letter-spacing:.05em;text-transform:uppercase;color:#ffffffcf}
+.hero-benefits .dot{background:#ffffff4d}
 .shows{margin-top:22px}
 .shows-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
 .shows-head h2{margin:0;font-size:14px;font-weight:750;letter-spacing:.01em}
@@ -47,7 +49,6 @@ img{display:block;max-width:100%;height:auto}
 .show-body .venue{font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .show-body .place{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .show-table{flex:0 0 auto;padding:5px 9px;border-radius:6px;background:#f6ecd8;color:#8a6a2c;font-size:10px;font-weight:750;white-space:nowrap}
-.benefits{display:flex;justify-content:center;gap:14px;padding:12px;border-bottom:1px solid var(--line);font-size:12px;font-weight:650;color:#56605a;white-space:nowrap}
 .dot{width:3px;height:3px;align-self:center;border-radius:50%;background:#aeb4ad}
 .set-row{display:flex;gap:8px;margin-top:24px;overflow:auto;scrollbar-width:none}
 .set-row::-webkit-scrollbar{display:none}
@@ -244,7 +245,7 @@ th{background:#fafaf8;color:var(--muted);font-size:10px;text-transform:uppercase
   .hero-actions a{min-height:32px;padding:0 8px;font-size:9px}
   .hero-art{padding:10px}
   .hero-card{width:min(92%,132px);padding:6px;border-radius:14px}
-  .benefits{gap:7px;padding-inline:2px;font-size:9px}
+  .hero-benefits{gap:6px 12px;margin:0 12px 16px;padding-top:12px;font-size:8.5px}
   .catalogue{padding-top:28px}
   .catalogue-head h2{font-size:23px}
   .catalogue-head p{display:none}
