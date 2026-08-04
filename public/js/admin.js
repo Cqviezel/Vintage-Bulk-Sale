@@ -928,6 +928,7 @@ function openOrder(id) {
       <div><label>Buyer</label><div>${esc(o.buyer)}</div></div>
       <div><label>Telegram</label><div>${esc(o.telegram || '—')}</div></div>
       <div><label>Email</label><div>${esc(o.email || '—')}</div></div>
+      <div><label>Phone</label><div>${esc(o.phone || '—')}</div></div>
       <div><label>Delivery</label><div>${esc(o.delivery)}</div></div>
       <div><label>Status</label><div><span class="status order-${slug(o.status)}">${esc(o.status)}</span></div></div>
       <div><label>Telegram Notification</label><div>

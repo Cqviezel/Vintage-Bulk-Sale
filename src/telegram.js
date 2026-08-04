@@ -30,6 +30,7 @@ function buildMessage(order, items) {
 
   if (order.telegram) lines.push(`<b>Telegram:</b> ${escapeHtml(order.telegram)}`);
   if (order.email) lines.push(`<b>Email:</b> ${escapeHtml(order.email)}`);
+  if (order.phone) lines.push(`<b>Phone:</b> ${escapeHtml(order.phone)}`);
 
   lines.push('', '<b>Items</b>');
   for (const item of items) {

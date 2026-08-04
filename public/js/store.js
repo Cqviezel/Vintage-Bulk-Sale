@@ -284,6 +284,7 @@ async function submitOrder() {
     buyer: $('#buyerName').value.trim(),
     telegram: $('#buyerTelegram').value.trim(),
     email: $('#buyerEmail').value.trim(),
+    phone: $('#buyerPhone').value.trim(),
     address: $('#buyerAddress').value.trim(),
     delivery: $('#buyerDelivery').value,
     items: items.map((p) => ({ id: p.id })),
@@ -299,6 +300,12 @@ async function submitOrder() {
   }
   if (payload.delivery === 'Tracked Mailing' && !payload.address) {
     return showCheckoutError('Please enter your mailing address.');
+  }
+  if (payload.delivery === 'Tracked Mailing' && !payload.phone) {
+    return showCheckoutError('Please enter a contact number for the courier.');
+  }
+  if (payload.phone && !/^[+\d][\d\s-]{6,29}$/.test(payload.phone)) {
+    return showCheckoutError('That phone number does not look valid.');
   }
 
   button.disabled = true;

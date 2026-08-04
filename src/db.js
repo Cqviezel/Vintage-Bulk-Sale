@@ -40,6 +40,7 @@ db.exec(`
     buyer         TEXT NOT NULL,
     telegram      TEXT NOT NULL DEFAULT '',
     email         TEXT NOT NULL DEFAULT '',
+    phone         TEXT NOT NULL DEFAULT '',
     address       TEXT NOT NULL DEFAULT '',
     delivery      TEXT NOT NULL DEFAULT 'Tracked Mailing',
     subtotal      REAL NOT NULL DEFAULT 0,
@@ -89,6 +90,7 @@ function ensureColumn(table, column, definition) {
 }
 ensureColumn('products', 'variant', "TEXT NOT NULL DEFAULT 'Normal'");
 ensureColumn('order_items', 'variant', "TEXT NOT NULL DEFAULT 'Normal'");
+ensureColumn('orders', 'phone', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('order_items', 'image', "TEXT NOT NULL DEFAULT ''");
 
 const DEFAULT_SETTINGS = {

@@ -77,8 +77,8 @@ const decrementProduct = db.prepare(
     "updated_at = datetime('now') WHERE id = ? AND qty > 0 AND status = 'live'"
 );
 const insertOrder = db.prepare(
-  `INSERT INTO orders (id, buyer, telegram, email, address, delivery, subtotal, fee, total, status, notify_state)
-   VALUES (@id, @buyer, @telegram, @email, @address, @delivery, @subtotal, @fee, @total, 'awaiting payment', 'pending')`
+  `INSERT INTO orders (id, buyer, telegram, email, phone, address, delivery, subtotal, fee, total, status, notify_state)
+   VALUES (@id, @buyer, @telegram, @email, @phone, @address, @delivery, @subtotal, @fee, @total, 'awaiting payment', 'pending')`
 );
 const insertOrderItem = db.prepare(
   `INSERT INTO order_items (order_id, product_id, name, set_name, number, condition, variant, price, image)
@@ -125,6 +125,7 @@ const placeOrder = db.transaction((input) => {
     buyer: input.buyer,
     telegram: input.telegram,
     email: input.email,
+    phone: input.phone,
     address: input.address,
     delivery: input.delivery,
     subtotal: Number(subtotal.toFixed(2)),
@@ -157,6 +158,7 @@ router.post('/orders', orderLimiter, async (req, res, next) => {
     const buyer = String(body.buyer || '').trim().slice(0, 120);
     const telegramHandle = String(body.telegram || '').trim().slice(0, 80);
     const email = String(body.email || '').trim().slice(0, 160);
+    const phone = String(body.phone || '').trim().slice(0, 30);
     const address = String(body.address || '').trim().slice(0, 1000);
     const delivery = String(body.delivery || '').trim();
     const rawItems = Array.isArray(body.items) ? body.items : [];
@@ -179,6 +181,12 @@ router.post('/orders', orderLimiter, async (req, res, next) => {
     if (delivery === 'Tracked Mailing' && !address) {
       return res.status(400).json({ error: 'Please enter your mailing address.' });
     }
+    if (delivery === 'Tracked Mailing' && !phone) {
+      return res.status(400).json({ error: 'Please enter a contact number for the courier.' });
+    }
+    if (phone && !/^[+\d][\d\s-]{6,29}$/.test(phone)) {
+      return res.status(400).json({ error: 'That phone number does not look valid.' });
+    }
     if (!rawItems.length) return res.status(400).json({ error: 'Your cart is empty.' });
     if (rawItems.length > 60) {
       return res.status(400).json({ error: 'That is too many cards for one order.' });
@@ -195,6 +203,7 @@ router.post('/orders', orderLimiter, async (req, res, next) => {
       buyer,
       telegram: telegramHandle,
       email,
+      phone,
       address,
       delivery,
     });
@@ -205,6 +214,7 @@ router.post('/orders', orderLimiter, async (req, res, next) => {
       buyer: order.buyer,
       telegram: order.telegram,
       email: order.email,
+      phone: order.phone,
       delivery: order.delivery,
       subtotal: order.subtotal,
       fee: order.fee,

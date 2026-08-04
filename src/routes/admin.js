@@ -534,6 +534,7 @@ function toAdminOrder(row, items) {
     buyer: row.buyer,
     telegram: row.telegram,
     email: row.email,
+    phone: row.phone,
     address: row.address,
     delivery: row.delivery,
     subtotal: row.subtotal,
