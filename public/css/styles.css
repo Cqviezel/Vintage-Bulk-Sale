@@ -6,7 +6,7 @@
 *{box-sizing:border-box}html{scroll-behavior:smooth}
 body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--ink)}
 button,input,select,textarea{font:inherit}button{cursor:pointer}a{text-decoration:none;color:inherit}
-img{display:block;max-width:100%}
+img{display:block;max-width:100%;height:auto}
 .hidden{display:none!important}.muted{color:var(--muted)}.small{font-size:11px}.app{min-height:100vh}
 
 /* STORE */
@@ -68,7 +68,9 @@ img{display:block;max-width:100%}
 .overlay.show{opacity:1;pointer-events:auto}
 .drawer{position:fixed;right:0;top:0;z-index:90;width:min(430px,100%);height:100vh;display:flex;flex-direction:column;background:#fff;transform:translateX(102%);transition:.22s;box-shadow:-20px 0 60px #0e15112a}
 .drawer.show{transform:none}
-.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line)}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.panel-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.panel-controls select,.panel-controls input{width:auto;max-width:200px}
 .panel-head h2,.panel-head h3{margin:0}
 .close{width:36px;height:36px;border:0;border-radius:8px;background:var(--surface2);font-size:18px;line-height:1}
 .cart-items{flex:1;overflow:auto;padding:8px 18px}
@@ -88,7 +90,7 @@ img{display:block;max-width:100%}
 
 /* ADMIN */
 .admin-layout{min-height:100vh;display:grid;grid-template-columns:230px 1fr}
-.sidebar{position:sticky;top:0;height:100vh;padding:20px 14px;background:var(--forest);color:#fff;display:flex;flex-direction:column}
+.sidebar{position:sticky;top:0;height:100vh;min-width:0;padding:20px 14px;background:var(--forest);color:#fff;display:flex;flex-direction:column}
 .brand{padding:4px 8px 22px;font-weight:850;letter-spacing:.06em}
 .brand small{display:block;margin-top:5px;color:#ffffff9e;font-size:10px;letter-spacing:.14em}
 .admin-nav{display:grid;gap:7px}
@@ -209,7 +211,10 @@ th{background:#fafaf8;color:var(--muted);font-size:10px;text-transform:uppercase
   .admin-main{padding:16px 12px}
   .stats{grid-template-columns:repeat(2,1fr)}
   .admin-top{align-items:flex-start;flex-direction:column}
-  .actions{width:100%}.actions .btn{flex:1}
+  .actions{width:100%;flex-wrap:wrap}.actions .btn{flex:1 1 calc(50% - 4px)}
+  .panel-head{padding:14px}
+  .panel-controls{width:100%}
+  .panel-controls select,.panel-controls input{flex:1 1 140px;max-width:none}
 }
 @media(max-width:760px){
   .store-shell{padding:10px 12px 34px}

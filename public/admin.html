@@ -66,13 +66,13 @@
       <div class="panel">
         <div class="panel-head">
           <div><h2>Inventory</h2><div class="small muted">Live products with stock appear immediately on the storefront.</div></div>
-          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <div class="panel-controls">
             <div class="view-toggle">
               <button class="active" data-view="list" type="button">List</button>
               <button data-view="grid" type="button">Grid</button>
             </div>
-            <select id="adminSetFilter" style="max-width:200px"><option value="">All sets</option></select>
-            <input id="adminProductSearch" placeholder="Search inventory" style="max-width:230px">
+            <select id="adminSetFilter"><option value="">All sets</option></select>
+            <input id="adminProductSearch" placeholder="Search inventory">
           </div>
         </div>
         <div class="table-wrap" id="inventoryListView">
