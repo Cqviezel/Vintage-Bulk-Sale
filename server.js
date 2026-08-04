@@ -88,7 +88,9 @@ app.use(
 
 app.use(
   express.static(PUBLIC_DIR, {
-    maxAge: IS_PROD ? '1h' : 0,
+    // max-age=0 forces a revalidation request on every load, so a deploy is visible
+    // immediately instead of waiting out a stale browser cache.
+    maxAge: 0,
     extensions: ['html'],
   })
 );
