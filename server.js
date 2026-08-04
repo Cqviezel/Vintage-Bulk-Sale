@@ -116,9 +116,20 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`  Seller admin /admin`);
   console.log(`  Database     ${path.join(DATA_DIR, 'store.db')}`);
 
-  if (!auth.hasAdmin()) {
+  // On a host with no shell access (Railway etc.) this is the only way to get the
+  // first admin account onto a fresh volume — set the env vars once, then remove them.
+  if (!auth.hasAdmin() && process.env.ADMIN_USERNAME && process.env.ADMIN_PASSWORD) {
+    try {
+      auth.setPassword(process.env.ADMIN_USERNAME, process.env.ADMIN_PASSWORD);
+      console.log(`\n  Admin account "${process.env.ADMIN_USERNAME}" created from ADMIN_USERNAME/ADMIN_PASSWORD.`);
+      console.log('  You can remove those two env vars now — they are only read when no admin exists yet.\n');
+    } catch (err) {
+      console.error(`\n  ! Could not create admin from env vars: ${err.message}\n`);
+    }
+  } else if (!auth.hasAdmin()) {
     console.warn('\n  ! No admin account yet. Create one with:');
-    console.warn('      npm run set-password -- <username> <password>\n');
+    console.warn('      npm run set-password -- <username> <password>');
+    console.warn('    (or set ADMIN_USERNAME / ADMIN_PASSWORD env vars and restart)\n');
   }
   if (!telegram.isConfigured()) {
     console.warn('  ! Telegram not configured — orders will save but you will not be pinged.');
