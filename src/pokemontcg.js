@@ -254,13 +254,18 @@ function apiHeaders() {
   return headers;
 }
 
-/** Same flaky-5xx retry as request() above, for the catalog endpoints (sets/set cards). */
+/**
+ * Same flaky-5xx retry as request() above, for the catalog endpoints (sets/set cards).
+ * One extra attempt versus request(): these responses are cached for a day, so a slower
+ * upstream burst (Cloudflare's api.pokemontcg.io throws 500s in bunches) is worth outlasting
+ * rather than surfacing as "could not reach the API" for a set that's actually fine.
+ */
 async function fetchJson(url, attempt = 0) {
   let res;
   try {
     res = await fetch(url, { headers: apiHeaders() });
   } catch (err) {
-    if (attempt < 2) {
+    if (attempt < 3) {
       await sleep(400 * (attempt + 1));
       return fetchJson(url, attempt + 1);
     }
@@ -270,7 +275,7 @@ async function fetchJson(url, attempt = 0) {
   if (res.status === 429) throw Object.assign(new Error('rate limited'), { rateLimited: true });
 
   if (!res.ok) {
-    if (res.status >= 500 && attempt < 2) {
+    if (res.status >= 500 && attempt < 3) {
       await sleep(400 * (attempt + 1));
       return fetchJson(url, attempt + 1);
     }
@@ -323,19 +328,30 @@ async function listSets() {
 /**
  * Every card in one set, in card-number order. Sets top out around 250-300 cards
  * (secret rares push past the printed total), so a couple of pages covers any of them.
+ *
+ * Promo sets ("SM Black Star Promos" etc.) regularly need a second page. Fetching
+ * pages one-at-a-time means each one's retries stack on top of the last, so on a
+ * bad day for api.pokemontcg.io (bursts of 500s) a 2-3 page set can take the better
+ * part of a minute and read as "could not reach the API" if anything upstream gives
+ * up first. Fetching page 1 to learn the count, then the rest in parallel, keeps the
+ * wall-clock cost close to that of the single slowest page instead of their sum.
  */
 async function listSetCards(setId) {
   const cached = setCardsCache.get(setId);
   if (cached && Date.now() - cached.at < CATALOG_TTL) return cached.cards;
 
-  const cards = [];
-  for (let page = 1; page <= 4; page++) {
-    const url = `${API}?q=${encodeURIComponent(`set.id:${setId}`)}&orderBy=number&pageSize=250&page=${page}`;
-    const json = await fetchJson(url);
-    const data = Array.isArray(json.data) ? json.data : [];
-    cards.push(...data);
-    if (data.length < 250) break;
-  }
+  const pageUrl = (page) =>
+    `${API}?q=${encodeURIComponent(`set.id:${setId}`)}&orderBy=number&pageSize=250&page=${page}`;
+
+  const first = await fetchJson(pageUrl(1));
+  const firstData = Array.isArray(first.data) ? first.data : [];
+  const totalPages = Math.max(1, Math.min(4, Math.ceil((first.totalCount || firstData.length) / 250)));
+
+  const rest = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, i) => fetchJson(pageUrl(i + 2)))
+  );
+
+  const cards = [...firstData, ...rest.flatMap((json) => (Array.isArray(json.data) ? json.data : []))];
 
   const shaped = cards
     .map((c) => {
