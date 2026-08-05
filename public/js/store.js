@@ -451,8 +451,8 @@ function openQuickView(id) {
     btn.onclick = () => openQuickView(btn.dataset.view);
   });
 
-  wireRelatedScroll();
   openModal('#quickViewModal');
+  wireRelatedScroll();
 }
 
 /** Arrow buttons for the "More from this set" row — the hidden native scrollbar gave no clue it scrolled. */
