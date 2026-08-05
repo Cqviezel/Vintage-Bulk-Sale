@@ -6,7 +6,7 @@
   "type": "commonjs",
   "main": "server.js",
   "engines": {
-    "node": ">=18"
+    "node": ">=20.9.0"
   },
   "scripts": {
     "start": "node server.js",
