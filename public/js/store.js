@@ -199,7 +199,7 @@ function renderTradeShows() {
 function renderProducts() {
   const q = $('#storeSearch').value.trim().toLowerCase();
   const set = $('#storeSet').value;
-  const limit = Number($('#storePrice').value || 0);
+  const sort = $('#storePrice').value;
   const condition = $('#storeCondition').value;
   const variant = $('#storeVariant').value;
 
@@ -207,10 +207,12 @@ function renderProducts() {
     (p) =>
       (!q || `${p.name} ${p.set} ${p.number}`.toLowerCase().includes(q)) &&
       (!set || p.set === set) &&
-      (!limit || p.price <= limit) &&
       (!condition || p.condition === condition) &&
       (!variant || p.variant === variant)
   );
+
+  if (sort === 'asc') list.sort((a, b) => a.price - b.price);
+  if (sort === 'desc') list.sort((a, b) => b.price - a.price);
 
   $('#resultCount').textContent = `${list.length} card${list.length === 1 ? '' : 's'}`;
 
