@@ -58,8 +58,6 @@
       <div class="shows-row" id="showsRow"></div>
     </section>
 
-    <section class="set-row" id="setRow"></section>
-
     <main class="catalogue" id="catalogue">
       <div class="catalogue-head">
         <div>
@@ -97,6 +95,7 @@
         <a href="#catalogue">All Cards</a>
         <a href="#" id="conditionGuide">Condition Guide</a>
         <a href="#" id="shippingInfo">Shipping &amp; Pickup</a>
+        <a href="#" id="trackOrder">Track Order</a>
         <a href="/admin/login">Seller Login</a>
       </nav>
     </footer>
@@ -162,6 +161,27 @@
       <button class="close modal-close" aria-label="Close">&times;</button>
     </div>
     <div class="panel-body" id="confirmationContent"></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="trackModal">
+  <div class="modal" style="width:min(560px,100%)">
+    <div class="panel-head">
+      <div>
+        <h2>Track Your Order</h2>
+        <div class="small muted">Enter your order ID and the Telegram handle or email you checked out with.</div>
+      </div>
+      <button class="close modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body">
+      <div class="form-grid">
+        <div><label for="trackId">Order ID</label><input id="trackId" placeholder="CTCG-1234"></div>
+        <div><label for="trackContact">Telegram or Email</label><input id="trackContact" placeholder="@username or you@example.com"></div>
+      </div>
+      <div id="trackError" class="notice error hidden" style="margin-top:12px"></div>
+      <button class="checkout" id="trackSubmit" style="margin-top:16px">Look Up Order</button>
+      <div id="trackResult" style="margin-top:16px"></div>
+    </div>
   </div>
 </div>
 

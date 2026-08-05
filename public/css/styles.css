@@ -50,10 +50,6 @@ img{display:block;max-width:100%;height:auto}
 .show-body .place{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .show-table{flex:0 0 auto;padding:5px 9px;border-radius:6px;background:#f6ecd8;color:#8a6a2c;font-size:10px;font-weight:750;white-space:nowrap}
 .dot{width:3px;height:3px;align-self:center;border-radius:50%;background:#aeb4ad}
-.set-row{display:flex;gap:8px;margin-top:24px;overflow:auto;scrollbar-width:none}
-.set-row::-webkit-scrollbar{display:none}
-.set-chip{flex:0 0 auto;padding:9px 13px;border:1px solid var(--line);border-radius:999px;background:transparent;font-size:12px;font-weight:650}
-.set-chip.active,.set-chip:hover{background:var(--forest);border-color:var(--forest);color:#fff}
 .catalogue{padding-top:38px}
 .catalogue-head{display:flex;justify-content:space-between;align-items:end;gap:14px;margin-bottom:16px}
 .catalogue-head h2{margin:0;font-size:28px}

@@ -30,6 +30,10 @@ function esc(s) {
     .replace(/'/g, '&#39;');
 }
 
+function slug(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+}
+
 function toast(msg, isError) {
   const t = $('#toast');
   t.textContent = msg;
@@ -115,24 +119,6 @@ function renderSetOptions() {
   $('#storeSet').innerHTML =
     '<option value="">All sets</option>' +
     sets.map((s) => `<option${s === current ? ' selected' : ''}>${esc(s)}</option>`).join('');
-
-  $('#setRow').innerHTML = ['', ...sets]
-    .map(
-      (s) =>
-        `<button class="set-chip${s === current ? ' active' : ''}" data-set="${esc(s)}">${
-          esc(s || 'All Sets')
-        }</button>`
-    )
-    .join('');
-
-  $$('#setRow .set-chip').forEach((btn) => {
-    btn.onclick = () => {
-      $$('#setRow .set-chip').forEach((x) => x.classList.remove('active'));
-      btn.classList.add('active');
-      $('#storeSet').value = btn.dataset.set;
-      renderProducts();
-    };
-  });
 
   $('#browseSetsMenu').innerHTML = ['', ...sets]
     .map(
@@ -574,5 +560,60 @@ $('#shippingInfo').onclick = (e) => {
      </div>`
   );
 };
+
+/* ------------------------------------------------------------- tracking --- */
+
+$('#trackOrder').onclick = (e) => {
+  e.preventDefault();
+  $('#trackId').value = '';
+  $('#trackContact').value = '';
+  $('#trackError').classList.add('hidden');
+  $('#trackResult').innerHTML = '';
+  openModal('#trackModal');
+};
+
+async function lookupOrder() {
+  const button = $('#trackSubmit');
+  const errorBox = $('#trackError');
+  errorBox.classList.add('hidden');
+  $('#trackResult').innerHTML = '';
+
+  const id = $('#trackId').value.trim();
+  const contact = $('#trackContact').value.trim();
+  if (!id || !contact) {
+    errorBox.textContent = 'Enter your order ID and the Telegram handle or email you checked out with.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = 'Looking up…';
+  try {
+    const o = await api(
+      `/api/orders/lookup?id=${encodeURIComponent(id)}&contact=${encodeURIComponent(contact)}`,
+      { method: 'GET' }
+    );
+    $('#trackResult').innerHTML = `
+      <div class="order-items">
+        <div class="summary"><span><b>${esc(o.id)}</b></span><span class="status order-${slug(o.status)}">${esc(o.status)}</span></div>
+        ${o.items
+          .map(
+            (i) =>
+              `<div class="summary"><span>${esc(i.name)} &middot; ${esc(i.condition)}</span><span>${money(i.price)}</span></div>`
+          )
+          .join('')}
+        <div class="summary"><span>${esc(o.delivery)}</span><span>${money(o.fee)}</span></div>
+        <div class="summary total"><span>Total</span><span>${money(o.total)}</span></div>
+      </div>`;
+  } catch (err) {
+    errorBox.textContent = err.message;
+    errorBox.classList.remove('hidden');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Look Up Order';
+  }
+}
+
+$('#trackSubmit').onclick = lookupOrder;
 
 load();
