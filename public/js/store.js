@@ -17,6 +17,101 @@ let cart = new Set(loadCart());
 const PAGE_SIZE = 24;
 let currentPage = 1;
 
+/**
+ * English-set eras, oldest first, sets within each era in release order.
+ * Matches the official set names used by the Pokémon TCG API (what "Add by Set"
+ * writes into each product's `set` field). Anything not found here — a typo, a
+ * hand-entered set, a promo — just falls into a trailing "Other Sets" group
+ * instead of being dropped, so browsing never silently loses a card.
+ */
+const SET_ERAS = [
+  { label: 'Base Era', sets: ['Base', 'Jungle', 'Fossil', 'Base Set 2', 'Team Rocket'] },
+  { label: 'Gym Series', sets: ['Gym Heroes', 'Gym Challenge'] },
+  { label: 'Neo Series', sets: ['Neo Genesis', 'Neo Discovery', 'Neo Revelation', 'Neo Destiny'] },
+  { label: 'Legendary Collection', sets: ['Legendary Collection'] },
+  { label: 'e-Card Series', sets: ['Expedition Base Set', 'Aquapolis', 'Skyridge'] },
+  {
+    label: 'EX Series',
+    sets: [
+      'EX Ruby & Sapphire', 'EX Sandstorm', 'EX Dragon', 'EX Team Magma vs Team Aqua',
+      'EX Hidden Legends', 'EX FireRed & LeafGreen', 'EX Team Rocket Returns', 'EX Deoxys',
+      'EX Emerald', 'EX Unseen Forces', 'EX Delta Species', 'EX Legend Maker',
+      'EX Holon Phantoms', 'EX Crystal Guardians', 'EX Dragon Frontiers', 'EX Power Keepers',
+    ],
+  },
+  {
+    label: 'Diamond & Pearl Series',
+    sets: [
+      'Diamond & Pearl', 'Mysterious Treasures', 'Secret Wonders', 'Great Encounters',
+      'Majestic Dawn', 'Legends Awakened', 'Stormfront',
+    ],
+  },
+  { label: 'Platinum Series', sets: ['Platinum', 'Rising Rivals', 'Supreme Victors', 'Arceus'] },
+  {
+    label: 'HeartGold & SoulSilver Series',
+    sets: ['HeartGold & SoulSilver', 'HS—Unleashed', 'HS—Undaunted', 'HS—Triumphant', 'Call of Legends'],
+  },
+  {
+    label: 'Black & White Series',
+    sets: [
+      'Black & White', 'Emerging Powers', 'Noble Victories', 'Next Destinies', 'Dark Explorers',
+      'Dragons Exalted', 'Boundaries Crossed', 'Plasma Storm', 'Plasma Freeze', 'Plasma Blast',
+      'Legendary Treasures',
+    ],
+  },
+  {
+    label: 'XY Series',
+    sets: [
+      'XY', 'Flashfire', 'Furious Fists', 'Phantom Forces', 'Primal Clash', 'Roaring Skies',
+      'Ancient Origins', 'BREAKthrough', 'BREAKpoint', 'Generations', 'Fates Collide',
+      'Steam Siege', 'Evolutions',
+    ],
+  },
+  {
+    label: 'Sun & Moon Series',
+    sets: [
+      'Sun & Moon', 'Guardians Rising', 'Burning Shadows', 'Shining Legends', 'Crimson Invasion',
+      'Ultra Prism', 'Forbidden Light', 'Celestial Storm', 'Dragon Majesty', 'Lost Thunder',
+      'Team Up', 'Detective Pikachu', 'Unbroken Bonds', 'Unified Minds', 'Hidden Fates',
+      'Cosmic Eclipse',
+    ],
+  },
+  {
+    label: 'Sword & Shield Series',
+    sets: [
+      'Sword & Shield', 'Rebel Clash', 'Darkness Ablaze', "Champion's Path", 'Vivid Voltage',
+      'Shining Fates', 'Battle Styles', 'Chilling Reign', 'Evolving Skies', 'Celebrations',
+      'Fusion Strike', 'Brilliant Stars', 'Astral Radiance', 'Pokémon GO', 'Lost Origin',
+      'Silver Tempest', 'Crown Zenith',
+    ],
+  },
+  {
+    label: 'Scarlet & Violet Series',
+    sets: [
+      'Scarlet & Violet', 'Paldea Evolved', 'Obsidian Flames', '151', 'Paradox Rift',
+      'Paldean Fates', 'Temporal Forces', 'Twilight Masquerade', 'Shrouded Fable',
+      'Stellar Crown', 'Surging Sparks', 'Prismatic Evolutions', 'Journey Together',
+    ],
+  },
+];
+
+const SET_ERA_LOOKUP = new Map();
+SET_ERAS.forEach((era) => era.sets.forEach((name, i) => SET_ERA_LOOKUP.set(name, { era, order: i })));
+
+/** Groups the sets actually in stock by era, in release order; unknown sets land in "Other Sets". */
+function groupSetsByEra(sets) {
+  const present = new Set(sets);
+  const groups = SET_ERAS.map((era) => ({
+    label: era.label,
+    sets: era.sets.filter((s) => present.has(s)),
+  })).filter((g) => g.sets.length);
+
+  const other = sets.filter((s) => !SET_ERA_LOOKUP.has(s)).sort();
+  if (other.length) groups.push({ label: 'Other Sets', sets: other });
+
+  return groups;
+}
+
 /* ------------------------------------------------------------- helpers --- */
 
 function money(n) {
@@ -116,21 +211,35 @@ async function load() {
 /* ------------------------------------------------------------ rendering --- */
 
 function renderSetOptions() {
-  const sets = [...new Set(products.map((p) => p.set).filter(Boolean))].sort();
+  const sets = [...new Set(products.map((p) => p.set).filter(Boolean))];
+  const groups = groupSetsByEra(sets);
   const current = $('#storeSet').value;
 
   $('#storeSet').innerHTML =
     '<option value="">All sets</option>' +
-    sets.map((s) => `<option${s === current ? ' selected' : ''}>${esc(s)}</option>`).join('');
+    groups
+      .map(
+        (g) =>
+          `<optgroup label="${esc(g.label)}">${g.sets
+            .map((s) => `<option${s === current ? ' selected' : ''}>${esc(s)}</option>`)
+            .join('')}</optgroup>`
+      )
+      .join('');
 
-  $('#browseSetsMenu').innerHTML = ['', ...sets]
-    .map(
-      (s) =>
-        `<button role="menuitem" data-set="${esc(s)}"${s === current ? ' class="active"' : ''}>${
-          esc(s || 'All Sets')
-        }</button>`
-    )
-    .join('');
+  $('#browseSetsMenu').innerHTML =
+    `<button role="menuitem" data-set=""${current === '' ? ' class="active"' : ''}>All Sets</button>` +
+    groups
+      .map(
+        (g) =>
+          `<div class="menu-era" role="presentation">${esc(g.label)}</div>` +
+          g.sets
+            .map(
+              (s) =>
+                `<button role="menuitem" data-set="${esc(s)}"${s === current ? ' class="active"' : ''}>${esc(s)}</button>`
+            )
+            .join('')
+      )
+      .join('');
 
   $$('#browseSetsMenu button').forEach((btn) => {
     btn.onclick = () => {
