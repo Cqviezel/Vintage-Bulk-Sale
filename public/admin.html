@@ -89,9 +89,29 @@
     <section class="admin-tab" id="orders">
       <div class="admin-top">
         <div><h1>Orders</h1><p>Move orders from awaiting payment through completion.</p></div>
-        <div class="actions"><button class="btn" id="refreshOrders">Refresh</button></div>
+        <div class="actions">
+          <button class="btn" id="refreshOrders">Refresh</button>
+          <a class="btn" href="/api/admin/orders/export.csv" style="display:inline-flex;align-items:center">Export CSV</a>
+        </div>
       </div>
       <div class="panel">
+        <div class="panel-head">
+          <div><h2>Order History</h2><div class="small muted">Filter by status, buyer/contact, or date placed.</div></div>
+          <div class="panel-controls">
+            <select id="orderStatusFilter">
+              <option value="">All statuses</option>
+              <option value="awaiting payment">Awaiting payment</option>
+              <option value="paid">Paid</option>
+              <option value="packed">Packed</option>
+              <option value="mailed">Mailed</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <input id="orderSearch" placeholder="Order, buyer, telegram, email">
+            <input id="orderFrom" type="date" title="From date" style="max-width:150px">
+            <input id="orderTo" type="date" title="To date" style="max-width:150px">
+          </div>
+        </div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Order</th><th>Buyer</th><th>Items</th><th>Total</th><th>Delivery</th><th>Status</th><th>Telegram</th><th>Actions</th></tr></thead>
@@ -302,6 +322,7 @@
         </div>
 
         <div id="setCardsError" class="notice error hidden" style="margin-top:12px"></div>
+        <div class="notice" id="setImportSummary" style="margin-top:12px"></div>
         <div class="actions" style="justify-content:flex-end;margin-top:16px">
           <button class="btn modal-close" type="button">Cancel</button>
           <button class="btn primary" id="setCommit" type="button" disabled>Add Selected Cards</button>

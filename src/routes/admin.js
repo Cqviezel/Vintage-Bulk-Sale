@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
+const sharp = require('sharp');
 const rateLimit = require('express-rate-limit');
 
 const { db, getSettings, saveSettings } = require('../db');
@@ -490,14 +491,10 @@ const ALLOWED_IMAGE = new Map([
   ['image/gif', '.gif'],
 ]);
 
+// Buffered in memory (not written to disk) so sharp can downscale/re-encode it first —
+// a phone photo straight off the camera is often 10-20x the size it needs to be for the web.
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-    filename: (req, file, cb) => {
-      const ext = ALLOWED_IMAGE.get(file.mimetype) || '.bin';
-      cb(null, crypto.randomBytes(12).toString('hex') + ext);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 6 * 1024 * 1024, files: 1 },
   fileFilter: (req, file, cb) => {
     if (!ALLOWED_IMAGE.has(file.mimetype)) {
@@ -507,15 +504,52 @@ const upload = multer({
   },
 });
 
+const MAX_IMAGE_DIMENSION = 1400;
+
+/** Downscales to a sane max size and re-encodes; never upscales a smaller source. */
+async function processImage(buffer, mimetype) {
+  let img = sharp(buffer, { animated: mimetype === 'image/gif' })
+    .rotate() // respects EXIF orientation, which phone cameras rely on
+    .resize({
+      width: MAX_IMAGE_DIMENSION,
+      height: MAX_IMAGE_DIMENSION,
+      fit: 'inside',
+      withoutEnlargement: true,
+    });
+
+  switch (mimetype) {
+    case 'image/jpeg':
+      return img.jpeg({ quality: 82, mozjpeg: true }).toBuffer();
+    case 'image/png':
+      return img.png({ compressionLevel: 8 }).toBuffer();
+    case 'image/webp':
+      return img.webp({ quality: 82 }).toBuffer();
+    case 'image/gif':
+      return img.gif().toBuffer();
+    default:
+      return buffer;
+  }
+}
+
 router.post('/upload', (req, res) => {
-  upload.single('image')(req, res, (err) => {
+  upload.single('image')(req, res, async (err) => {
     if (err) {
       const message =
         err.code === 'LIMIT_FILE_SIZE' ? 'Image must be under 6 MB.' : err.message;
       return res.status(400).json({ error: message });
     }
     if (!req.file) return res.status(400).json({ error: 'No image received.' });
-    res.status(201).json({ url: '/uploads/' + req.file.filename });
+
+    try {
+      const processed = await processImage(req.file.buffer, req.file.mimetype);
+      const ext = ALLOWED_IMAGE.get(req.file.mimetype) || '.bin';
+      const filename = crypto.randomBytes(12).toString('hex') + ext;
+      await fs.promises.writeFile(path.join(UPLOAD_DIR, filename), processed);
+      res.status(201).json({ url: '/uploads/' + filename });
+    } catch (procErr) {
+      console.error('[upload] image processing failed:', procErr);
+      res.status(500).json({ error: 'Could not process that image.' });
+    }
   });
 });
 
@@ -560,6 +594,48 @@ function toAdminOrder(row, items) {
 router.get('/orders', (req, res) => {
   const rows = allOrders.all();
   res.json(rows.map((row) => toAdminOrder(row, itemsForOrder.all(row.id))));
+});
+
+// Must come before /orders/:id or that route would swallow this path as an id lookup.
+const ORDER_EXPORT_HEADERS = [
+  'order_id', 'date', 'buyer', 'telegram', 'email', 'phone', 'delivery',
+  'card', 'set', 'number', 'condition', 'variant', 'price', 'status',
+];
+
+router.get('/orders/export.csv', (req, res) => {
+  const rows = [];
+  for (const o of allOrders.all()) {
+    const base = {
+      order_id: o.id,
+      date: o.created_at,
+      buyer: o.buyer,
+      telegram: o.telegram,
+      email: o.email,
+      phone: o.phone,
+      delivery: o.delivery,
+      status: o.status,
+    };
+    const items = itemsForOrder.all(o.id);
+    if (!items.length) {
+      rows.push({ ...base, card: '', set: '', number: '', condition: '', variant: '', price: '' });
+      continue;
+    }
+    for (const item of items) {
+      rows.push({
+        ...base,
+        card: item.name,
+        set: item.set_name,
+        number: item.number,
+        condition: item.condition,
+        variant: item.variant,
+        price: item.price.toFixed(2),
+      });
+    }
+  }
+  const stamp = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="crazed-tcg-orders-${stamp}.csv"`);
+  res.send(csv.stringify(ORDER_EXPORT_HEADERS, rows));
 });
 
 router.get('/orders/:id', (req, res) => {

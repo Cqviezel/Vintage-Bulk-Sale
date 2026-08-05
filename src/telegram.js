@@ -107,6 +107,26 @@ async function notifyNewOrder(order, items) {
   return result;
 }
 
+/** Fired right after an order pushes a card to 0 or 1 left, so it can be pulled/relisted. */
+async function notifyLowStock(product) {
+  if (!isConfigured()) return { ok: false, reason: 'not configured' };
+
+  const left = product.qty <= 0 ? 'sold out' : `${product.qty} left`;
+  const detail = product.set ? ` — ${escapeHtml(product.set)}` : '';
+
+  const result = await post('sendMessage', {
+    chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID,
+    text: `<b>Low stock</b>\n${escapeHtml(product.name)}${detail} is ${left}.`,
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
+  });
+
+  if (!result.ok) {
+    console.error(`[telegram] low-stock alert for "${product.name}" failed: ${result.reason}`);
+  }
+  return result;
+}
+
 async function sendTest() {
   if (!isConfigured()) {
     return {
@@ -121,4 +141,4 @@ async function sendTest() {
   });
 }
 
-module.exports = { notifyNewOrder, sendTest, isConfigured, buildMessage };
+module.exports = { notifyNewOrder, notifyLowStock, sendTest, isConfigured, buildMessage };

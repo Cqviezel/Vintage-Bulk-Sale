@@ -56,11 +56,43 @@ async function api(url, options = {}) {
   return data;
 }
 
+const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+let modalReturnFocus = null;
+
+/** Keeps Tab from leaving the open modal, so keyboard users can't land on the page behind it. */
+function trapFocus(modal) {
+  const focusable = modal.querySelectorAll(FOCUSABLE);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+
+  modal.onkeydown = (e) => {
+    if (e.key !== 'Tab') return;
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+}
+
 function openModal(sel) {
-  $(sel).classList.add('show');
+  const modal = $(sel);
+  modalReturnFocus = document.activeElement;
+  modal.classList.add('show');
+  trapFocus(modal);
+  const target = modal.querySelector(FOCUSABLE);
+  if (target) target.focus();
 }
 function closeModals() {
-  $$('.modal-bg').forEach((m) => m.classList.remove('show'));
+  $$('.modal-bg').forEach((m) => {
+    m.classList.remove('show');
+    m.onkeydown = null;
+  });
+  if (modalReturnFocus && typeof modalReturnFocus.focus === 'function') modalReturnFocus.focus();
+  modalReturnFocus = null;
 }
 
 /* ------------------------------------------------------------ dashboard --- */
@@ -689,11 +721,36 @@ async function openSetCards(set) {
       ? setRowsCache.map(setCardRow).join('')
       : '<tr><td colspan="9" class="muted">No cards found for this set.</td></tr>';
     $('#setCommit').disabled = !setRowsCache.length;
+    updateSetImportSummary();
   } catch (err) {
     $('#setCardsBody').innerHTML = '';
     $('#setCardsError').textContent = err.message;
     $('#setCardsError').classList.remove('hidden');
   }
+}
+
+/** Live recap of what "Add Selected Cards" would actually do, so it's never a surprise. */
+function updateSetImportSummary() {
+  let cardCount = 0;
+  let totalQty = 0;
+  let totalPrice = 0;
+
+  $$('#setCardsBody tr[data-row-index]').forEach((row) => {
+    const qty = Number.parseInt(row.querySelector('[data-field="qty"]').value, 10);
+    if (!Number.isInteger(qty) || qty <= 0) return;
+    const price = Number(row.querySelector('[data-field="price"]').value) || 0;
+    cardCount++;
+    totalQty += qty;
+    totalPrice += qty * price;
+  });
+
+  $('#setImportSummary').innerHTML = cardCount
+    ? `<b>${cardCount}</b> card${cardCount === 1 ? '' : 's'} selected &middot; <b>${totalQty}</b> total qty &middot; est. <b>${money(totalPrice)}</b>`
+    : '<span class="muted">No cards selected yet — set a quantity on the ones you want to add.</span>';
+
+  $('#setCommit').textContent = cardCount
+    ? `Add ${cardCount} Card${cardCount === 1 ? '' : 's'}`
+    : 'Add Selected Cards';
 }
 
 function filterSetCards() {
@@ -750,7 +807,7 @@ async function commitSetImport() {
     errorBox.classList.remove('hidden');
   } finally {
     button.disabled = false;
-    button.textContent = 'Add Selected Cards';
+    updateSetImportSummary();
   }
 }
 
@@ -761,6 +818,7 @@ $('#backToSetPicker').onclick = () => {
   $('#setPickerView').classList.remove('hidden');
 };
 $('#cardFilter').oninput = filterSetCards;
+$('#setCardsBody').oninput = updateSetImportSummary;
 $('#setCommit').onclick = commitSetImport;
 
 $('#setDefaultCondition').onchange = (e) => {
@@ -841,9 +899,32 @@ async function loadOrders() {
   }
 }
 
+function filteredOrders() {
+  const status = $('#orderStatusFilter').value;
+  const q = ($('#orderSearch').value || '').trim().toLowerCase();
+  const from = $('#orderFrom').value;
+  const to = $('#orderTo').value;
+
+  return orderCache.filter((o) => {
+    if (status && o.status !== status) return false;
+    if (
+      q &&
+      !`${o.id} ${o.buyer} ${o.telegram} ${o.email}`.toLowerCase().includes(q)
+    ) {
+      return false;
+    }
+    const day = (o.createdAt || '').slice(0, 10);
+    if (from && day < from) return false;
+    if (to && day > to) return false;
+    return true;
+  });
+}
+
 function renderOrders() {
-  $('#ordersBody').innerHTML = orderCache.length
-    ? orderCache
+  const list = filteredOrders();
+
+  $('#ordersBody').innerHTML = list.length
+    ? list
         .map(
           (o) => `<tr>
       <td>${esc(o.id)}<div class="small muted">${esc((o.createdAt || '').replace('T', ' '))}</div></td>
@@ -862,7 +943,9 @@ function renderOrders() {
     </tr>`
         )
         .join('')
-    : '<tr><td colspan="8" class="muted">No orders yet.</td></tr>';
+    : `<tr><td colspan="8" class="muted">${
+        orderCache.length ? 'No orders match these filters.' : 'No orders yet.'
+      }</td></tr>`;
 
   $$('[data-order]').forEach((b) => (b.onclick = () => openOrder(b.dataset.order)));
   $$('[data-advance]').forEach((b) => (b.onclick = () => advanceOrder(b.dataset.advance)));
@@ -1232,6 +1315,10 @@ $('#saveTradeShow').onclick = saveTradeShow;
 $('#adminProductSearch').oninput = renderInventory;
 $('#adminSetFilter').onchange = renderInventory;
 $('#refreshOrders').onclick = loadOrders;
+$('#orderStatusFilter').onchange = renderOrders;
+$('#orderSearch').oninput = renderOrders;
+$('#orderFrom').onchange = renderOrders;
+$('#orderTo').onchange = renderOrders;
 
 $('#logout').onclick = async () => {
   try {

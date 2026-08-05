@@ -123,7 +123,7 @@ function renderSetOptions() {
   $('#browseSetsMenu').innerHTML = ['', ...sets]
     .map(
       (s) =>
-        `<button data-set="${esc(s)}"${s === current ? ' class="active"' : ''}>${
+        `<button role="menuitem" data-set="${esc(s)}"${s === current ? ' class="active"' : ''}>${
           esc(s || 'All Sets')
         }</button>`
     )
@@ -293,11 +293,43 @@ function renderCart() {
 
 /* --------------------------------------------------------------- modals --- */
 
+const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+let modalReturnFocus = null;
+
+/** Keeps Tab from leaving the open modal, so keyboard users can't land on the page behind it. */
+function trapFocus(modal) {
+  const focusable = modal.querySelectorAll(FOCUSABLE);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+
+  modal.onkeydown = (e) => {
+    if (e.key !== 'Tab') return;
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+}
+
 function openModal(sel) {
-  $(sel).classList.add('show');
+  const modal = $(sel);
+  modalReturnFocus = document.activeElement;
+  modal.classList.add('show');
+  trapFocus(modal);
+  const target = modal.querySelector(FOCUSABLE);
+  if (target) target.focus();
 }
 function closeModals() {
-  $$('.modal-bg').forEach((m) => m.classList.remove('show'));
+  $$('.modal-bg').forEach((m) => {
+    m.classList.remove('show');
+    m.onkeydown = null;
+  });
+  if (modalReturnFocus && typeof modalReturnFocus.focus === 'function') modalReturnFocus.focus();
+  modalReturnFocus = null;
 }
 
 function openInfo(title, body) {
@@ -472,11 +504,19 @@ function showConfirmation(order) {
 
 function closeBrowseSetsMenu() {
   $('#browseSetsMenu').classList.add('hidden');
+  $('#browseSets').setAttribute('aria-expanded', 'false');
 }
 
 $('#browseSets').onclick = (e) => {
   e.stopPropagation();
-  $('#browseSetsMenu').classList.toggle('hidden');
+  const menu = $('#browseSetsMenu');
+  const willOpen = menu.classList.contains('hidden');
+  menu.classList.toggle('hidden', !willOpen);
+  $('#browseSets').setAttribute('aria-expanded', String(willOpen));
+  if (willOpen) {
+    const first = menu.querySelector('button');
+    if (first) first.focus();
+  }
 };
 
 document.addEventListener('click', (e) => {
@@ -484,13 +524,24 @@ document.addEventListener('click', (e) => {
 });
 
 $('#cartOpen').onclick = () => {
-  $('#cartDrawer').classList.add('show');
+  const drawer = $('#cartDrawer');
+  cartReturnFocus = document.activeElement;
+  drawer.classList.add('show');
   $('#overlay').classList.add('show');
+  trapFocus(drawer);
+  const target = drawer.querySelector(FOCUSABLE);
+  if (target) target.focus();
 };
 
+let cartReturnFocus = null;
+
 function closeCart() {
-  $('#cartDrawer').classList.remove('show');
+  const drawer = $('#cartDrawer');
+  drawer.classList.remove('show');
+  drawer.onkeydown = null;
   $('#overlay').classList.remove('show');
+  if (cartReturnFocus && typeof cartReturnFocus.focus === 'function') cartReturnFocus.focus();
+  cartReturnFocus = null;
 }
 $('#cartClose').onclick = closeCart;
 $('#overlay').onclick = closeCart;
@@ -520,6 +571,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     closeModals();
     closeCart();
+    closeBrowseSetsMenu();
   }
 });
 
