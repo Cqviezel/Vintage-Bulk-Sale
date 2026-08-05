@@ -84,6 +84,7 @@
         </select>
       </div>
       <div class="grid" id="productGrid"></div>
+      <div class="pagination" id="pagination"></div>
     </main>
 
     <footer class="footer">
@@ -143,6 +144,7 @@
           <label for="buyerAddress">Mailing Address / Pickup Note</label>
           <textarea id="buyerAddress" autocomplete="street-address"></textarea>
         </div>
+        <div class="full notice warn hidden" id="selfPickupHint"></div>
       </div>
       <div class="summary total"><span>Order Total</span><span id="checkoutTotal">$0.00</span></div>
       <div id="checkoutError" class="notice error hidden" style="margin-top:12px"></div>

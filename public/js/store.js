@@ -14,6 +14,9 @@ let settings = { mailing: 0, minimum: 0, telegram: '', paynow: '' };
 let tradeShows = [];
 let cart = new Set(loadCart());
 
+const PAGE_SIZE = 24;
+let currentPage = 1;
+
 /* ------------------------------------------------------------- helpers --- */
 
 function money(n) {
@@ -132,6 +135,7 @@ function renderSetOptions() {
   $$('#browseSetsMenu button').forEach((btn) => {
     btn.onclick = () => {
       $('#storeSet').value = btn.dataset.set;
+      currentPage = 1;
       renderProducts();
       renderSetOptions();
       closeBrowseSetsMenu();
@@ -202,8 +206,12 @@ function renderProducts() {
 
   $('#resultCount').textContent = `${list.length} card${list.length === 1 ? '' : 's'}`;
 
-  $('#productGrid').innerHTML = list.length
-    ? list
+  const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+  if (currentPage > totalPages) currentPage = totalPages;
+  const pageItems = list.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  $('#productGrid').innerHTML = pageItems.length
+    ? pageItems
         .map((p) => {
           const inCart = cart.has(p.id);
           return `
@@ -231,6 +239,29 @@ function renderProducts() {
   $$('[data-add]').forEach((b) => {
     b.onclick = () => toggleCart(b.dataset.add);
   });
+
+  renderPagination(totalPages);
+}
+
+function renderPagination(totalPages) {
+  const el = $('#pagination');
+  if (totalPages <= 1) {
+    el.innerHTML = '';
+    return;
+  }
+
+  el.innerHTML = `
+    <button id="pagePrev" ${currentPage === 1 ? 'disabled' : ''}>&larr; Prev</button>
+    <span class="small muted">Page ${currentPage} of ${totalPages}</span>
+    <button id="pageNext" ${currentPage === totalPages ? 'disabled' : ''}>Next &rarr;</button>`;
+
+  const goTo = (page) => {
+    currentPage = page;
+    renderProducts();
+    $('#catalogue').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  if (currentPage > 1) $('#pagePrev').onclick = () => goTo(currentPage - 1);
+  if (currentPage < totalPages) $('#pageNext').onclick = () => goTo(currentPage + 1);
 }
 
 function cartItems() {
@@ -287,6 +318,13 @@ function renderCart() {
     ? `Minimum card subtotal is ${money(settings.minimum)}.`
     : '';
   $('#checkoutOpen').disabled = !items.length || belowMinimum;
+
+  // Self-pickup is meant for larger orders or trade-show meetups — remind, don't block.
+  const selfPickupUnder50 = !posting && items.length > 0 && subtotal < 50;
+  $('#selfPickupHint').classList.toggle('hidden', !selfPickupUnder50);
+  $('#selfPickupHint').textContent = selfPickupUnder50
+    ? 'Heads up: self-pickup is normally for orders of $50 or more, or arranged at a listed trade show. You can still place this order.'
+    : '';
 
   return { subtotal, fee, total: subtotal + fee };
 }
@@ -499,7 +537,10 @@ function showConfirmation(order) {
 /* ---------------------------------------------------------------- wiring --- */
 
 ['storeSearch', 'storeSet', 'storePrice', 'storeCondition', 'storeVariant'].forEach((id) => {
-  $('#' + id).addEventListener('input', renderProducts);
+  $('#' + id).addEventListener('input', () => {
+    currentPage = 1;
+    renderProducts();
+  });
 });
 
 function closeBrowseSetsMenu() {
