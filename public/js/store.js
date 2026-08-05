@@ -312,6 +312,7 @@ function renderProducts() {
 
   if (sort === 'asc') list.sort((a, b) => a.price - b.price);
   if (sort === 'desc') list.sort((a, b) => b.price - a.price);
+  if (sort === 'new') list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
   $('#resultCount').textContent = `${list.length} card${list.length === 1 ? '' : 's'}`;
 
@@ -324,8 +325,8 @@ function renderProducts() {
         .map((p) => {
           const inCart = cart.has(p.id);
           return `
-      <article class="product">
-        <div class="product-image">
+      <article class="product" data-view="${esc(p.id)}">
+        <div class="product-image" role="button" tabindex="0" aria-label="View details for ${esc(p.name)}">
           <img src="${esc(p.image || LOGO)}" alt="${esc(p.name)}" loading="lazy"
                onerror="this.onerror=null;this.src='${LOGO}'">
           <span class="price">${money(p.price)}</span>
@@ -346,7 +347,22 @@ function renderProducts() {
     : '<div class="empty">No cards match these filters.</div>';
 
   $$('[data-add]').forEach((b) => {
-    b.onclick = () => toggleCart(b.dataset.add);
+    b.onclick = (e) => {
+      e.stopPropagation();
+      toggleCart(b.dataset.add);
+    };
+  });
+
+  $$('[data-view]').forEach((el) => {
+    el.onclick = () => openQuickView(el.dataset.view);
+  });
+  $$('.product-image[role="button"]').forEach((el) => {
+    el.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openQuickView(el.closest('[data-view]').dataset.view);
+      }
+    };
   });
 
   renderPagination(totalPages);
@@ -371,6 +387,67 @@ function renderPagination(totalPages) {
   };
   if (currentPage > 1) $('#pagePrev').onclick = () => goTo(currentPage - 1);
   if (currentPage < totalPages) $('#pageNext').onclick = () => goTo(currentPage + 1);
+}
+
+/** Bigger photo + full condition notes, plus a few other cards from the same set. */
+function openQuickView(id) {
+  const p = products.find((x) => x.id === id);
+  if (!p) return;
+
+  $('#quickViewTitle').textContent = p.name;
+
+  const inCart = cart.has(p.id);
+  const related = products.filter((x) => x.set === p.set && x.id !== p.id).slice(0, 6);
+
+  $('#quickViewBody').innerHTML = `
+    <div class="quick-view">
+      <div class="product-image quick-view-image">
+        <img src="${esc(p.image || LOGO)}" alt="${esc(p.name)}" onerror="this.onerror=null;this.src='${LOGO}'">
+        <span class="price">${money(p.price)}</span>
+      </div>
+      <div class="quick-view-info">
+        <div class="meta">${esc(p.set)}${p.number ? ' &middot; ' + esc(p.number) : ''}</div>
+        <div class="tags">
+          <span class="tag">${esc(p.condition)}</span>
+          ${p.variant && p.variant !== 'Normal' ? `<span class="tag">${esc(p.variant)}</span>` : ''}
+          <span class="tag stock${p.qty <= 1 ? ' low' : ''}">${p.qty} left</span>
+        </div>
+        ${p.notes ? `<div class="notice" style="margin-top:12px">${esc(p.notes)}</div>` : ''}
+        <button class="add${inCart ? ' added' : ''}" id="quickViewAdd" style="margin-top:16px">
+          ${inCart ? '&check; Added' : 'Add to Cart'}
+        </button>
+      </div>
+    </div>
+    ${
+      related.length
+        ? `<div class="quick-view-related">
+             <h3>More from ${esc(p.set)}</h3>
+             <div class="related-row">
+               ${related
+                 .map(
+                   (r) => `
+                 <button class="related-card" data-view="${esc(r.id)}">
+                   <img src="${esc(r.image || LOGO)}" alt="" onerror="this.onerror=null;this.src='${LOGO}'">
+                   <span class="related-name">${esc(r.name)}</span>
+                   <span class="related-price">${money(r.price)}</span>
+                 </button>`
+                 )
+                 .join('')}
+             </div>
+           </div>`
+        : ''
+    }`;
+
+  $('#quickViewAdd').onclick = () => {
+    toggleCart(p.id);
+    openQuickView(id);
+  };
+
+  $$('#quickViewBody [data-view]').forEach((btn) => {
+    btn.onclick = () => openQuickView(btn.dataset.view);
+  });
+
+  openModal('#quickViewModal');
 }
 
 function cartItems() {
@@ -651,6 +728,14 @@ function showConfirmation(order) {
     renderProducts();
   });
 });
+
+$('#latestDrop').onclick = (e) => {
+  e.preventDefault();
+  $('#storePrice').value = 'new';
+  currentPage = 1;
+  renderProducts();
+  $('#catalogue').scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
 
 function closeBrowseSetsMenu() {
   $('#browseSetsMenu').classList.add('hidden');

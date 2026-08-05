@@ -24,7 +24,7 @@
           <div class="nav-dropdown-menu hidden" id="browseSetsMenu" role="menu"></div>
         </div>
         <a href="#catalogue">All Cards</a>
-        <a href="#catalogue">Latest Drop</a>
+        <a href="#catalogue" id="latestDrop">Latest Drop</a>
       </div>
       <div class="store-nav-right">
         <button class="cart" id="cartOpen">Cart <span class="count" id="cartCount">0</span></button>
@@ -69,8 +69,9 @@
       <div class="filters">
         <input id="storeSearch" placeholder="Search cards" aria-label="Search cards">
         <select id="storeSet" aria-label="Filter by set"><option value="">All sets</option></select>
-        <select id="storePrice" aria-label="Sort by price">
+        <select id="storePrice" aria-label="Sort by">
           <option value="">Sort: Default</option>
+          <option value="new">Newest First</option>
           <option value="asc">Price: Low to High</option>
           <option value="desc">Price: High to Low</option>
         </select>
@@ -152,6 +153,16 @@
       <div id="checkoutError" class="notice error hidden" style="margin-top:12px"></div>
       <button class="checkout" id="submitOrder">Place Order</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="quickViewModal">
+  <div class="modal" style="width:min(720px,100%)">
+    <div class="panel-head">
+      <h2 id="quickViewTitle"></h2>
+      <button class="close modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body" id="quickViewBody"></div>
   </div>
 </div>
 

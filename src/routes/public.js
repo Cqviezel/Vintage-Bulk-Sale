@@ -11,7 +11,7 @@ const router = express.Router();
 
 const DELIVERY = new Set(['Tracked Mailing', 'Self-Pickup']);
 
-/** Shape a DB row for the storefront. Never leaks notes/qty beyond what's needed. */
+/** Shape a DB row for the storefront. */
 function toPublicProduct(row) {
   return {
     id: row.id,
@@ -23,6 +23,8 @@ function toPublicProduct(row) {
     price: row.price,
     qty: row.qty,
     image: row.image,
+    notes: row.notes,
+    createdAt: row.created_at,
   };
 }
 
