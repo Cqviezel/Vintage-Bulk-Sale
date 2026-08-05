@@ -12,6 +12,25 @@ let productCache = [];
 let orderCache = [];
 let apiResultCache = [];
 
+const INVENTORY_PAGE_SIZE = 30;
+let inventoryPage = 1;
+const ORDERS_PAGE_SIZE = 30;
+let ordersPage = 1;
+
+/** Renders a shared Prev/Next pager into `el`, calling `onPage(n)` when a page is picked. */
+function renderPager(el, page, totalPages, onPage) {
+  if (totalPages <= 1) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = `
+    <button data-pager-prev ${page === 1 ? 'disabled' : ''}>&larr; Prev</button>
+    <span class="small muted">Page ${page} of ${totalPages}</span>
+    <button data-pager-next ${page === totalPages ? 'disabled' : ''}>Next &rarr;</button>`;
+  if (page > 1) el.querySelector('[data-pager-prev]').onclick = () => onPage(page - 1);
+  if (page < totalPages) el.querySelector('[data-pager-next]').onclick = () => onPage(page + 1);
+}
+
 /* ------------------------------------------------------------- helpers --- */
 
 function money(n) {
@@ -164,8 +183,15 @@ function wireRowActions() {
 }
 
 function renderInventoryList(list, q) {
-  $('#inventoryBody').innerHTML = list.length
-    ? list
+  const totalPages = Math.max(1, Math.ceil(list.length / INVENTORY_PAGE_SIZE));
+  if (inventoryPage > totalPages) inventoryPage = totalPages;
+  const pageItems = list.slice(
+    (inventoryPage - 1) * INVENTORY_PAGE_SIZE,
+    inventoryPage * INVENTORY_PAGE_SIZE
+  );
+
+  $('#inventoryBody').innerHTML = pageItems.length
+    ? pageItems
         .map(
           (p) => `<tr>
       <td><img src="${esc(p.image || LOGO)}" alt="" style="width:30px;height:40px;object-fit:contain" onerror="this.onerror=null;this.src='${LOGO}'"></td>
@@ -183,6 +209,11 @@ function renderInventoryList(list, q) {
     : `<tr><td colspan="9" class="muted">${
         q ? 'No products match that search.' : 'No products yet — add your first card.'
       }</td></tr>`;
+
+  renderPager($('#inventoryPagination'), inventoryPage, totalPages, (page) => {
+    inventoryPage = page;
+    renderInventory();
+  });
 }
 
 function invCardHtml(p) {
@@ -229,11 +260,14 @@ function renderInventoryGrid(list, q) {
 
   const collapsed = collapsedSets();
 
+  // A set the seller has never touched starts collapsed — otherwise a big catalogue
+  // renders every card in every group by default, same "page too long" problem as
+  // the old flat list had.
   $('#inventoryGridView').innerHTML = [...groups.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(
       ([set, items]) => `
-      <div class="set-group${collapsed[set] ? ' collapsed' : ''}" data-set-group="${esc(set)}">
+      <div class="set-group${collapsed[set] !== false ? ' collapsed' : ''}" data-set-group="${esc(set)}">
         <div class="set-group-head">
           <h3>${esc(set)} <span class="muted small">(${items.length})</span></h3>
           <span class="chev">&#9660;</span>
@@ -269,8 +303,12 @@ function renderInventory() {
       (!set || p.set === set)
   );
 
-  if (inventoryView === 'grid') renderInventoryGrid(list, q);
-  else renderInventoryList(list, q);
+  if (inventoryView === 'grid') {
+    $('#inventoryPagination').innerHTML = '';
+    renderInventoryGrid(list, q);
+  } else {
+    renderInventoryList(list, q);
+  }
 
   wireRowActions();
 }
@@ -614,6 +652,11 @@ $('#openBulkImport').onclick = () => {
 
 let setsCache = null; // lazy-loaded, kept for the life of the page
 let setRowsCache = null; // the currently open set, flattened one row per priced variant
+let setEdits = null; // parallel array: {qty, condition, price, status, variant} per row — the
+                      // actual source of truth, since pagination means most rows aren't in the DOM
+const SET_PAGE_SIZE = 40;
+let setPage = 1;
+let summaryDebounce = null;
 
 function renderSetPicker() {
   const q = ($('#setSearch').value || '').trim().toLowerCase();
@@ -678,28 +721,28 @@ function flattenSetCards(cards) {
   return rows;
 }
 
-function setCardRow(row, i) {
+function setCardRow(row, i, edit) {
   return `<tr data-row-index="${i}">
     <td>${row.image ? `<img src="${esc(row.image)}" alt="">` : ''}</td>
     <td>${esc(row.name)}</td>
     <td class="small muted">${esc(row.number)}</td>
     <td><select data-field="variant">
-      ${VARIANT_OPTIONS.map((v) => `<option${v === row.variant ? ' selected' : ''}>${v}</option>`).join('')}
+      ${VARIANT_OPTIONS.map((v) => `<option${v === edit.variant ? ' selected' : ''}>${v}</option>`).join('')}
     </select></td>
     <td class="small muted">${row.marketPrice != null ? money(row.marketPrice) : '—'}</td>
-    <td><input type="number" min="0" value="0" data-field="qty"></td>
+    <td><input type="number" min="0" value="${edit.qty}" data-field="qty"></td>
     <td><select data-field="condition">
-      <option${$('#setDefaultCondition').value === 'NM' ? ' selected' : ''}>NM</option>
-      <option${$('#setDefaultCondition').value === 'LP' ? ' selected' : ''}>LP</option>
-      <option${$('#setDefaultCondition').value === 'MP' ? ' selected' : ''}>MP</option>
-      <option${$('#setDefaultCondition').value === 'HP' ? ' selected' : ''}>HP</option>
+      <option${edit.condition === 'NM' ? ' selected' : ''}>NM</option>
+      <option${edit.condition === 'LP' ? ' selected' : ''}>LP</option>
+      <option${edit.condition === 'MP' ? ' selected' : ''}>MP</option>
+      <option${edit.condition === 'HP' ? ' selected' : ''}>HP</option>
     </select></td>
-    <td><input type="number" min="0" step="0.01" placeholder="0.00" data-field="price"></td>
+    <td><input type="number" min="0" step="0.01" placeholder="0.00" value="${esc(edit.price)}" data-field="price"></td>
     <td><select data-field="status">
-      <option value="live"${$('#setDefaultStatus').value === 'live' ? ' selected' : ''}>Live</option>
-      <option value="draft"${$('#setDefaultStatus').value === 'draft' ? ' selected' : ''}>Draft</option>
-      <option value="reserved"${$('#setDefaultStatus').value === 'reserved' ? ' selected' : ''}>Reserved</option>
-      <option value="hidden"${$('#setDefaultStatus').value === 'hidden' ? ' selected' : ''}>Hidden</option>
+      <option value="live"${edit.status === 'live' ? ' selected' : ''}>Live</option>
+      <option value="draft"${edit.status === 'draft' ? ' selected' : ''}>Draft</option>
+      <option value="reserved"${edit.status === 'reserved' ? ' selected' : ''}>Reserved</option>
+      <option value="hidden"${edit.status === 'hidden' ? ' selected' : ''}>Hidden</option>
     </select></td>
   </tr>`;
 }
@@ -711,17 +754,24 @@ async function openSetCards(set) {
   $('#setCardsError').classList.add('hidden');
   $('#cardFilter').value = '';
   $('#setCardsBody').innerHTML = '<tr><td colspan="9" class="muted">Loading cards…</td></tr>';
+  $('#setImportSummary').innerHTML = '';
+  $('#setPagination').innerHTML = '';
   $('#setCommit').disabled = true;
   $('#setCommit').dataset.setName = set.name;
 
   try {
     const cards = await api(`/api/admin/sets/${encodeURIComponent(set.id)}/cards`);
     setRowsCache = flattenSetCards(cards);
-    $('#setCardsBody').innerHTML = setRowsCache.length
-      ? setRowsCache.map(setCardRow).join('')
-      : '<tr><td colspan="9" class="muted">No cards found for this set.</td></tr>';
+    setEdits = setRowsCache.map((row) => ({
+      qty: 0,
+      condition: $('#setDefaultCondition').value,
+      price: '',
+      status: $('#setDefaultStatus').value,
+      variant: row.variant,
+    }));
+    setPage = 1;
     $('#setCommit').disabled = !setRowsCache.length;
-    updateSetImportSummary();
+    renderSetCardsPage();
   } catch (err) {
     $('#setCardsBody').innerHTML = '';
     $('#setCardsError').textContent = err.message;
@@ -729,37 +779,85 @@ async function openSetCards(set) {
   }
 }
 
+/** Which row indexes match the current search box, in setRowsCache order. */
+function visibleSetRowIndexes() {
+  const q = ($('#cardFilter').value || '').trim().toLowerCase();
+  const indexes = [];
+  setRowsCache.forEach((row, i) => {
+    if (!q || `${row.name} ${row.number}`.toLowerCase().includes(q)) indexes.push(i);
+  });
+  return indexes;
+}
+
+/** Renders one page of the (filtered) card list, reading/writing setEdits so nothing is lost off-page. */
+function renderSetCardsPage() {
+  if (!setRowsCache) return;
+
+  const visible = visibleSetRowIndexes();
+  if (!visible.length) {
+    $('#setCardsBody').innerHTML = `<tr><td colspan="9" class="muted">${
+      setRowsCache.length ? 'No cards match that filter.' : 'No cards found for this set.'
+    }</td></tr>`;
+    $('#setPagination').innerHTML = '';
+    updateSetImportSummary();
+    return;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(visible.length / SET_PAGE_SIZE));
+  if (setPage > totalPages) setPage = totalPages;
+  const pageIndexes = visible.slice((setPage - 1) * SET_PAGE_SIZE, setPage * SET_PAGE_SIZE);
+
+  $('#setCardsBody').innerHTML = pageIndexes
+    .map((i) => setCardRow(setRowsCache[i], i, setEdits[i]))
+    .join('');
+
+  renderPager($('#setPagination'), setPage, totalPages, (page) => {
+    setPage = page;
+    renderSetCardsPage();
+  });
+
+  updateSetImportSummary();
+}
+
 /** Live recap of what "Add Selected Cards" would actually do, so it's never a surprise. */
 function updateSetImportSummary() {
   let cardCount = 0;
   let totalQty = 0;
   let totalPrice = 0;
+  const items = [];
 
-  $$('#setCardsBody tr[data-row-index]').forEach((row) => {
-    const qty = Number.parseInt(row.querySelector('[data-field="qty"]').value, 10);
-    if (!Number.isInteger(qty) || qty <= 0) return;
-    const price = Number(row.querySelector('[data-field="price"]').value) || 0;
+  (setRowsCache || []).forEach((row, i) => {
+    const edit = setEdits[i];
+    if (!Number.isInteger(edit.qty) || edit.qty <= 0) return;
     cardCount++;
-    totalQty += qty;
-    totalPrice += qty * price;
+    totalQty += edit.qty;
+    const lineTotal = edit.qty * (Number(edit.price) || 0);
+    totalPrice += lineTotal;
+    items.push({ row, edit, lineTotal });
   });
 
-  $('#setImportSummary').innerHTML = cardCount
+  const summaryLine = cardCount
     ? `<b>${cardCount}</b> card${cardCount === 1 ? '' : 's'} selected &middot; <b>${totalQty}</b> total qty &middot; est. <b>${money(totalPrice)}</b>`
     : '<span class="muted">No cards selected yet — set a quantity on the ones you want to add.</span>';
+
+  const list = items.length
+    ? `<div class="set-import-list">${items
+        .map(
+          ({ row, edit, lineTotal }) => `<div class="set-import-item">
+            <span>${edit.qty}&times; ${esc(row.name)}${
+              row.number ? ` <span class="muted">#${esc(row.number)}</span>` : ''
+            } <span class="muted">(${esc(edit.variant)}, ${esc(edit.condition)})</span></span>
+            <b>${money(lineTotal)}</b>
+          </div>`
+        )
+        .join('')}</div>`
+    : '';
+
+  $('#setImportSummary').innerHTML = `<div>${summaryLine}</div>${list}`;
 
   $('#setCommit').textContent = cardCount
     ? `Add ${cardCount} Card${cardCount === 1 ? '' : 's'}`
     : 'Add Selected Cards';
-}
-
-function filterSetCards() {
-  const q = ($('#cardFilter').value || '').trim().toLowerCase();
-  $$('#setCardsBody tr[data-row-index]').forEach((row) => {
-    const card = setRowsCache[Number(row.dataset.rowIndex)];
-    const match = !q || `${card.name} ${card.number}`.toLowerCase().includes(q);
-    row.classList.toggle('hidden', !match);
-  });
 }
 
 async function commitSetImport() {
@@ -768,21 +866,18 @@ async function commitSetImport() {
   errorBox.classList.add('hidden');
 
   const cards = [];
-  $$('#setCardsBody tr[data-row-index]').forEach((row) => {
-    const i = Number(row.dataset.rowIndex);
-    const card = setRowsCache[i];
-    const qty = Number.parseInt(row.querySelector('[data-field="qty"]').value, 10);
-    if (!Number.isInteger(qty) || qty <= 0) return;
-
+  setRowsCache.forEach((row, i) => {
+    const edit = setEdits[i];
+    if (!Number.isInteger(edit.qty) || edit.qty <= 0) return;
     cards.push({
-      name: card.name,
-      number: card.number,
-      image: card.image,
-      qty,
-      variant: row.querySelector('[data-field="variant"]').value,
-      condition: row.querySelector('[data-field="condition"]').value,
-      price: row.querySelector('[data-field="price"]').value,
-      status: row.querySelector('[data-field="status"]').value,
+      name: row.name,
+      number: row.number,
+      image: row.image,
+      qty: edit.qty,
+      variant: edit.variant,
+      condition: edit.condition,
+      price: edit.price,
+      status: edit.status,
     });
   });
 
@@ -817,15 +912,38 @@ $('#backToSetPicker').onclick = () => {
   $('#setCardsView').classList.add('hidden');
   $('#setPickerView').classList.remove('hidden');
 };
-$('#cardFilter').oninput = filterSetCards;
-$('#setCardsBody').oninput = updateSetImportSummary;
+$('#cardFilter').oninput = () => {
+  setPage = 1;
+  renderSetCardsPage();
+};
 $('#setCommit').onclick = commitSetImport;
 
+// Source of truth lives in setEdits, not the DOM, so a row keeps its values even after
+// paging away from it. The summary recompute is debounced since it's cheap now (a plain
+// array scan) but still no reason to run it on every single keystroke.
+$('#setCardsBody').addEventListener('input', (e) => {
+  const field = e.target.dataset.field;
+  const row = e.target.closest('tr[data-row-index]');
+  if (!field || !row) return;
+  const i = Number(row.dataset.rowIndex);
+
+  if (field === 'qty') setEdits[i].qty = Number.parseInt(e.target.value, 10);
+  else if (field === 'price') setEdits[i].price = e.target.value;
+  else if (field === 'condition') setEdits[i].condition = e.target.value;
+  else if (field === 'status') setEdits[i].status = e.target.value;
+  else if (field === 'variant') setEdits[i].variant = e.target.value;
+
+  clearTimeout(summaryDebounce);
+  summaryDebounce = setTimeout(updateSetImportSummary, 150);
+});
+
 $('#setDefaultCondition').onchange = (e) => {
-  $$('#setCardsBody [data-field="condition"]').forEach((sel) => (sel.value = e.target.value));
+  (setEdits || []).forEach((edit) => (edit.condition = e.target.value));
+  renderSetCardsPage();
 };
 $('#setDefaultStatus').onchange = (e) => {
-  $$('#setCardsBody [data-field="status"]').forEach((sel) => (sel.value = e.target.value));
+  (setEdits || []).forEach((edit) => (edit.status = e.target.value));
+  renderSetCardsPage();
 };
 
 /* ------------------------------------------------------- Pokémon TCG API --- */
@@ -923,8 +1041,12 @@ function filteredOrders() {
 function renderOrders() {
   const list = filteredOrders();
 
-  $('#ordersBody').innerHTML = list.length
-    ? list
+  const totalPages = Math.max(1, Math.ceil(list.length / ORDERS_PAGE_SIZE));
+  if (ordersPage > totalPages) ordersPage = totalPages;
+  const pageItems = list.slice((ordersPage - 1) * ORDERS_PAGE_SIZE, ordersPage * ORDERS_PAGE_SIZE);
+
+  $('#ordersBody').innerHTML = pageItems.length
+    ? pageItems
         .map(
           (o) => `<tr>
       <td>${esc(o.id)}<div class="small muted">${esc((o.createdAt || '').replace('T', ' '))}</div></td>
@@ -951,6 +1073,11 @@ function renderOrders() {
   $$('[data-advance]').forEach((b) => (b.onclick = () => advanceOrder(b.dataset.advance)));
   $$('[data-resend]').forEach((b) => (b.onclick = () => resendNotification(b.dataset.resend)));
   $$('[data-delete-order]').forEach((b) => (b.onclick = () => removeOrder(b.dataset.deleteOrder)));
+
+  renderPager($('#ordersPagination'), ordersPage, totalPages, (page) => {
+    ordersPage = page;
+    renderOrders();
+  });
 }
 
 /** Only cancelled/completed orders are safe to delete — stock is already settled either way. */
@@ -1312,13 +1439,23 @@ $$('.open-product-modal').forEach((b) => (b.onclick = () => openProductModal()))
 $('#saveProduct').onclick = saveProduct;
 $('#openTradeShowModal').onclick = () => openTradeShowModal();
 $('#saveTradeShow').onclick = saveTradeShow;
-$('#adminProductSearch').oninput = renderInventory;
-$('#adminSetFilter').onchange = renderInventory;
+$('#adminProductSearch').oninput = () => {
+  inventoryPage = 1;
+  renderInventory();
+};
+$('#adminSetFilter').onchange = () => {
+  inventoryPage = 1;
+  renderInventory();
+};
 $('#refreshOrders').onclick = loadOrders;
-$('#orderStatusFilter').onchange = renderOrders;
-$('#orderSearch').oninput = renderOrders;
-$('#orderFrom').onchange = renderOrders;
-$('#orderTo').onchange = renderOrders;
+const resetOrdersPage = () => {
+  ordersPage = 1;
+  renderOrders();
+};
+$('#orderStatusFilter').onchange = resetOrdersPage;
+$('#orderSearch').oninput = resetOrdersPage;
+$('#orderFrom').onchange = resetOrdersPage;
+$('#orderTo').onchange = resetOrdersPage;
 
 $('#logout').onclick = async () => {
   try {
