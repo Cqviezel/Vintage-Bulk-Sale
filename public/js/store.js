@@ -422,17 +422,21 @@ function openQuickView(id) {
       related.length
         ? `<div class="quick-view-related">
              <h3>More from ${esc(p.set)}</h3>
-             <div class="related-row">
-               ${related
-                 .map(
-                   (r) => `
-                 <button class="related-card" data-view="${esc(r.id)}">
-                   <img src="${esc(r.image || LOGO)}" alt="" onerror="this.onerror=null;this.src='${LOGO}'">
-                   <span class="related-name">${esc(r.name)}</span>
-                   <span class="related-price">${money(r.price)}</span>
-                 </button>`
-                 )
-                 .join('')}
+             <div class="related-wrap">
+               <button class="related-scroll prev" type="button" aria-label="Scroll left">&#8249;</button>
+               <div class="related-row" id="relatedRow">
+                 ${related
+                   .map(
+                     (r) => `
+                   <button class="related-card" data-view="${esc(r.id)}">
+                     <img src="${esc(r.image || LOGO)}" alt="" onerror="this.onerror=null;this.src='${LOGO}'">
+                     <span class="related-name">${esc(r.name)}</span>
+                     <span class="related-price">${money(r.price)}</span>
+                   </button>`
+                   )
+                   .join('')}
+               </div>
+               <button class="related-scroll next" type="button" aria-label="Scroll right">&#8250;</button>
              </div>
            </div>`
         : ''
@@ -447,7 +451,30 @@ function openQuickView(id) {
     btn.onclick = () => openQuickView(btn.dataset.view);
   });
 
+  wireRelatedScroll();
   openModal('#quickViewModal');
+}
+
+/** Arrow buttons for the "More from this set" row — the hidden native scrollbar gave no clue it scrolled. */
+function wireRelatedScroll() {
+  const row = $('#relatedRow');
+  if (!row) return;
+  const prevBtn = $('.related-scroll.prev');
+  const nextBtn = $('.related-scroll.next');
+  const wrap = row.closest('.related-wrap');
+
+  const hasOverflow = row.scrollWidth > row.clientWidth + 1;
+  wrap.classList.toggle('hidden-scroll-btns', !hasOverflow);
+  if (!hasOverflow) return;
+
+  const update = () => {
+    prevBtn.disabled = row.scrollLeft <= 0;
+    nextBtn.disabled = row.scrollLeft >= row.scrollWidth - row.clientWidth - 1;
+  };
+  update();
+  row.addEventListener('scroll', update);
+  prevBtn.onclick = () => row.scrollBy({ left: -240, behavior: 'smooth' });
+  nextBtn.onclick = () => row.scrollBy({ left: 240, behavior: 'smooth' });
 }
 
 function cartItems() {

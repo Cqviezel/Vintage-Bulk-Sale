@@ -83,8 +83,13 @@ img{display:block;max-width:100%;height:auto}
 .quick-view-info .meta{font-size:13px;min-height:0}
 .quick-view-related{margin-top:24px;padding-top:18px;border-top:1px solid var(--line)}
 .quick-view-related h3{margin:0 0 12px;font-size:13px;font-weight:750}
-.related-row{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+.related-wrap{position:relative;display:flex;align-items:center;gap:6px}
+.related-row{flex:1;min-width:0;display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;scroll-behavior:smooth;scrollbar-width:none}
 .related-row::-webkit-scrollbar{display:none}
+.related-scroll{flex:0 0 auto;width:30px;height:30px;border:1px solid var(--line);border-radius:50%;background:#fff;font-size:17px;line-height:1;color:var(--forest2);display:grid;place-items:center}
+.related-scroll:hover:not(:disabled){border-color:var(--forest2)}
+.related-scroll:disabled{opacity:.3;cursor:not-allowed}
+.related-wrap.hidden-scroll-btns .related-scroll{display:none}
 .related-card{flex:0 0 auto;width:112px;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--surface);text-align:left}
 .related-card:hover{border-color:var(--forest2)}
 .related-card img{width:100%;aspect-ratio:3/4;object-fit:contain;margin-bottom:6px}
