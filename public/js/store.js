@@ -13,6 +13,7 @@ let products = [];
 let settings = { mailing: 0, minimum: 0, telegram: '', paynow: '' };
 let tradeShows = [];
 let cart = new Set(loadCart());
+let appliedPromo = null; // { code, discount } — cleared whenever the cart contents change
 
 const PAGE_SIZE = 24;
 let currentPage = 1;
@@ -304,7 +305,7 @@ function renderProducts() {
 
   const list = products.filter(
     (p) =>
-      (!q || `${p.name} ${p.set} ${p.number}`.toLowerCase().includes(q)) &&
+      (!q || `${p.name} ${p.set} ${p.number} ${p.artist || ''}`.toLowerCase().includes(q)) &&
       (!set || p.set === set) &&
       (!condition || p.condition === condition) &&
       (!variant || p.variant === variant)
@@ -481,10 +482,19 @@ function cartItems() {
   return products.filter((p) => cart.has(p.id));
 }
 
+/** A changed cart can invalidate an applied code's minimum spend, so make them re-apply it. */
+function clearPromo() {
+  appliedPromo = null;
+  $('#promoInput').value = '';
+  $('#promoMessage').textContent = '';
+  $('#promoMessage').className = 'small';
+}
+
 function toggleCart(id) {
   if (cart.has(id)) cart.delete(id);
   else cart.add(id);
   saveCart();
+  clearPromo();
   renderProducts();
   renderCart();
 }
@@ -591,6 +601,46 @@ function openInfo(title, body) {
 
 /* ----------------------------------------------------------- checkout --- */
 
+/** Re-renders the cart totals plus whatever discount is currently applied. */
+function updateCheckoutTotals() {
+  const totals = renderCart();
+  const discount = appliedPromo ? Math.min(appliedPromo.discount, totals.subtotal) : 0;
+
+  $('#promoDiscountRow').style.display = discount ? '' : 'none';
+  $('#checkoutDiscount').textContent = `−${money(discount)}`;
+  $('#checkoutTotal').textContent = money(totals.total - discount);
+
+  return { ...totals, discount, total: totals.total - discount };
+}
+
+async function applyPromo() {
+  const input = $('#promoInput');
+  const msg = $('#promoMessage');
+  const code = input.value.trim().toUpperCase();
+
+  if (!code) {
+    clearPromo();
+    updateCheckoutTotals();
+    return;
+  }
+
+  try {
+    const result = await api('/api/promo/validate', {
+      method: 'POST',
+      body: JSON.stringify({ code, items: cartItems().map((p) => ({ id: p.id })) }),
+    });
+    appliedPromo = { code: result.code, discount: result.discount };
+    msg.className = 'small promo-ok';
+    msg.textContent = `"${result.code}" applied — ${money(result.discount)} off.`;
+  } catch (err) {
+    appliedPromo = null;
+    msg.className = 'small promo-error';
+    msg.textContent = err.message;
+  }
+
+  updateCheckoutTotals();
+}
+
 async function submitOrder() {
   const button = $('#submitOrder');
   const errorBox = $('#checkoutError');
@@ -609,6 +659,7 @@ async function submitOrder() {
     phone: $('#buyerPhone').value.trim(),
     address: $('#buyerAddress').value.trim(),
     delivery: $('#buyerDelivery').value,
+    promoCode: appliedPromo ? appliedPromo.code : '',
     items: items.map((p) => ({ id: p.id })),
   };
 
@@ -641,6 +692,7 @@ async function submitOrder() {
 
     cart.clear();
     saveCart();
+    clearPromo();
     closeModals();
     showConfirmation(order);
     await load();
@@ -648,6 +700,11 @@ async function submitOrder() {
     showCheckoutError(err.message);
     // A 409 means stock moved under us — refresh so the shopper sees reality.
     if (/sold|no longer listed/i.test(err.message)) load();
+    // The code stopped working between "Apply" and "Place Order" — don't keep charging it.
+    if (/code/i.test(err.message)) {
+      clearPromo();
+      updateCheckoutTotals();
+    }
   } finally {
     button.disabled = false;
     button.textContent = 'Place Order';
@@ -732,6 +789,11 @@ function showConfirmation(order) {
           </div>`;
         })
         .join('')}
+      ${
+        order.discount
+          ? `<div class="summary"><span>Discount (${esc(order.promoCode)})</span><span>−${money(order.discount)}</span></div>`
+          : ''
+      }
       <div class="summary"><span>${esc(order.delivery)}</span><span>${money(order.fee)}</span></div>
       <div class="summary total"><span>Total</span><span>${money(order.total)}</span></div>
     </div>
@@ -808,18 +870,22 @@ function closeCart() {
 $('#cartClose').onclick = closeCart;
 $('#overlay').onclick = closeCart;
 
-$('#buyerDelivery').addEventListener('change', () => {
-  const totals = renderCart();
-  $('#checkoutTotal').textContent = money(totals.total);
-});
+$('#buyerDelivery').addEventListener('change', updateCheckoutTotals);
 
 $('#checkoutOpen').onclick = () => {
   closeCart();
-  const totals = renderCart();
-  $('#checkoutTotal').textContent = money(totals.total);
+  updateCheckoutTotals();
   $('#checkoutError').classList.add('hidden');
   openModal('#checkoutModal');
 };
+
+$('#promoApply').onclick = applyPromo;
+$('#promoInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    applyPromo();
+  }
+});
 
 $('#submitOrder').onclick = submitOrder;
 
@@ -916,6 +982,11 @@ async function lookupOrder() {
               `<div class="summary"><span>${esc(i.name)} &middot; ${esc(i.condition)}</span><span>${money(i.price)}</span></div>`
           )
           .join('')}
+        ${
+          o.discount
+            ? `<div class="summary"><span>Discount (${esc(o.promoCode)})</span><span>−${money(o.discount)}</span></div>`
+            : ''
+        }
         <div class="summary"><span>${esc(o.delivery)}</span><span>${money(o.fee)}</span></div>
         <div class="summary total"><span>Total</span><span>${money(o.total)}</span></div>
       </div>`;

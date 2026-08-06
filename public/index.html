@@ -149,6 +149,12 @@
       </div>
     </div>
     <div class="checkout-foot">
+      <div class="promo-row">
+        <input id="promoInput" placeholder="Promo code" style="text-transform:uppercase">
+        <button class="btn" id="promoApply" type="button">Apply</button>
+      </div>
+      <div class="small" id="promoMessage"></div>
+      <div class="summary" id="promoDiscountRow" style="display:none"><span>Discount</span><span id="checkoutDiscount">$0.00</span></div>
       <div class="summary total"><span>Order Total</span><span id="checkoutTotal">$0.00</span></div>
       <div id="checkoutError" class="notice error hidden" style="margin-top:12px"></div>
       <button class="checkout" id="submitOrder">Place Order</button>

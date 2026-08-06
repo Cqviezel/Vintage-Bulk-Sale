@@ -144,6 +144,113 @@ function renderRecentOrders() {
     : '<tr><td colspan="4" class="muted">No orders yet.</td></tr>';
 }
 
+/* ------------------------------------------------------------ analytics --- */
+
+let analyticsDays = '7';
+
+function formatShortDate(iso) {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const [, m, d] = iso.split('-').map(Number);
+  return `${months[m - 1]} ${d}`;
+}
+
+/** Hand-rolled inline SVG bar chart — no charting library, matches how the rest of this
+    dependency-free app builds its UI. A native <title> per bar gives a free hover tooltip. */
+function svgBarChart(daily) {
+  if (!daily.length) return '<div class="empty">No data for this range.</div>';
+
+  const max = Math.max(1, ...daily.map((d) => d.revenue));
+  const barW = 14;
+  const gap = 4;
+  const height = 160;
+  const plotH = height - 24;
+  const width = daily.length * (barW + gap);
+  const labelEvery = Math.max(1, Math.ceil(daily.length / 10));
+
+  const bars = daily
+    .map((d, i) => {
+      const h = d.revenue > 0 ? Math.max(2, Math.round((d.revenue / max) * plotH)) : 0;
+      const x = i * (barW + gap);
+      const y = plotH - h;
+      const label = i % labelEvery === 0 || i === daily.length - 1 ? formatShortDate(d.date) : '';
+      return `<rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="2">
+        <title>${esc(d.date)}: ${money(d.revenue)} (${d.orders} order${d.orders === 1 ? '' : 's'})</title>
+      </rect>
+      ${label ? `<text x="${x + barW / 2}" y="${height - 6}" font-size="9" text-anchor="middle">${esc(label)}</text>` : ''}`;
+    })
+    .join('');
+
+  return `<div class="an-chart"><svg viewBox="0 0 ${width} ${height}" style="min-width:${width}px;height:${height}px">${bars}</svg></div>`;
+}
+
+function renderAnalytics(data) {
+  $('#anRevenue').textContent = money(data.summary.revenue);
+  $('#anOrders').textContent = data.summary.orders;
+  $('#anAvgOrder').textContent = money(data.summary.avgOrderValue);
+  $('#anUnits').textContent = data.summary.unitsSold;
+
+  $('#anChartRange').textContent = data.range.from
+    ? `${data.range.from} to ${data.range.to}`
+    : `Through ${data.range.to}`;
+  $('#anChart').innerHTML = svgBarChart(data.daily);
+
+  $('#anTopCards').innerHTML = data.topCards.length
+    ? data.topCards
+        .map(
+          (c) => `<tr>
+      <td>${esc(c.name)}<div class="small muted">${esc(c.number)}</div></td>
+      <td>${esc(c.set)}</td>
+      <td>${c.unitsSold}</td>
+      <td>${money(c.revenue)}</td>
+    </tr>`
+        )
+        .join('')
+    : '<tr><td colspan="4" class="muted">No sales in this range yet.</td></tr>';
+
+  $('#anTopSets').innerHTML = data.topSets.length
+    ? data.topSets
+        .map(
+          (s) => `<tr>
+      <td>${esc(s.set)}</td>
+      <td>${s.unitsSold}</td>
+      <td>${money(s.revenue)}</td>
+    </tr>`
+        )
+        .join('')
+    : '<tr><td colspan="3" class="muted">No sales in this range yet.</td></tr>';
+
+  const statusTotal = data.statusBreakdown.reduce((sum, r) => sum + r.n, 0) || 1;
+  $('#anStatusBreakdown').innerHTML = data.statusBreakdown.length
+    ? [...data.statusBreakdown]
+        .sort((a, b) => b.n - a.n)
+        .map(
+          (r) => `<div class="an-status-row">
+      <span class="status order-${slug(r.status)}">${esc(r.status)}</span>
+      <div class="an-status-bar"><span style="width:${Math.round((r.n / statusTotal) * 100)}%"></span></div>
+      <span class="small muted">${r.n}</span>
+    </div>`
+        )
+        .join('')
+    : '<div class="empty">No orders in this range.</div>';
+}
+
+async function loadAnalytics() {
+  try {
+    const data = await api(`/api/admin/analytics?days=${analyticsDays}`);
+    renderAnalytics(data);
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+$$('#analyticsRange button').forEach((b) => {
+  b.onclick = () => {
+    analyticsDays = b.dataset.days;
+    $$('#analyticsRange button').forEach((x) => x.classList.toggle('active', x === b));
+    loadAnalytics();
+  };
+});
+
 /* -------------------------------------------------------------- products --- */
 
 async function loadProducts() {
@@ -358,7 +465,7 @@ let pendingUpload = null;
 function resetProductForm() {
   [
     'productId', 'productName', 'productSet', 'productNumber', 'productPrice',
-    'productImageUrl', 'productNotes', 'apiName', 'apiSet', 'apiNumber',
+    'productImageUrl', 'productNotes', 'productArtist', 'apiName', 'apiSet', 'apiNumber',
   ].forEach((id) => ($('#' + id).value = ''));
 
   $('#productCondition').value = 'NM';
@@ -392,6 +499,7 @@ function openProductModal(id) {
     $('#productStatus').value = p.status;
     $('#productImageUrl').value = p.image;
     $('#productNotes').value = p.notes || '';
+    $('#productArtist').value = p.artist || '';
     $('#productPreview').src = p.image || LOGO;
   }
   openModal('#productModal');
@@ -426,6 +534,7 @@ async function saveProduct() {
       status: $('#productStatus').value,
       image,
       notes: $('#productNotes').value.trim(),
+      artist: $('#productArtist').value.trim(),
     };
 
     if (id) {
@@ -713,6 +822,7 @@ function flattenSetCards(cards) {
         name: card.name,
         number: card.number,
         image: card.image,
+        artist: card.artist,
         variant: v.variant,
         marketPrice: v.marketPrice,
       });
@@ -873,6 +983,7 @@ async function commitSetImport() {
       name: row.name,
       number: row.number,
       image: row.image,
+      artist: row.artist,
       qty: edit.qty,
       variant: edit.variant,
       condition: edit.condition,
@@ -992,6 +1103,7 @@ $('#apiSearch').onclick = async () => {
         $('#productSet').value = (c.set && c.set.name) || '';
         $('#productNumber').value = c.number || '';
         $('#productImageUrl').value = (c.images && (c.images.large || c.images.small)) || '';
+        $('#productArtist').value = c.artist || '';
         pendingUpload = null;
         $('#productImageFile').value = '';
         $('#productPreview').src = $('#productImageUrl').value || LOGO;
@@ -1161,6 +1273,11 @@ function openOrder(id) {
             </div>`;
           })
           .join('')}
+        ${
+          o.discount
+            ? `<div class="summary"><span>Discount (${esc(o.promoCode)})</span><span>&minus;${money(o.discount)}</span></div>`
+            : ''
+        }
         <div class="summary"><span>${esc(o.delivery)}</span><span>${money(o.fee)}</span></div>
         <div class="summary total"><span>Total</span><span>${money(o.total)}</span></div>
       </div>
@@ -1298,6 +1415,128 @@ async function removeTradeShow(id) {
   }
 }
 
+/* ----------------------------------------------------------- promo codes --- */
+
+let promoCodeCache = [];
+
+async function loadPromoCodes() {
+  try {
+    promoCodeCache = await api('/api/admin/promo-codes');
+    renderPromoCodeRows();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+function formatDiscount(p) {
+  return p.type === 'percent' ? `${p.value}% off` : `${money(p.value)} off`;
+}
+
+function renderPromoCodeRows() {
+  $('#promoCodesBody').innerHTML = promoCodeCache.length
+    ? promoCodeCache
+        .map(
+          (p) => `<tr>
+            <td><b>${esc(p.code)}</b></td>
+            <td>${esc(formatDiscount(p))}</td>
+            <td>${p.usedCount}${p.maxUses ? ` / ${p.maxUses}` : ''}</td>
+            <td>${esc(p.expiresAt) || '—'}</td>
+            <td>${p.minSubtotal ? money(p.minSubtotal) : '—'}</td>
+            <td><span class="status status-${p.active ? 'live' : 'hidden'}">${p.active ? 'active' : 'inactive'}</span></td>
+            <td><div class="row-actions">
+              <button data-edit-promo="${esc(p.code)}">Edit</button>
+              <button data-delete-promo="${esc(p.code)}">Delete</button>
+            </div></td>
+          </tr>`
+        )
+        .join('')
+    : '<tr><td colspan="7" class="muted">No promo codes yet.</td></tr>';
+
+  $$('[data-edit-promo]').forEach((b) => (b.onclick = () => openPromoModal(b.dataset.editPromo)));
+  $$('[data-delete-promo]').forEach((b) => (b.onclick = () => removePromoCode(b.dataset.deletePromo)));
+}
+
+function openPromoModal(code) {
+  $('#promoError').classList.add('hidden');
+  $('#promoOriginalCode').value = '';
+  $('#promoCodeInput').value = '';
+  $('#promoCodeInput').disabled = false;
+  $('#promoType').value = 'percent';
+  $('#promoValue').value = '';
+  $('#promoMaxUses').value = '';
+  $('#promoExpiresAt').value = '';
+  $('#promoMinSubtotal').value = '0';
+  $('#promoActive').checked = true;
+  $('#promoModalTitle').textContent = 'Add Code';
+
+  if (code) {
+    const p = promoCodeCache.find((x) => x.code === code);
+    if (!p) return;
+    $('#promoModalTitle').textContent = 'Edit Code';
+    $('#promoOriginalCode').value = p.code;
+    $('#promoCodeInput').value = p.code;
+    $('#promoCodeInput').disabled = true; // the code is the primary key — edit in place, don't rename
+    $('#promoType').value = p.type;
+    $('#promoValue').value = p.value;
+    $('#promoMaxUses').value = p.maxUses || '';
+    $('#promoExpiresAt').value = p.expiresAt || '';
+    $('#promoMinSubtotal').value = p.minSubtotal;
+    $('#promoActive').checked = p.active;
+  }
+  openModal('#promoModal');
+}
+
+async function savePromo() {
+  const button = $('#savePromo');
+  const errorBox = $('#promoError');
+  errorBox.classList.add('hidden');
+  button.disabled = true;
+  button.textContent = 'Saving…';
+
+  try {
+    const originalCode = $('#promoOriginalCode').value;
+    const payload = {
+      code: $('#promoCodeInput').value.trim().toUpperCase(),
+      type: $('#promoType').value,
+      value: $('#promoValue').value,
+      maxUses: $('#promoMaxUses').value,
+      expiresAt: $('#promoExpiresAt').value,
+      minSubtotal: $('#promoMinSubtotal').value,
+      active: $('#promoActive').checked,
+    };
+
+    if (originalCode) {
+      await api(`/api/admin/promo-codes/${encodeURIComponent(originalCode)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await api('/api/admin/promo-codes', { method: 'POST', body: JSON.stringify(payload) });
+    }
+
+    closeModals();
+    await loadPromoCodes();
+    toast('Promo code saved');
+  } catch (err) {
+    errorBox.textContent = err.message;
+    errorBox.classList.remove('hidden');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Save Code';
+  }
+}
+
+async function removePromoCode(code) {
+  if (!confirm(`Delete promo code "${code}"?`)) return;
+  try {
+    await api(`/api/admin/promo-codes/${encodeURIComponent(code)}`, { method: 'DELETE' });
+    await loadPromoCodes();
+    toast('Promo code deleted');
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
 /* -------------------------------------------------------------- settings --- */
 
 let currentPaynowQr = '';
@@ -1429,7 +1668,9 @@ $$('[data-admin-tab]').forEach((b) => {
     $$('[data-admin-tab]').forEach((x) => x.classList.toggle('active', x === b));
     if (b.dataset.adminTab === 'products') loadProducts();
     if (b.dataset.adminTab === 'orders') loadOrders();
+    if (b.dataset.adminTab === 'analytics') loadAnalytics();
     if (b.dataset.adminTab === 'tradeShows') loadTradeShows();
+    if (b.dataset.adminTab === 'promoCodes') loadPromoCodes();
     if (b.dataset.adminTab === 'settings') loadSettings();
     if (b.dataset.adminTab === 'dashboard') loadStats();
   };
@@ -1439,6 +1680,8 @@ $$('.open-product-modal').forEach((b) => (b.onclick = () => openProductModal()))
 $('#saveProduct').onclick = saveProduct;
 $('#openTradeShowModal').onclick = () => openTradeShowModal();
 $('#saveTradeShow').onclick = saveTradeShow;
+$('#openPromoModal').onclick = () => openPromoModal();
+$('#savePromo').onclick = savePromo;
 $('#adminProductSearch').oninput = () => {
   inventoryPage = 1;
   renderInventory();
@@ -1477,5 +1720,7 @@ document.addEventListener('keydown', (e) => {
 loadStats();
 loadProducts();
 loadOrders();
+loadAnalytics();
 loadTradeShows();
+loadPromoCodes();
 loadSettings();

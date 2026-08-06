@@ -91,6 +91,18 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_trade_shows_start ON trade_shows(start_date);
+
+  CREATE TABLE IF NOT EXISTS promo_codes (
+    code          TEXT PRIMARY KEY,
+    type          TEXT NOT NULL DEFAULT 'percent',
+    value         REAL NOT NULL DEFAULT 0,
+    active        INTEGER NOT NULL DEFAULT 1,
+    max_uses      INTEGER,
+    used_count    INTEGER NOT NULL DEFAULT 0,
+    expires_at    TEXT,
+    min_subtotal  REAL NOT NULL DEFAULT 0,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 /** Adds a column to a table that already exists on disk from before this field was added. */
@@ -104,6 +116,9 @@ ensureColumn('products', 'variant', "TEXT NOT NULL DEFAULT 'Normal'");
 ensureColumn('order_items', 'variant', "TEXT NOT NULL DEFAULT 'Normal'");
 ensureColumn('orders', 'phone', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('order_items', 'image', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('products', 'artist', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('orders', 'promo_code', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('orders', 'discount', "REAL NOT NULL DEFAULT 0");
 
 /**
  * "Add by Set" used to save the Pokémon TCG API's low-res thumbnail instead of the

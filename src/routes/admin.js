@@ -81,19 +81,20 @@ function toAdminProduct(row) {
     status: row.status,
     image: row.image,
     notes: row.notes,
+    artist: row.artist,
   };
 }
 
 const allProducts = db.prepare('SELECT * FROM products ORDER BY updated_at DESC');
 const oneProduct = db.prepare('SELECT * FROM products WHERE id = ?');
 const insertProduct = db.prepare(
-  `INSERT INTO products (id, name, set_name, number, condition, variant, price, qty, status, image, notes)
-   VALUES (@id, @name, @set_name, @number, @condition, @variant, @price, @qty, @status, @image, @notes)`
+  `INSERT INTO products (id, name, set_name, number, condition, variant, price, qty, status, image, notes, artist)
+   VALUES (@id, @name, @set_name, @number, @condition, @variant, @price, @qty, @status, @image, @notes, @artist)`
 );
 const updateProduct = db.prepare(
   `UPDATE products SET name = @name, set_name = @set_name, number = @number,
      condition = @condition, variant = @variant, price = @price, qty = @qty, status = @status,
-     image = @image, notes = @notes, updated_at = datetime('now')
+     image = @image, notes = @notes, artist = @artist, updated_at = datetime('now')
    WHERE id = @id`
 );
 const deleteProduct = db.prepare('DELETE FROM products WHERE id = ?');
@@ -125,6 +126,7 @@ function readProductBody(body) {
       status,
       image: String(body.image || '').trim().slice(0, 500),
       notes: String(body.notes || '').trim().slice(0, 2000),
+      artist: String(body.artist || '').trim().slice(0, 120),
     },
   };
 }
@@ -175,13 +177,13 @@ router.delete('/products/:id', (req, res) => {
 
 /* ----------------------------------------------------------- bulk import --- */
 
-const TEMPLATE_HEADERS = ['name', 'set', 'number', 'condition', 'variant', 'price', 'qty', 'status', 'image', 'notes'];
+const TEMPLATE_HEADERS = ['name', 'set', 'number', 'condition', 'variant', 'price', 'qty', 'status', 'image', 'notes', 'artist'];
 const MAX_IMPORT_ROWS = 500;
 
 router.get('/products/template.csv', (req, res) => {
   const sample = [
-    { name: 'Pikachu', set: 'Base', number: '58/102', condition: 'LP', variant: 'Normal', price: '5.00', qty: '1', status: 'live', image: '', notes: 'light edge wear' },
-    { name: 'Charizard', set: 'Base', number: '4/102', condition: 'MP', variant: 'Reverse Holo', price: '250.00', qty: '1', status: 'draft', image: '', notes: '' },
+    { name: 'Pikachu', set: 'Base', number: '58/102', condition: 'LP', variant: 'Normal', price: '5.00', qty: '1', status: 'live', image: '', notes: 'light edge wear', artist: 'Mitsuhiro Arita' },
+    { name: 'Charizard', set: 'Base', number: '4/102', condition: 'MP', variant: 'Reverse Holo', price: '250.00', qty: '1', status: 'draft', image: '', notes: '', artist: '' },
   ];
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="crazed-tcg-template.csv"');
@@ -200,6 +202,7 @@ router.get('/products/export.csv', (req, res) => {
     status: p.status,
     image: p.image,
     notes: p.notes,
+    artist: p.artist,
   }));
   const stamp = new Date().toISOString().slice(0, 10);
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -258,6 +261,7 @@ function readImportRow(record) {
       status: status || 'draft',
       image: String(record.image || '').trim().slice(0, 500),
       notes: String(record.notes || '').trim().slice(0, 2000),
+      artist: String(record.artist || '').trim().slice(0, 120),
     },
   };
 }
@@ -465,6 +469,7 @@ router.post('/products/bulk-set', (req, res) => {
       status: STATUSES.has(c.status) ? c.status : 'draft',
       image: String(c.image || '').trim().slice(0, 500),
       notes: String(c.notes || '').trim().slice(0, 2000),
+      artist: String(c.artist || '').trim().slice(0, 120),
     });
   }
 
@@ -572,6 +577,8 @@ function toAdminOrder(row, items) {
     address: row.address,
     delivery: row.delivery,
     subtotal: row.subtotal,
+    discount: row.discount,
+    promoCode: row.promo_code,
     fee: row.fee,
     total: row.total,
     status: row.status,
@@ -812,6 +819,113 @@ router.delete('/trade-shows/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+/* ------------------------------------------------------------ promo codes --- */
+
+const PROMO_TYPES = new Set(['percent', 'fixed']);
+
+function toAdminPromo(row) {
+  return {
+    code: row.code,
+    type: row.type,
+    value: row.value,
+    active: !!row.active,
+    maxUses: row.max_uses,
+    usedCount: row.used_count,
+    expiresAt: row.expires_at || '',
+    minSubtotal: row.min_subtotal,
+    createdAt: row.created_at,
+  };
+}
+
+const allPromoCodes = db.prepare('SELECT * FROM promo_codes ORDER BY created_at DESC');
+const onePromoCode = db.prepare('SELECT * FROM promo_codes WHERE code = ?');
+const insertPromoCode = db.prepare(
+  `INSERT INTO promo_codes (code, type, value, active, max_uses, expires_at, min_subtotal)
+   VALUES (@code, @type, @value, @active, @max_uses, @expires_at, @min_subtotal)`
+);
+const updatePromoCode = db.prepare(
+  `UPDATE promo_codes SET type = @type, value = @value, active = @active,
+     max_uses = @max_uses, expires_at = @expires_at, min_subtotal = @min_subtotal
+   WHERE code = @code`
+);
+const deletePromoCode = db.prepare('DELETE FROM promo_codes WHERE code = ?');
+
+function readPromoBody(body) {
+  const errors = [];
+
+  const code = String(body.code || '').trim().toUpperCase().slice(0, 24);
+  if (!code) errors.push('Code is required.');
+  else if (!/^[A-Z0-9-]+$/.test(code)) errors.push('Code may only contain letters, numbers and dashes.');
+
+  const type = PROMO_TYPES.has(body.type) ? body.type : 'percent';
+
+  const value = Number(body.value);
+  if (!Number.isFinite(value) || value <= 0) errors.push('Discount value must be greater than 0.');
+  else if (type === 'percent' && value > 100) errors.push('Percent discount cannot exceed 100.');
+
+  let maxUses = null;
+  if (body.maxUses !== undefined && body.maxUses !== null && String(body.maxUses).trim() !== '') {
+    maxUses = Math.round(Number(body.maxUses));
+    if (!Number.isFinite(maxUses) || maxUses <= 0) errors.push('Max uses must be a positive whole number.');
+  }
+
+  let expiresAt = String(body.expiresAt || '').trim();
+  if (expiresAt && !DATE_RE.test(expiresAt)) errors.push('Expiry must be a valid date.');
+  if (!expiresAt) expiresAt = null;
+
+  const minSubtotal = body.minSubtotal === undefined || body.minSubtotal === '' ? 0 : Number(body.minSubtotal);
+  if (!Number.isFinite(minSubtotal) || minSubtotal < 0) {
+    errors.push('Minimum subtotal must be zero or more.');
+  }
+
+  return {
+    errors,
+    code,
+    values: {
+      type,
+      value: Math.round(value * 100) / 100,
+      active: body.active === false ? 0 : 1,
+      max_uses: maxUses,
+      expires_at: expiresAt,
+      min_subtotal: Math.round(minSubtotal * 100) / 100,
+    },
+  };
+}
+
+router.get('/promo-codes', (req, res) => {
+  res.json(allPromoCodes.all().map(toAdminPromo));
+});
+
+router.post('/promo-codes', (req, res) => {
+  const { errors, code, values } = readPromoBody(req.body || {});
+  if (errors.length) return res.status(400).json({ error: errors.join(' ') });
+  if (onePromoCode.get(code)) return res.status(409).json({ error: `Code "${code}" already exists.` });
+
+  insertPromoCode.run({ code, ...values });
+  res.status(201).json(toAdminPromo(onePromoCode.get(code)));
+});
+
+router.put('/promo-codes/:code', (req, res) => {
+  const existingCode = String(req.params.code || '').trim().toUpperCase();
+  const existing = onePromoCode.get(existingCode);
+  if (!existing) return res.status(404).json({ error: 'Promo code not found.' });
+
+  const { errors, values } = readPromoBody({ ...req.body, code: existingCode });
+  if (errors.length) return res.status(400).json({ error: errors.join(' ') });
+
+  updatePromoCode.run({ code: existingCode, ...values });
+  res.json(toAdminPromo(onePromoCode.get(existingCode)));
+});
+
+router.delete('/promo-codes/:code', (req, res) => {
+  const code = String(req.params.code || '').trim().toUpperCase();
+  const existing = onePromoCode.get(code);
+  if (!existing) return res.status(404).json({ error: 'Promo code not found.' });
+
+  deletePromoCode.run(code);
+  res.json({ ok: true });
+});
+
 /* -------------------------------------------------------------- settings --- */
 
 router.get('/settings', (req, res) => {
@@ -868,6 +982,120 @@ router.get('/stats', (req, res) => {
     )
     .get().s;
   res.json({ live, reserved, pending, sales });
+});
+
+/* ------------------------------------------------------------ analytics --- */
+
+// Same "counts as a real sale" definition already used by /stats above.
+const SALE_STATUSES = ORDER_FLOW.slice(1); // paid, packed, mailed, completed
+
+router.get('/analytics', (req, res) => {
+  const rawDays = String(req.query.days || '30');
+  const days = rawDays === 'all' ? null : Number(rawDays) || 30;
+
+  const today = new Date();
+  const to = today.toISOString().slice(0, 10);
+  let from = null;
+  if (days) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - (days - 1)); // inclusive of today
+    from = d.toISOString().slice(0, 10);
+  }
+
+  const statusPlaceholders = SALE_STATUSES.map(() => '?').join(',');
+  const dateSql = from ? 'AND date(o.created_at) >= ?' : '';
+  const dateParams = from ? [from] : [];
+
+  const summary = db
+    .prepare(
+      `SELECT COUNT(*) orders, COALESCE(SUM(total), 0) revenue
+       FROM orders o WHERE status IN (${statusPlaceholders}) ${dateSql}`
+    )
+    .get(...SALE_STATUSES, ...dateParams);
+
+  const units = db
+    .prepare(
+      `SELECT COUNT(*) n FROM order_items oi JOIN orders o ON oi.order_id = o.id
+       WHERE o.status IN (${statusPlaceholders}) ${dateSql}`
+    )
+    .get(...SALE_STATUSES, ...dateParams).n;
+
+  const dailyRows = db
+    .prepare(
+      `SELECT date(o.created_at) day, SUM(o.total) revenue, COUNT(*) orders
+       FROM orders o WHERE status IN (${statusPlaceholders}) ${dateSql}
+       GROUP BY day ORDER BY day`
+    )
+    .all(...SALE_STATUSES, ...dateParams);
+
+  const topCards = db
+    .prepare(
+      `SELECT oi.name AS name, oi.set_name AS setName, oi.number AS number,
+              COUNT(*) unitsSold, SUM(oi.price) revenue
+       FROM order_items oi JOIN orders o ON oi.order_id = o.id
+       WHERE o.status IN (${statusPlaceholders}) ${dateSql}
+       GROUP BY oi.name, oi.set_name, oi.number
+       ORDER BY revenue DESC LIMIT 10`
+    )
+    .all(...SALE_STATUSES, ...dateParams);
+
+  const topSets = db
+    .prepare(
+      `SELECT oi.set_name AS setName, COUNT(*) unitsSold, SUM(oi.price) revenue
+       FROM order_items oi JOIN orders o ON oi.order_id = o.id
+       WHERE o.status IN (${statusPlaceholders}) ${dateSql} AND oi.set_name != ''
+       GROUP BY oi.set_name
+       ORDER BY revenue DESC LIMIT 10`
+    )
+    .all(...SALE_STATUSES, ...dateParams);
+
+  // Every status, not just "real sales" — the point here is seeing the whole pipeline.
+  const statusRows = db
+    .prepare(`SELECT status, COUNT(*) n FROM orders o WHERE 1=1 ${dateSql} GROUP BY status`)
+    .all(...dateParams);
+
+  // Zero-fill so the chart has a continuous X-axis; skipped for "all time" since that
+  // range has no fixed start to fill from.
+  const daily = [];
+  if (from) {
+    const dailyMap = new Map(dailyRows.map((r) => [r.day, r]));
+    const cursor = new Date(from);
+    const end = new Date(to);
+    while (cursor <= end) {
+      const key = cursor.toISOString().slice(0, 10);
+      const row = dailyMap.get(key);
+      daily.push({ date: key, revenue: row ? row.revenue : 0, orders: row ? row.orders : 0 });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  } else {
+    dailyRows.forEach((r) => daily.push({ date: r.day, revenue: r.revenue, orders: r.orders }));
+  }
+
+  const round2 = (n) => Math.round(n * 100) / 100;
+
+  res.json({
+    range: { days, from, to },
+    summary: {
+      revenue: round2(summary.revenue),
+      orders: summary.orders,
+      avgOrderValue: summary.orders ? round2(summary.revenue / summary.orders) : 0,
+      unitsSold: units,
+    },
+    daily,
+    topCards: topCards.map((r) => ({
+      name: r.name,
+      set: r.setName,
+      number: r.number,
+      unitsSold: r.unitsSold,
+      revenue: round2(r.revenue),
+    })),
+    topSets: topSets.map((r) => ({
+      set: r.setName,
+      unitsSold: r.unitsSold,
+      revenue: round2(r.revenue),
+    })),
+    statusBreakdown: statusRows,
+  });
 });
 
 module.exports = router;

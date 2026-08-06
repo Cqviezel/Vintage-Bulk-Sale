@@ -17,7 +17,9 @@
       <button class="active" data-admin-tab="dashboard">Dashboard</button>
       <button data-admin-tab="products">Products</button>
       <button data-admin-tab="orders">Orders</button>
+      <button data-admin-tab="analytics">Analytics</button>
       <button data-admin-tab="tradeShows">Trade Shows</button>
+      <button data-admin-tab="promoCodes">Promo Codes</button>
       <button data-admin-tab="settings">Settings</button>
     </nav>
     <div class="sidebar-foot">
@@ -123,6 +125,59 @@
       </div>
     </section>
 
+    <section class="admin-tab" id="analytics">
+      <div class="admin-top">
+        <div><h1>Analytics</h1><p>Sales trends, top sellers, and where orders are stuck.</p></div>
+        <div class="range-toggle" id="analyticsRange">
+          <button class="active" data-days="7" type="button">7d</button>
+          <button data-days="30" type="button">30d</button>
+          <button data-days="90" type="button">90d</button>
+          <button data-days="all" type="button">All</button>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><span>Revenue</span><strong id="anRevenue">—</strong></div>
+        <div class="stat"><span>Orders</span><strong id="anOrders">—</strong></div>
+        <div class="stat"><span>Avg Order Value</span><strong id="anAvgOrder">—</strong></div>
+        <div class="stat"><span>Units Sold</span><strong id="anUnits">—</strong></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div><h2>Revenue Over Time</h2><div class="small muted" id="anChartRange"></div></div>
+        </div>
+        <div class="panel-body" id="anChart"></div>
+      </div>
+
+      <div class="an-cols">
+        <div class="panel">
+          <div class="panel-head"><div><h2>Top Cards</h2><div class="small muted">By revenue in this range.</div></div></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Card</th><th>Set</th><th>Units</th><th>Revenue</th></tr></thead>
+              <tbody id="anTopCards"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><div><h2>Top Sets</h2><div class="small muted">By revenue in this range.</div></div></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Set</th><th>Units</th><th>Revenue</th></tr></thead>
+              <tbody id="anTopSets"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><div><h2>Order Status</h2><div class="small muted">Orders placed in this range, by current status.</div></div></div>
+        <div class="panel-body" id="anStatusBreakdown"></div>
+      </div>
+    </section>
+
     <section class="admin-tab" id="tradeShows">
       <div class="admin-top">
         <div><h1>Trade Shows</h1><p>Venues and dates shown to shoppers on the storefront.</p></div>
@@ -136,6 +191,24 @@
           <table>
             <thead><tr><th>Dates</th><th>Venue</th><th>Location</th><th>Table #</th><th>Actions</th></tr></thead>
             <tbody id="tradeShowsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="admin-tab" id="promoCodes">
+      <div class="admin-top">
+        <div><h1>Promo Codes</h1><p>Discount codes shoppers can enter at checkout.</p></div>
+        <div class="actions"><button class="btn primary" id="openPromoModal">Add Code</button></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <div><h2>Codes</h2><div class="small muted">Deactivate a code instead of deleting it to keep its usage history.</div></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Code</th><th>Discount</th><th>Uses</th><th>Expires</th><th>Min. Spend</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody id="promoCodesBody"></tbody>
           </table>
         </div>
       </div>
@@ -210,6 +283,7 @@
         <div><label for="productVariant">Variant</label>
           <select id="productVariant"><option>Normal</option><option>Holo</option><option>Reverse Holo</option><option>1st Edition</option></select>
         </div>
+        <div><label for="productArtist">Artist</label><input id="productArtist" placeholder="e.g. Mitsuhiro Arita"></div>
         <div><label for="productPrice">Price</label><input id="productPrice" type="number" step="0.01" min="0"></div>
         <div><label for="productQty">Quantity</label><input id="productQty" type="number" min="0" value="1"></div>
         <div><label for="productStatus">Inventory Status</label>
@@ -256,7 +330,7 @@
             <label for="bulkFile">CSV File</label>
             <input id="bulkFile" type="file" accept=".csv,text/csv">
             <div class="small muted" style="margin-top:8px">
-              Columns: <code>name, set, number, condition, variant, price, qty, status, image, notes</code>.
+              Columns: <code>name, set, number, condition, variant, price, qty, status, image, notes, artist</code>.
               Variant is one of <code>Normal, Holo, Reverse Holo, 1st Edition</code> (blank means Normal).
               Only <b>name</b> is required. Missing price becomes 0, missing qty becomes 1,
               missing status becomes <b>draft</b> so nothing goes on sale by accident.
@@ -355,6 +429,39 @@
       <div class="actions" style="justify-content:flex-end;margin-top:16px">
         <button class="btn modal-close" type="button">Cancel</button>
         <button class="btn primary" id="saveTradeShow" type="button">Save Show</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="promoModal">
+  <div class="modal" style="width:min(560px,100%)">
+    <div class="panel-head">
+      <div><h2 id="promoModalTitle">Add Code</h2></div>
+      <button class="close modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body">
+      <div class="form-grid">
+        <input type="hidden" id="promoOriginalCode">
+        <div><label for="promoCodeInput">Code</label><input id="promoCodeInput" placeholder="WELCOME10" style="text-transform:uppercase"></div>
+        <div><label for="promoType">Discount Type</label>
+          <select id="promoType"><option value="percent">Percent off</option><option value="fixed">Fixed amount off</option></select>
+        </div>
+        <div><label for="promoValue">Discount Value</label><input id="promoValue" type="number" step="0.01" min="0"></div>
+        <div><label for="promoMaxUses">Max Uses (optional)</label><input id="promoMaxUses" type="number" min="1" placeholder="Unlimited"></div>
+        <div><label for="promoExpiresAt">Expires (optional)</label><input id="promoExpiresAt" type="date"></div>
+        <div><label for="promoMinSubtotal">Minimum Card Subtotal</label><input id="promoMinSubtotal" type="number" step="0.01" min="0" value="0"></div>
+        <div>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:26px">
+            <input type="checkbox" id="promoActive" checked style="width:auto;min-height:0">
+            Active
+          </label>
+        </div>
+      </div>
+      <div id="promoError" class="notice error hidden" style="margin-top:12px"></div>
+      <div class="actions" style="justify-content:flex-end;margin-top:16px">
+        <button class="btn modal-close" type="button">Cancel</button>
+        <button class="btn primary" id="savePromo" type="button">Save Code</button>
       </div>
     </div>
   </div>

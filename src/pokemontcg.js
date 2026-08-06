@@ -160,6 +160,7 @@ function shape(card, confidence) {
     number: card.number || '',
     printedTotal: (card.set && (card.set.printedTotal || card.set.total)) || null,
     image: (card.images && (card.images.large || card.images.small)) || '',
+    artist: card.artist || '',
     marketPrice: typeof firstPrice.market === 'number' ? firstPrice.market : null,
   };
 }
@@ -373,6 +374,7 @@ async function listSetCards(setId) {
         number: c.number || '',
         rarity: c.rarity || '',
         image: (c.images && (c.images.large || c.images.small)) || '',
+        artist: c.artist || '',
         variants,
       };
     })

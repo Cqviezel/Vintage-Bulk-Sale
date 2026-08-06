@@ -25,6 +25,7 @@ function toPublicProduct(row) {
     image: row.image,
     notes: row.notes,
     createdAt: row.created_at,
+    artist: row.artist,
   };
 }
 
@@ -114,6 +115,8 @@ router.get('/orders/lookup', lookupLimiter, (req, res) => {
     status: order.status,
     delivery: order.delivery,
     subtotal: order.subtotal,
+    discount: order.discount,
+    promoCode: order.promo_code,
     fee: order.fee,
     total: order.total,
     createdAt: order.created_at,
@@ -151,13 +154,64 @@ const decrementProduct = db.prepare(
     "updated_at = datetime('now') WHERE id = ? AND qty > 0 AND status = 'live'"
 );
 const insertOrder = db.prepare(
-  `INSERT INTO orders (id, buyer, telegram, email, phone, address, delivery, subtotal, fee, total, status, notify_state)
-   VALUES (@id, @buyer, @telegram, @email, @phone, @address, @delivery, @subtotal, @fee, @total, 'awaiting payment', 'pending')`
+  `INSERT INTO orders (id, buyer, telegram, email, phone, address, delivery, subtotal, discount, promo_code, fee, total, status, notify_state)
+   VALUES (@id, @buyer, @telegram, @email, @phone, @address, @delivery, @subtotal, @discount, @promo_code, @fee, @total, 'awaiting payment', 'pending')`
 );
 const insertOrderItem = db.prepare(
   `INSERT INTO order_items (order_id, product_id, name, set_name, number, condition, variant, price, image)
    VALUES (@order_id, @product_id, @name, @set_name, @number, @condition, @variant, @price, @image)`
 );
+
+/* -------------------------------------------------------------- promo codes --- */
+
+const findPromoCode = db.prepare('SELECT * FROM promo_codes WHERE code = ?');
+// Re-checks active/limit/expiry atomically at claim time — the up-front check below
+// can go stale between validating a code and actually placing the order.
+const claimPromoUse = db.prepare(
+  `UPDATE promo_codes SET used_count = used_count + 1
+   WHERE code = @code AND active = 1
+     AND (max_uses IS NULL OR used_count < max_uses)
+     AND (expires_at IS NULL OR expires_at >= @today)`
+);
+
+const todayStr = () => new Date().toISOString().slice(0, 10);
+
+/** Whether `row` (a promo_codes row, possibly null) can be applied to a cart of `subtotal`. */
+function checkPromoEligibility(row, subtotal) {
+  if (!row) return { ok: false, error: 'Invalid promo code.' };
+  if (!row.active) return { ok: false, error: 'This code is no longer active.' };
+  if (row.expires_at && row.expires_at < todayStr()) return { ok: false, error: 'This code has expired.' };
+  if (row.max_uses != null && row.used_count >= row.max_uses) {
+    return { ok: false, error: 'This code has reached its usage limit.' };
+  }
+  if (subtotal < row.min_subtotal) {
+    return { ok: false, error: `Spend at least $${row.min_subtotal.toFixed(2)} to use this code.` };
+  }
+
+  const raw = row.type === 'percent' ? subtotal * (row.value / 100) : row.value;
+  return { ok: true, discount: Number(Math.min(raw, subtotal).toFixed(2)) };
+}
+
+function subtotalForIds(productIds) {
+  return productIds.reduce((sum, id) => {
+    const p = selectProductForUpdate.get(id);
+    return sum + (p ? Number(p.price) : 0);
+  }, 0);
+}
+
+router.post('/promo/validate', (req, res) => {
+  const code = String((req.body && req.body.code) || '').trim().toUpperCase();
+  if (!code) return res.status(400).json({ error: 'Enter a promo code.' });
+
+  const rawItems = Array.isArray(req.body && req.body.items) ? req.body.items : [];
+  const productIds = [...new Set(rawItems.map((i) => String(i && i.id ? i.id : i)))];
+  const subtotal = subtotalForIds(productIds);
+
+  const result = checkPromoEligibility(findPromoCode.get(code), subtotal);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+
+  res.json({ code, discount: result.discount });
+});
 
 /**
  * The whole point of the backend: reserving stock and writing the order happen in
@@ -200,6 +254,20 @@ const placeOrder = db.transaction((input) => {
     );
   }
 
+  let discount = 0;
+  let promoCode = '';
+  if (input.promoCode) {
+    const result = checkPromoEligibility(findPromoCode.get(input.promoCode), subtotal);
+    if (!result.ok) throw Object.assign(new Error(result.error), { status: 400 });
+
+    const claimed = claimPromoUse.run({ code: input.promoCode, today: todayStr() }).changes;
+    if (claimed !== 1) {
+      throw Object.assign(new Error('This code is no longer available.'), { status: 400 });
+    }
+    discount = result.discount;
+    promoCode = input.promoCode;
+  }
+
   const fee = input.delivery === 'Tracked Mailing' ? settings.mailing : 0;
   const id = uniqueOrderId();
 
@@ -212,8 +280,10 @@ const placeOrder = db.transaction((input) => {
     address: input.address,
     delivery: input.delivery,
     subtotal: Number(subtotal.toFixed(2)),
+    discount: Number(discount.toFixed(2)),
+    promo_code: promoCode,
     fee: Number(fee.toFixed(2)),
-    total: Number((subtotal + fee).toFixed(2)),
+    total: Number((subtotal - discount + fee).toFixed(2)),
   };
 
   insertOrder.run(order);
@@ -244,6 +314,7 @@ router.post('/orders', orderLimiter, async (req, res, next) => {
     const phone = String(body.phone || '').trim().slice(0, 30);
     const address = String(body.address || '').trim().slice(0, 1000);
     const delivery = String(body.delivery || '').trim();
+    const promoCode = String(body.promoCode || '').trim().toUpperCase().slice(0, 24);
     const rawItems = Array.isArray(body.items) ? body.items : [];
 
     if (!buyer) return res.status(400).json({ error: 'Please enter your name.' });
@@ -289,6 +360,7 @@ router.post('/orders', orderLimiter, async (req, res, next) => {
       phone,
       address,
       delivery,
+      promoCode,
     });
 
     // Respond immediately; the customer should not wait on Telegram's API.
@@ -300,6 +372,8 @@ router.post('/orders', orderLimiter, async (req, res, next) => {
       phone: order.phone,
       delivery: order.delivery,
       subtotal: order.subtotal,
+      discount: order.discount,
+      promoCode: order.promo_code,
       fee: order.fee,
       total: order.total,
       status: 'awaiting payment',
