@@ -105,6 +105,17 @@ ensureColumn('order_items', 'variant', "TEXT NOT NULL DEFAULT 'Normal'");
 ensureColumn('orders', 'phone', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('order_items', 'image', "TEXT NOT NULL DEFAULT ''");
 
+/**
+ * "Add by Set" used to save the Pokémon TCG API's low-res thumbnail instead of the
+ * full-size image. Upgrades any already-saved URL to the high-res version — the
+ * WHERE clause makes this safe to run on every startup, since a row that's already
+ * upgraded no longer matches it.
+ */
+db.prepare(
+  `UPDATE products SET image = REPLACE(image, '.png', '_hires.png')
+   WHERE image LIKE 'https://images.pokemontcg.io/%' AND image NOT LIKE '%_hires.png'`
+).run();
+
 const DEFAULT_SETTINGS = {
   storeName: 'Crazed TCG',
   telegram: '@crazedtcg',

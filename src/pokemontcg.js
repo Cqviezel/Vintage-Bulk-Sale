@@ -372,7 +372,7 @@ async function listSetCards(setId) {
         name: c.name,
         number: c.number || '',
         rarity: c.rarity || '',
-        image: (c.images && (c.images.small || c.images.large)) || '',
+        image: (c.images && (c.images.large || c.images.small)) || '',
         variants,
       };
     })
