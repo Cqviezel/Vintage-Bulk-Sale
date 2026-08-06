@@ -255,19 +255,23 @@ function apiHeaders() {
   return headers;
 }
 
+const CATALOG_MAX_ATTEMPTS = 6;
+const catalogBackoff = (attempt) => Math.min(400 * (attempt + 1), 2500);
+
 /**
  * Same flaky-5xx retry as request() above, for the catalog endpoints (sets/set cards).
- * One extra attempt versus request(): these responses are cached for a day, so a slower
- * upstream burst (Cloudflare's api.pokemontcg.io throws 500s in bunches) is worth outlasting
- * rather than surfacing as "could not reach the API" for a set that's actually fine.
+ * More attempts than request(), capped rather than growing unbounded: these responses
+ * are cached for a day, so outlasting a rough patch (Cloudflare's api.pokemontcg.io has
+ * thrown 500s in bunches of 3+ in a row) is worth a slower one-time fetch rather than
+ * surfacing as "could not reach the API" for a set that's actually fine.
  */
 async function fetchJson(url, attempt = 0) {
   let res;
   try {
     res = await fetch(url, { headers: apiHeaders() });
   } catch (err) {
-    if (attempt < 3) {
-      await sleep(400 * (attempt + 1));
+    if (attempt < CATALOG_MAX_ATTEMPTS) {
+      await sleep(catalogBackoff(attempt));
       return fetchJson(url, attempt + 1);
     }
     throw err;
@@ -276,8 +280,8 @@ async function fetchJson(url, attempt = 0) {
   if (res.status === 429) throw Object.assign(new Error('rate limited'), { rateLimited: true });
 
   if (!res.ok) {
-    if (res.status >= 500 && attempt < 3) {
-      await sleep(400 * (attempt + 1));
+    if (res.status >= 500 && attempt < CATALOG_MAX_ATTEMPTS) {
+      await sleep(catalogBackoff(attempt));
       return fetchJson(url, attempt + 1);
     }
     throw new Error(`API ${res.status}`);

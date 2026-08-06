@@ -445,12 +445,17 @@ router.post('/products/bulk', (req, res) => {
 
 /* ------------------------------------------------------------ add by set --- */
 
+// Already retried several times with backoff inside pokemontcg.js by the time this fires —
+// a failure here means the upstream API is genuinely down or degraded right now, not a
+// one-off blip, so say so rather than implying something's wrong with this app.
+const CATALOG_DOWN_HINT = 'It usually clears up within a few minutes — try again shortly.';
+
 router.get('/sets', async (req, res) => {
   try {
     res.json(await ptcg.listSets());
   } catch (err) {
     console.error('[sets]', err);
-    res.status(502).json({ error: 'Could not reach the Pokémon TCG API for the set list.' });
+    res.status(502).json({ error: `The Pokémon TCG API isn't responding right now. ${CATALOG_DOWN_HINT}` });
   }
 });
 
@@ -459,7 +464,7 @@ router.get('/sets/:id/cards', async (req, res) => {
     res.json(await ptcg.listSetCards(req.params.id));
   } catch (err) {
     console.error('[set cards]', err);
-    res.status(502).json({ error: 'Could not reach the Pokémon TCG API for this set.' });
+    res.status(502).json({ error: `The Pokémon TCG API isn't responding right now. ${CATALOG_DOWN_HINT}` });
   }
 });
 
