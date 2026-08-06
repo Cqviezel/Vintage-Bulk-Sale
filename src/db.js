@@ -131,6 +131,44 @@ db.prepare(
    WHERE image LIKE 'https://images.pokemontcg.io/%' AND image NOT LIKE '%_hires.png'`
 ).run();
 
+/**
+ * One-time cleanup for duplicate listings created before the single-card add endpoint
+ * checked for them — same match as the admin routes' findDuplicate query (name/set/
+ * number case-insensitive, condition/variant exact). Keeps the oldest row per group,
+ * sums the rest's qty into it, and deletes the rest. Self-limiting: once a group is
+ * merged down to one row it no longer matches the HAVING COUNT(*) > 1 below, so this
+ * is a no-op on every startup after the first.
+ */
+(function mergeDuplicateProducts() {
+  const groups = db
+    .prepare(
+      `SELECT lower(name) n, lower(set_name) s, lower(number) num, condition, variant
+       FROM products
+       GROUP BY n, s, num, condition, variant
+       HAVING COUNT(*) > 1`
+    )
+    .all();
+  if (!groups.length) return;
+
+  const rowsInGroup = db.prepare(
+    `SELECT * FROM products
+     WHERE lower(name) = ? AND lower(set_name) = ? AND lower(number) = ? AND condition = ? AND variant = ?
+     ORDER BY created_at ASC, id ASC`
+  );
+  const addQty = db.prepare(`UPDATE products SET qty = qty + ?, updated_at = datetime('now') WHERE id = ?`);
+  const deleteRow = db.prepare('DELETE FROM products WHERE id = ?');
+
+  const mergeAll = db.transaction(() => {
+    for (const g of groups) {
+      const [keep, ...rest] = rowsInGroup.all(g.n, g.s, g.num, g.condition, g.variant);
+      const extraQty = rest.reduce((sum, r) => sum + r.qty, 0);
+      if (extraQty) addQty.run(extraQty, keep.id);
+      for (const r of rest) deleteRow.run(r.id);
+    }
+  });
+  mergeAll();
+})();
+
 const DEFAULT_SETTINGS = {
   storeName: 'Crazed TCG',
   telegram: '@crazedtcg',
