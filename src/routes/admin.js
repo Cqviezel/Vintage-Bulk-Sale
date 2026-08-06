@@ -139,6 +139,30 @@ router.post('/products', (req, res) => {
   const { errors, values } = readProductBody(req.body || {});
   if (errors.length) return res.status(400).json({ error: errors.join(' ') });
 
+  // Same card, set, number, condition and variant already on the shelf? Merge the
+  // incoming stock into that row instead of creating a fragmented duplicate listing.
+  const existing = findDuplicate.get(
+    values.name,
+    values.set_name,
+    values.number,
+    values.condition,
+    values.variant
+  );
+
+  if (existing) {
+    const current = oneProduct.get(existing.id);
+    updateProduct.run({
+      ...current,
+      qty: current.qty + values.qty,
+      price: values.price,
+      status: values.status,
+      image: values.image || current.image,
+      notes: values.notes || current.notes,
+      artist: values.artist || current.artist,
+    });
+    return res.status(200).json(toAdminProduct(oneProduct.get(existing.id)));
+  }
+
   const id = 'p' + crypto.randomBytes(8).toString('hex');
   insertProduct.run({ id, ...values });
   res.status(201).json(toAdminProduct(oneProduct.get(id)));
@@ -515,12 +539,34 @@ router.post('/products/bulk-set', (req, res) => {
     });
   }
 
+  // Same merge-or-insert rule as the single-card endpoint — a set often overlaps
+  // with cards already on the shelf (added by hand, by CSV, or from another set
+  // import), so each row gets checked rather than inserted unconditionally.
   const insertMany = db.transaction((list) => {
-    for (const row of list) insertProduct.run(row);
+    let merged = 0;
+    for (const row of list) {
+      const existing = findDuplicate.get(row.name, row.set_name, row.number, row.condition, row.variant);
+      if (existing) {
+        const current = oneProduct.get(existing.id);
+        updateProduct.run({
+          ...current,
+          qty: current.qty + row.qty,
+          price: row.price,
+          status: row.status,
+          image: row.image || current.image,
+          notes: row.notes || current.notes,
+          artist: row.artist || current.artist,
+        });
+        merged++;
+      } else {
+        insertProduct.run(row);
+      }
+    }
+    return merged;
   });
-  insertMany(rows);
+  const merged = insertMany(rows);
 
-  res.status(201).json({ imported: rows.length });
+  res.status(201).json({ imported: rows.length, merged });
 });
 
 /* --------------------------------------------------------------- uploads --- */

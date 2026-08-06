@@ -1033,7 +1033,10 @@ async function commitSetImport() {
     });
     closeModals();
     await Promise.all([loadProducts(), loadStats()]);
-    toast(`Added ${data.imported} card${data.imported === 1 ? '' : 's'}`);
+    toast(
+      `Added ${data.imported} card${data.imported === 1 ? '' : 's'}` +
+        (data.merged ? ` (${data.merged} merged into existing listing${data.merged === 1 ? '' : 's'})` : '')
+    );
   } catch (err) {
     errorBox.textContent = err.message;
     errorBox.classList.remove('hidden');
