@@ -175,6 +175,37 @@ router.delete('/products/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+const CONFIDENT_MATCH = new Set(['exact', 'number', 'set']);
+
+/**
+ * One-off maintenance: fills in `artist` for any product that's missing it, by
+ * re-looking each one up against the Pokémon TCG API — same matcher the CSV import
+ * uses. Existing rows never got this field written (it was added after they were
+ * created), and there's no "edit 78 cards by hand" option, so this runs it for you.
+ * Only accepts matches corroborated by set and/or number — a bare name-only hit
+ * could easily be the wrong printing's artist.
+ */
+router.post('/products/backfill-artist', async (req, res) => {
+  const rows = db.prepare("SELECT id, name, set_name, number FROM products WHERE artist = ''").all();
+  if (!rows.length) return res.json({ checked: 0, updated: 0, rateLimited: false });
+
+  const { results, rateLimited } = await ptcg.lookupMany(
+    rows.map((r) => ({ name: r.name, set: r.set_name, number: r.number }))
+  );
+
+  const updateArtist = db.prepare("UPDATE products SET artist = ?, updated_at = datetime('now') WHERE id = ?");
+  let updated = 0;
+  rows.forEach((row, i) => {
+    const match = results[i];
+    if (match && match.artist && CONFIDENT_MATCH.has(match.confidence)) {
+      updateArtist.run(match.artist, row.id);
+      updated++;
+    }
+  });
+
+  res.json({ checked: rows.length, updated, rateLimited });
+});
+
 /* ----------------------------------------------------------- bulk import --- */
 
 const TEMPLATE_HEADERS = ['name', 'set', 'number', 'condition', 'variant', 'price', 'qty', 'status', 'image', 'notes', 'artist'];

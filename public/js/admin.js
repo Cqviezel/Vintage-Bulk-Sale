@@ -757,6 +757,32 @@ $('#openBulkImport').onclick = () => {
   openModal('#bulkModal');
 };
 
+async function backfillArtist() {
+  const button = $('#backfillArtist');
+  if (!confirm('Look up the artist for every product missing one? This can take a minute for a large catalogue.')) {
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = 'Backfilling…';
+  try {
+    const data = await api('/api/admin/products/backfill-artist', { method: 'POST' });
+    await loadProducts();
+    toast(
+      data.checked
+        ? `Checked ${data.checked} card${data.checked === 1 ? '' : 's'}, filled in ${data.updated}` +
+            (data.rateLimited ? ' — the API rate-limited us partway through, run it again later for the rest.' : '.')
+        : 'Nothing to backfill — every card already has an artist.'
+    );
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Backfill Artists';
+  }
+}
+$('#backfillArtist').onclick = backfillArtist;
+
 /* -------------------------------------------------------------- add by set --- */
 
 let setsCache = null; // lazy-loaded, kept for the life of the page
