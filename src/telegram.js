@@ -43,8 +43,11 @@ function buildMessage(order, items) {
     );
   }
 
+  lines.push(`• ${escapeHtml(order.delivery)} ${money(order.fee)}`);
+  if (order.discount) {
+    lines.push(`• Promo <b>${escapeHtml(order.promo_code)}</b> −${money(order.discount)}`);
+  }
   lines.push(
-    `• ${escapeHtml(order.delivery)} ${money(order.fee)}`,
     '',
     `<b>Total: ${money(order.total)}</b>`,
     '',
