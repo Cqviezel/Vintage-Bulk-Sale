@@ -139,6 +139,31 @@ router.post('/products', (req, res) => {
   const { errors, values } = readProductBody(req.body || {});
   if (errors.length) return res.status(400).json({ error: errors.join(' ') });
 
+  // Same card, set, number, condition and variant already on the shelf? Merge the
+  // incoming stock into that row instead of creating a fragmented duplicate listing.
+  const existing = findDuplicate.get(
+    values.name,
+    values.set_name,
+    values.number,
+    values.condition,
+    values.variant
+  );
+
+  if (existing) {
+    const current = oneProduct.get(existing.id);
+    const merged = {
+      ...current,
+      qty: current.qty + values.qty,
+      price: values.price,
+      status: values.status,
+      image: values.image || current.image,
+      notes: values.notes || current.notes,
+      artist: values.artist || current.artist,
+    };
+    updateProduct.run(merged);
+    return res.status(200).json(toAdminProduct(oneProduct.get(existing.id)));
+  }
+
   const id = 'p' + crypto.randomBytes(8).toString('hex');
   insertProduct.run({ id, ...values });
   res.status(201).json(toAdminProduct(oneProduct.get(id)));
