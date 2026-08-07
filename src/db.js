@@ -103,6 +103,17 @@ db.exec(`
     min_subtotal  REAL NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  -- One row per storefront load. "visitor" is a salted hash of the requester's IP,
+  -- never the IP itself, so unique-visitor counts don't require storing anything
+  -- personally identifying.
+  CREATE TABLE IF NOT EXISTS page_views (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    visitor     TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_page_views_created ON page_views(created_at);
 `);
 
 /** Adds a column to a table that already exists on disk from before this field was added. */

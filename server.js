@@ -3,6 +3,7 @@
 require('dotenv').config();
 
 const path = require('path');
+const crypto = require('crypto');
 const express = require('express');
 const session = require('express-session');
 const SqliteStore = require('better-sqlite3-session-store')(session);
@@ -73,6 +74,28 @@ app.get('/admin/login', (req, res) => {
 
 app.get('/admin', auth.requireAuthPage, (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'admin.html'));
+});
+
+const insertPageView = db.prepare('INSERT INTO page_views (visitor) VALUES (?)');
+
+// Counts storefront loads for the admin Analytics tab. The seller's own visits while
+// logged in are excluded so testing the storefront doesn't inflate the numbers.
+// "visitor" is IP + SESSION_SECRET hashed, letting DISTINCT count unique visitors
+// without ever storing the IP itself.
+app.get('/', (req, res, next) => {
+  if (!(req.session && req.session.user)) {
+    try {
+      const visitor = crypto
+        .createHash('sha256')
+        .update(`${req.ip}${process.env.SESSION_SECRET}`)
+        .digest('hex')
+        .slice(0, 16);
+      insertPageView.run(visitor);
+    } catch (err) {
+      console.error('Visit tracking failed:', err.message);
+    }
+  }
+  next();
 });
 
 // Customer-uploaded card photos. Long cache: filenames are content-random.

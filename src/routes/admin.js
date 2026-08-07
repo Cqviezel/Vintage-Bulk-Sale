@@ -1110,6 +1110,20 @@ router.get('/analytics', (req, res) => {
     )
     .all(...SALE_STATUSES, ...dateParams);
 
+  const pvDateSql = from ? 'AND date(created_at) >= ?' : '';
+
+  const visitSummary = db
+    .prepare(`SELECT COUNT(*) views, COUNT(DISTINCT visitor) uniques FROM page_views WHERE 1=1 ${pvDateSql}`)
+    .get(...dateParams);
+
+  const visitDailyRows = db
+    .prepare(
+      `SELECT date(created_at) day, COUNT(*) views, COUNT(DISTINCT visitor) uniques
+       FROM page_views WHERE 1=1 ${pvDateSql}
+       GROUP BY day ORDER BY day`
+    )
+    .all(...dateParams);
+
   const topCards = db
     .prepare(
       `SELECT oi.name AS name, oi.set_name AS setName, oi.number AS number,
@@ -1138,19 +1152,31 @@ router.get('/analytics', (req, res) => {
 
   // Zero-fill so the chart has a continuous X-axis; skipped for "all time" since that
   // range has no fixed start to fill from.
+  const dailyMap = new Map(dailyRows.map((r) => [r.day, r]));
+  const visitMap = new Map(visitDailyRows.map((r) => [r.day, r]));
+  const dayRow = (key) => {
+    const sales = dailyMap.get(key);
+    const visits = visitMap.get(key);
+    return {
+      date: key,
+      revenue: sales ? sales.revenue : 0,
+      orders: sales ? sales.orders : 0,
+      visitors: visits ? visits.uniques : 0,
+      pageViews: visits ? visits.views : 0,
+    };
+  };
+
   const daily = [];
   if (from) {
-    const dailyMap = new Map(dailyRows.map((r) => [r.day, r]));
     const cursor = new Date(from);
     const end = new Date(to);
     while (cursor <= end) {
-      const key = cursor.toISOString().slice(0, 10);
-      const row = dailyMap.get(key);
-      daily.push({ date: key, revenue: row ? row.revenue : 0, orders: row ? row.orders : 0 });
+      daily.push(dayRow(cursor.toISOString().slice(0, 10)));
       cursor.setDate(cursor.getDate() + 1);
     }
   } else {
-    dailyRows.forEach((r) => daily.push({ date: r.day, revenue: r.revenue, orders: r.orders }));
+    const allDays = new Set([...dailyMap.keys(), ...visitMap.keys()]);
+    [...allDays].sort().forEach((day) => daily.push(dayRow(day)));
   }
 
   const round2 = (n) => Math.round(n * 100) / 100;
@@ -1162,6 +1188,8 @@ router.get('/analytics', (req, res) => {
       orders: summary.orders,
       avgOrderValue: summary.orders ? round2(summary.revenue / summary.orders) : 0,
       unitsSold: units,
+      visitors: visitSummary.uniques,
+      pageViews: visitSummary.views,
     },
     daily,
     topCards: topCards.map((r) => ({

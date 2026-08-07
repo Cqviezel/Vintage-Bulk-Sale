@@ -155,11 +155,12 @@ function formatShortDate(iso) {
 }
 
 /** Hand-rolled inline SVG bar chart — no charting library, matches how the rest of this
-    dependency-free app builds its UI. A native <title> per bar gives a free hover tooltip. */
-function svgBarChart(daily) {
+    dependency-free app builds its UI. A native <title> per bar gives a free hover tooltip.
+    `valueFn` picks the bar height per day, `tooltipFn` formats its <title>. */
+function svgBarChart(daily, valueFn, tooltipFn) {
   if (!daily.length) return '<div class="empty">No data for this range.</div>';
 
-  const max = Math.max(1, ...daily.map((d) => d.revenue));
+  const max = Math.max(1, ...daily.map(valueFn));
   const barW = 14;
   const gap = 4;
   const height = 160;
@@ -169,12 +170,13 @@ function svgBarChart(daily) {
 
   const bars = daily
     .map((d, i) => {
-      const h = d.revenue > 0 ? Math.max(2, Math.round((d.revenue / max) * plotH)) : 0;
+      const v = valueFn(d);
+      const h = v > 0 ? Math.max(2, Math.round((v / max) * plotH)) : 0;
       const x = i * (barW + gap);
       const y = plotH - h;
       const label = i % labelEvery === 0 || i === daily.length - 1 ? formatShortDate(d.date) : '';
       return `<rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="2">
-        <title>${esc(d.date)}: ${money(d.revenue)} (${d.orders} order${d.orders === 1 ? '' : 's'})</title>
+        <title>${tooltipFn(d)}</title>
       </rect>
       ${label ? `<text x="${x + barW / 2}" y="${height - 6}" font-size="9" text-anchor="middle">${esc(label)}</text>` : ''}`;
     })
@@ -188,11 +190,22 @@ function renderAnalytics(data) {
   $('#anOrders').textContent = data.summary.orders;
   $('#anAvgOrder').textContent = money(data.summary.avgOrderValue);
   $('#anUnits').textContent = data.summary.unitsSold;
+  $('#anVisitors').textContent = data.summary.visitors;
+  $('#anPageViews').textContent = data.summary.pageViews;
 
   $('#anChartRange').textContent = data.range.from
     ? `${data.range.from} to ${data.range.to}`
     : `Through ${data.range.to}`;
-  $('#anChart').innerHTML = svgBarChart(data.daily);
+  $('#anChart').innerHTML = svgBarChart(
+    data.daily,
+    (d) => d.revenue,
+    (d) => `${esc(d.date)}: ${money(d.revenue)} (${d.orders} order${d.orders === 1 ? '' : 's'})`
+  );
+  $('#anVisitorsChart').innerHTML = svgBarChart(
+    data.daily,
+    (d) => d.visitors,
+    (d) => `${esc(d.date)}: ${d.visitors} visitor${d.visitors === 1 ? '' : 's'} (${d.pageViews} view${d.pageViews === 1 ? '' : 's'})`
+  );
 
   $('#anTopCards').innerHTML = data.topCards.length
     ? data.topCards
