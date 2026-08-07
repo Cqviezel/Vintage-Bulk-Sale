@@ -182,7 +182,7 @@ function svgBarChart(daily, valueFn, tooltipFn) {
     })
     .join('');
 
-  return `<div class="an-chart"><svg viewBox="0 0 ${width} ${height}" style="min-width:${width}px;height:${height}px">${bars}</svg></div>`;
+  return `<div class="an-chart"><svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${bars}</svg></div>`;
 }
 
 function renderAnalytics(data) {
