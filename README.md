@@ -83,11 +83,13 @@ last copy) can be muted in Admin → Settings → **Low Stock Alerts**, and are 
 into one message per order regardless.
 
 **Splitting into topics (optional).** If `TELEGRAM_ADMIN_CHAT_ID` points at a
-forum-mode supergroup with Topics enabled, set `TELEGRAM_ORDERS_THREAD_ID` and/or
-`TELEGRAM_LOWSTOCK_THREAD_ID` in `.env` to route each message type into its own topic
-thread, so you can mute or check "Low Stock" independently of "Orders". In Telegram
+forum-mode supergroup with Topics enabled, set `TELEGRAM_ORDERS_THREAD_ID`,
+`TELEGRAM_LOWSTOCK_THREAD_ID`, and/or `TELEGRAM_OUTOFSTOCK_THREAD_ID` in `.env` to
+route orders, cards still in stock but running low, and cards at zero into three
+separate topics, so you can mute or check any of them independently. In Telegram
 Desktop, right-click a topic → **Copy Link** — the number at the end of the link
-(`.../c/<chat>/<N>`) is its thread ID. Leave these blank to keep everything in one chat.
+(`.../c/<chat>/<N>`) is its thread ID. Leave any of these blank to send that category
+to the General topic instead.
 
 ## Bulk import / export
 

@@ -119,15 +119,10 @@ async function notifyNewOrder(order, items) {
   return result;
 }
 
-/**
- * Fired right after an order pushes one or more cards to 0 or 1 left, so they can be
- * pulled/relisted. All products from the same order are batched into a single message.
- */
-async function notifyLowStock(products) {
-  if (!products || !products.length) return { ok: true };
-  if (!isConfigured()) return { ok: false, reason: 'not configured' };
+async function sendStockBatch(products, title, threadId) {
+  if (!products.length) return { ok: true };
 
-  const lines = ['<b>Low stock</b>', ''];
+  const lines = [`<b>${title}</b>`, ''];
   for (const product of products) {
     const left = product.qty <= 0 ? 'sold out' : `${product.qty} left`;
     const detail = product.set ? ` — ${escapeHtml(product.set)}` : '';
@@ -141,16 +136,37 @@ async function notifyLowStock(products) {
     parse_mode: 'HTML',
     disable_web_page_preview: true,
   };
-  if (process.env.TELEGRAM_LOWSTOCK_THREAD_ID) {
-    body.message_thread_id = Number(process.env.TELEGRAM_LOWSTOCK_THREAD_ID);
-  }
+  if (threadId) body.message_thread_id = Number(threadId);
 
   const result = await post('sendMessage', body);
 
   if (!result.ok) {
-    console.error(`[telegram] low-stock alert (${products.length} item${products.length === 1 ? '' : 's'}) failed: ${result.reason}`);
+    const count = `${products.length} item${products.length === 1 ? '' : 's'}`;
+    console.error(`[telegram] ${title.toLowerCase()} alert (${count}) failed: ${result.reason}`);
   }
   return result;
+}
+
+/**
+ * Fired right after an order pushes one or more cards to 0 or 1 left, so they can be
+ * pulled/relisted. Products still in stock ("N left") and products at zero ("sold out")
+ * are sent as separate batched messages, so each can be routed to its own Telegram topic.
+ */
+async function notifyLowStock(products) {
+  if (!products || !products.length) return { ok: true };
+  if (!isConfigured()) return { ok: false, reason: 'not configured' };
+
+  const low = products.filter((p) => p.qty > 0);
+  const out = products.filter((p) => p.qty <= 0);
+
+  const [lowResult, outResult] = await Promise.all([
+    sendStockBatch(low, 'Low stock', process.env.TELEGRAM_LOWSTOCK_THREAD_ID),
+    sendStockBatch(out, 'Out of stock', process.env.TELEGRAM_OUTOFSTOCK_THREAD_ID),
+  ]);
+
+  if (!lowResult.ok) return lowResult;
+  if (!outResult.ok) return outResult;
+  return { ok: true };
 }
 
 async function sendTest() {
