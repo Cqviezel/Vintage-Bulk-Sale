@@ -240,8 +240,14 @@ const placeOrder = db.transaction((input) => {
     reserved.push(product);
 
     const remaining = product.qty - 1;
-    if (remaining <= LOW_STOCK_THRESHOLD) {
-      lowStock.push({ name: product.name, set: product.set_name, qty: remaining });
+    if (settings.lowStockAlerts && remaining <= LOW_STOCK_THRESHOLD) {
+      lowStock.push({
+        name: product.name,
+        set: product.set_name,
+        qty: remaining,
+        condition: product.condition,
+        variant: product.variant,
+      });
     }
   }
 
@@ -393,9 +399,7 @@ router.post('/orders', orderLimiter, async (req, res, next) => {
     });
 
     telegram.notifyNewOrder(order, items).catch(() => {});
-    for (const product of lowStock) {
-      telegram.notifyLowStock(product).catch(() => {});
-    }
+    telegram.notifyLowStock(lowStock).catch(() => {});
   } catch (err) {
     next(err);
   }

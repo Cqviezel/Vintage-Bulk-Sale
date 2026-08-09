@@ -78,6 +78,17 @@ The token stays on the server. It is never sent to a browser, which is why this 
 be done from a static page. If Telegram is down, the order is still saved — the failure
 is recorded on the order and the **Resend** button retries it.
 
+New orders always notify. Low-stock alerts (fired when an order drops a card to its
+last copy) can be muted in Admin → Settings → **Low Stock Alerts**, and are batched
+into one message per order regardless.
+
+**Splitting into topics (optional).** If `TELEGRAM_ADMIN_CHAT_ID` points at a
+forum-mode supergroup with Topics enabled, set `TELEGRAM_ORDERS_THREAD_ID` and/or
+`TELEGRAM_LOWSTOCK_THREAD_ID` in `.env` to route each message type into its own topic
+thread, so you can mute or check "Low Stock" independently of "Orders". In Telegram
+Desktop, right-click a topic → **Copy Link** — the number at the end of the link
+(`.../c/<chat>/<N>`) is its thread ID. Leave these blank to keep everything in one chat.
+
 ## Bulk import / export
 
 Admin → Products has **Bulk Import CSV** and **Export CSV**.

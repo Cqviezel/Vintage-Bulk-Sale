@@ -236,6 +236,15 @@
         <div><label for="settingMinimum">Minimum Card Subtotal</label><input id="settingMinimum" type="number" step="0.01" min="0"></div>
         <div><label for="settingReservation">Reservation Minutes</label><input id="settingReservation" type="number" min="0"></div>
         <div><label for="settingContactTelegram">Order Contact Telegram</label><input id="settingContactTelegram" placeholder="@Cqvie"></div>
+        <div>
+          <label style="display:flex;align-items:center;gap:8px;margin-top:26px">
+            <input type="checkbox" id="settingLowStockAlerts" style="width:auto;min-height:0">
+            Low Stock Alerts
+          </label>
+          <div class="small muted" style="margin-top:4px">
+            Pings Telegram when a card drops to its last copy. Order notifications always stay on.
+          </div>
+        </div>
         <div><label for="settingPaynowPayee">PayNow Payee Name (optional)</label><input id="settingPaynowPayee" placeholder="Shown under the QR"></div>
         <div class="full"><label for="settingPaynow">PayNow Instructions</label><textarea id="settingPaynow"></textarea></div>
 

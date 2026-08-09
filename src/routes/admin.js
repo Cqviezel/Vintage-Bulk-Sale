@@ -1032,6 +1032,7 @@ router.put('/settings', (req, res) => {
     }
     patch.contactTelegram = handle;
   }
+  if (body.lowStockAlerts !== undefined) patch.lowStockAlerts = body.lowStockAlerts ? '1' : '0';
 
   for (const key of ['mailing', 'minimum', 'reservation']) {
     if (body[key] === undefined) continue;

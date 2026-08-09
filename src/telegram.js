@@ -20,6 +20,11 @@ function escapeHtml(s) {
     .replace(/>/g, '&gt;');
 }
 
+/** "Normal" is the overwhelming default — only call it out when it's not. */
+function conditionTag(item) {
+  return item.variant && item.variant !== 'Normal' ? `${item.condition}, ${item.variant}` : item.condition;
+}
+
 function buildMessage(order, items) {
   const lines = [
     '<b>New Crazed TCG order</b>',
@@ -35,8 +40,7 @@ function buildMessage(order, items) {
   lines.push('', '<b>Items</b>');
   for (const item of items) {
     const detail = [item.set_name, item.number].filter(Boolean).join(' ');
-    // "Normal" is the overwhelming default — only call it out when it's not.
-    const tag = item.variant && item.variant !== 'Normal' ? `${item.condition}, ${item.variant}` : item.condition;
+    const tag = conditionTag(item);
     lines.push(
       `• ${escapeHtml(item.name)}${detail ? ' — ' + escapeHtml(detail) : ''} ` +
         `[${escapeHtml(tag)}] ${money(item.price)}`
@@ -94,12 +98,17 @@ async function notifyNewOrder(order, items) {
     return { ok: false, reason: 'not configured' };
   }
 
-  const result = await post('sendMessage', {
+  const body = {
     chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID,
     text: buildMessage(order, items),
     parse_mode: 'HTML',
     disable_web_page_preview: true,
-  });
+  };
+  if (process.env.TELEGRAM_ORDERS_THREAD_ID) {
+    body.message_thread_id = Number(process.env.TELEGRAM_ORDERS_THREAD_ID);
+  }
+
+  const result = await post('sendMessage', body);
 
   if (result.ok) {
     markNotified.run('sent', '', order.id);
@@ -110,22 +119,36 @@ async function notifyNewOrder(order, items) {
   return result;
 }
 
-/** Fired right after an order pushes a card to 0 or 1 left, so it can be pulled/relisted. */
-async function notifyLowStock(product) {
+/**
+ * Fired right after an order pushes one or more cards to 0 or 1 left, so they can be
+ * pulled/relisted. All products from the same order are batched into a single message.
+ */
+async function notifyLowStock(products) {
+  if (!products || !products.length) return { ok: true };
   if (!isConfigured()) return { ok: false, reason: 'not configured' };
 
-  const left = product.qty <= 0 ? 'sold out' : `${product.qty} left`;
-  const detail = product.set ? ` — ${escapeHtml(product.set)}` : '';
+  const lines = ['<b>Low stock</b>', ''];
+  for (const product of products) {
+    const left = product.qty <= 0 ? 'sold out' : `${product.qty} left`;
+    const detail = product.set ? ` — ${escapeHtml(product.set)}` : '';
+    const tag = conditionTag(product);
+    lines.push(`• ${escapeHtml(product.name)}${detail} [${escapeHtml(tag)}] is ${left}.`);
+  }
 
-  const result = await post('sendMessage', {
+  const body = {
     chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID,
-    text: `<b>Low stock</b>\n${escapeHtml(product.name)}${detail} is ${left}.`,
+    text: lines.join('\n'),
     parse_mode: 'HTML',
     disable_web_page_preview: true,
-  });
+  };
+  if (process.env.TELEGRAM_LOWSTOCK_THREAD_ID) {
+    body.message_thread_id = Number(process.env.TELEGRAM_LOWSTOCK_THREAD_ID);
+  }
+
+  const result = await post('sendMessage', body);
 
   if (!result.ok) {
-    console.error(`[telegram] low-stock alert for "${product.name}" failed: ${result.reason}`);
+    console.error(`[telegram] low-stock alert (${products.length} item${products.length === 1 ? '' : 's'}) failed: ${result.reason}`);
   }
   return result;
 }

@@ -191,6 +191,7 @@ const DEFAULT_SETTINGS = {
   paynowQr: '/uploads/paynow-qr.jpg',
   paynowPayee: '',
   contactTelegram: '@Cqvie',
+  lowStockAlerts: '1',
 };
 
 const insertSetting = db.prepare(
@@ -208,6 +209,7 @@ function getSettings() {
   out.mailing = Number(out.mailing) || 0;
   out.minimum = Number(out.minimum) || 0;
   out.reservation = Number(out.reservation) || 30;
+  out.lowStockAlerts = out.lowStockAlerts !== '0';
   return out;
 }
 

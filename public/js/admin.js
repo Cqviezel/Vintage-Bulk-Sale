@@ -1594,6 +1594,7 @@ async function loadSettings() {
     $('#settingPaynow').value = s.paynow;
     $('#settingPaynowPayee').value = s.paynowPayee || '';
     $('#settingContactTelegram').value = s.contactTelegram || '';
+    $('#settingLowStockAlerts').checked = Boolean(s.lowStockAlerts);
 
     currentPaynowQr = s.paynowQr || '';
     $('#paynowQrPreview').src = currentPaynowQr || LOGO;
@@ -1644,6 +1645,7 @@ $('#saveSettings').onclick = async () => {
         paynowPayee: $('#settingPaynowPayee').value,
         contactTelegram: $('#settingContactTelegram').value,
         paynowQr: currentPaynowQr,
+        lowStockAlerts: $('#settingLowStockAlerts').checked,
       }),
     });
     toast('Settings saved');
