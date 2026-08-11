@@ -166,15 +166,22 @@ function svgBarChart(daily, valueFn, tooltipFn) {
   const height = 160;
   const plotH = height - 24;
   const width = daily.length * (barW + gap);
-  const labelEvery = Math.max(1, Math.ceil(daily.length / 10));
+  // A "Aug 12"-sized label needs ~32px of its own — cramming one onto every bar (as a
+  // flat "10 labels max" rule would for date ranges under 20 days) makes them overlap.
+  const labelEvery = Math.max(1, Math.ceil(daily.length / 10), Math.ceil(32 / (barW + gap)));
 
+  let lastLabelIndex = -Infinity;
   const bars = daily
     .map((d, i) => {
       const v = valueFn(d);
       const h = v > 0 ? Math.max(2, Math.round((v / max) * plotH)) : 0;
       const x = i * (barW + gap);
       const y = plotH - h;
-      const label = i % labelEvery === 0 || i === daily.length - 1 ? formatShortDate(d.date) : '';
+      const isLast = i === daily.length - 1;
+      const dueForLabel = i - lastLabelIndex >= labelEvery;
+      const showLabel = dueForLabel || (isLast && i - lastLabelIndex >= labelEvery / 2);
+      if (showLabel) lastLabelIndex = i;
+      const label = showLabel ? formatShortDate(d.date) : '';
       return `<rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="2">
         <title>${tooltipFn(d)}</title>
       </rect>
