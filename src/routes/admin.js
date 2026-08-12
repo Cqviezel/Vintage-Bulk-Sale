@@ -567,6 +567,9 @@ router.post('/products/bulk-set', (req, res) => {
   const merged = insertMany(rows);
 
   res.status(201).json({ imported: rows.length, merged });
+
+  const liveCount = rows.filter((r) => r.status === 'live').length;
+  telegram.notifyRestock(setName, liveCount).catch(() => {});
 });
 
 /* --------------------------------------------------------------- uploads --- */

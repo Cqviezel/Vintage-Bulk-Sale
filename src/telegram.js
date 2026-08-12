@@ -271,6 +271,30 @@ function notifyOutOfStock(products) {
   return sendOutOfStockList(products);
 }
 
+function isRestockChannelConfigured() {
+  return Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_RESTOCK_CHANNEL);
+}
+
+/**
+ * Public restock announcement — a separate, customer-facing destination from the private
+ * admin chat everything else in this file posts to, so it's gated on its own env var and
+ * silently does nothing if that's unset (opt-in). TELEGRAM_RESTOCK_TOPIC routes it to a
+ * specific topic the same way the admin group's topics work, falling back to General if
+ * unset. Only fires for cards that actually went live, since a set imported as drafts
+ * (to price/review first) isn't purchasable yet and isn't news.
+ */
+function notifyRestock(setName, liveCount) {
+  if (!isRestockChannelConfigured() || liveCount <= 0) return Promise.resolve({ ok: true });
+  const label = liveCount === 1 ? 'card' : 'cards';
+  return post('sendMessage', {
+    chat_id: process.env.TELEGRAM_RESTOCK_CHANNEL,
+    message_thread_id: threadId('TELEGRAM_RESTOCK_TOPIC'),
+    text: `🎉 <b>Restocked: ${escapeHtml(setName)}</b>\n${liveCount} ${label} from this set just went live — check the shop!`,
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
+  });
+}
+
 /**
  * The on-demand report (button tap / `/stock`), unlike notifyOutOfStock above: it always
  * replies, even with nothing to report, since it was explicitly asked for.
@@ -547,6 +571,7 @@ async function sendTest() {
 module.exports = {
   notifyNewOrder,
   notifyOutOfStock,
+  notifyRestock,
   sendTest,
   isConfigured,
   buildMessage,

@@ -125,6 +125,17 @@ Two commands cover pulling up orders without the web admin:
 - `/order CTCG-1234` — looks up one specific order by ID, any status, handy for answering
   a customer's question without logging in.
 
+### Public restock announcements
+
+Set `TELEGRAM_RESTOCK_CHANNEL` to a chat's `@username` (and optionally
+`TELEGRAM_RESTOCK_TOPIC` if it has Topics) and every Admin → Products → **Add by Set**
+import that puts cards live posts an announcement there — separate from the private admin
+chat everything else in this section goes to, since this one is meant for customers to
+see. The bot needs to already be a member of that chat with permission to send messages.
+Cards left as **draft** (to price or review before going live) don't count and won't
+trigger an announcement — only what actually became purchasable. Nothing else (single Add
+Product, Bulk Import CSV) triggers this; if you want it to, ask.
+
 ## Bulk import / export
 
 Admin → Products has **Bulk Import CSV** and **Export CSV**.
