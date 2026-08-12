@@ -86,21 +86,20 @@ can be sent to its own topic instead of dumping everything into General:
 | Env var | Notification |
 |---|---|
 | `TELEGRAM_TOPIC_SALES` | New orders (and Admin → Orders → Resend) |
-| `TELEGRAM_TOPIC_LOW_STOCK` | A card drops to its last one |
 | `TELEGRAM_TOPIC_OUT_OF_STOCK` | A card sells out |
 
 Get a topic's thread ID from its **Copy Link** in Telegram — it's the number after the
-chat ID, e.g. `https://t.me/c/<chat>/<THIS NUMBER>`. Leave any of the three blank and
-that notification kind falls back to General. **Send test message** always posts to
-General, regardless of these settings.
+chat ID, e.g. `https://t.me/c/<chat>/<THIS NUMBER>`. Leave either blank and that
+notification kind falls back to General. **Send test message** always posts to General,
+regardless of these settings.
 
 ### Current stock report
 
-Low/out-of-stock alerts carry a **📋 Full stock report** button — tap it, or send `/stock`
-in the chat, and the bot replies with everything currently live at 1-or-fewer or sold out.
-This is a live snapshot of the `products` table, not a log: once a card is restocked (qty
-raised and status set back to **live**), or a sold-out order is marked paid (retiring the
-card to **sold**), it drops off on the next tap — nothing to clean up by hand.
+Out-of-stock alerts carry a **📋 Full stock report** button — tap it, or send `/stock` in
+the chat, and the bot replies with everything currently sold out. This is a live snapshot
+of the `products` table, not a log: once a sold-out order is marked paid (retiring the
+card to **sold**) or the card is restocked, it drops off on the next tap — nothing to
+clean up by hand. There's no low-stock alert — only a card actually selling out pings you.
 
 Answering this requires the server to poll Telegram for updates in the background, which
 starts automatically whenever the bot is configured. Only run one instance of the app

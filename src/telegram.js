@@ -123,24 +123,20 @@ async function notifyNewOrder(order, items) {
 
 function stockLine(product) {
   const detail = product.set ? ` — ${escapeHtml(product.set)}` : '';
-  const left = product.qty <= 0 ? 'sold out' : `${product.qty} left`;
-  return `• ${escapeHtml(product.name)}${detail} is ${left}.`;
+  return `• ${escapeHtml(product.name)}${detail} is sold out.`;
 }
-
-// Same "1 or fewer" line public.js uses to decide a card needs an alert.
-const REPORT_THRESHOLD = 1;
 
 // A card leaves this query the moment it's restocked (qty rises and status is set back
 // to 'live') or finalized (paid orders flip a sold-out card from 'reserved' to 'sold') —
 // so the report always reflects what's still actionable right now, not a fixed log.
 const stockReportRows = db.prepare(
   `SELECT name, set_name AS setName, qty FROM products
-   WHERE (status = 'live' AND qty <= ?) OR (status = 'reserved' AND qty <= 0)
-   ORDER BY qty ASC, name COLLATE NOCASE`
+   WHERE qty <= 0 AND status IN ('live', 'reserved')
+   ORDER BY name COLLATE NOCASE`
 );
 
-function currentStockAlerts() {
-  return stockReportRows.all(REPORT_THRESHOLD).map((r) => ({ name: r.name, set: r.setName, qty: r.qty }));
+function currentOutOfStock() {
+  return stockReportRows.all().map((r) => ({ name: r.name, set: r.setName, qty: r.qty }));
 }
 
 const STOCK_REPORT_BUTTON = {
@@ -148,7 +144,7 @@ const STOCK_REPORT_BUTTON = {
 };
 
 // Telegram rejects any message text over 4096 characters. Stay well clear of that so
-// a long heading ("Low stock (200) — part 12/12") never tips a chunk over the edge.
+// a long heading ("Out of stock (200) — part 12/12") never tips a chunk over the edge.
 const TELEGRAM_MAX_LEN = 3800;
 
 /** Groups `lines` into chunks that each join (with '\n') to at most `maxLen` characters. */
@@ -170,66 +166,60 @@ function chunkLines(lines, maxLen) {
 }
 
 /**
- * Out-of-stock and low-stock always go to their own topics — same rule whether this is
- * one order's worth of alerts or the full current report, so tapping the report button
- * from Low Stock doesn't dump out-of-stock cards into that topic too. A long list is
- * split across multiple messages rather than hitting Telegram's 4096-char cap.
+ * Sends `products` as one roll-up message, split across multiple "part N/M" messages
+ * if the list is long enough to hit Telegram's 4096-char cap. Assumes a non-empty list —
+ * callers decide what "nothing to report" should look like for their situation.
  */
-async function sendStockGroups(products) {
-  if (!isConfigured()) return { ok: false, reason: 'not configured' };
-
-  if (!products.length) {
-    return post('sendMessage', {
-      chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID,
-      text: '<b>Stock report</b>\nNothing low or out of stock right now.',
-      parse_mode: 'HTML',
-      reply_markup: STOCK_REPORT_BUTTON,
-    });
-  }
-
-  const outOfStock = products.filter((p) => p.qty <= 0);
-  const lowStock = products.filter((p) => p.qty > 0);
-
-  const groups = [
-    outOfStock.length && ['Out of stock', outOfStock, 'TELEGRAM_TOPIC_OUT_OF_STOCK'],
-    lowStock.length && ['Low stock', lowStock, 'TELEGRAM_TOPIC_LOW_STOCK'],
-  ].filter(Boolean);
+async function sendOutOfStockList(products) {
+  const chunks = chunkLines(products.map(stockLine), TELEGRAM_MAX_LEN);
+  const multiPart = chunks.length > 1;
 
   const results = [];
-  for (const [label, group, topicEnvVar] of groups) {
-    const chunks = chunkLines(group.map(stockLine), TELEGRAM_MAX_LEN);
-    const multiPart = chunks.length > 1;
-
-    for (let i = 0; i < chunks.length; i++) {
-      const heading = `<b>${label}</b> (${group.length})${multiPart ? ` — part ${i + 1}/${chunks.length}` : ''}`;
-      const result = await post('sendMessage', {
-        chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID,
-        message_thread_id: threadId(topicEnvVar),
-        text: [heading, ...chunks[i]].join('\n'),
-        parse_mode: 'HTML',
-        disable_web_page_preview: true,
-        // Only the last part carries the refresh button, so it isn't repeated per chunk.
-        ...(i === chunks.length - 1 ? { reply_markup: STOCK_REPORT_BUTTON } : {}),
-      });
-      if (!result.ok) {
-        console.error(`[telegram] ${label.toLowerCase()} message failed: ${result.reason}`);
-      }
-      results.push(result);
+  for (let i = 0; i < chunks.length; i++) {
+    const heading = `<b>Out of stock</b> (${products.length})${multiPart ? ` — part ${i + 1}/${chunks.length}` : ''}`;
+    const result = await post('sendMessage', {
+      chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID,
+      message_thread_id: threadId('TELEGRAM_TOPIC_OUT_OF_STOCK'),
+      text: [heading, ...chunks[i]].join('\n'),
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+      // Only the last part carries the refresh button, so it isn't repeated per chunk.
+      ...(i === chunks.length - 1 ? { reply_markup: STOCK_REPORT_BUTTON } : {}),
+    });
+    if (!result.ok) {
+      console.error(`[telegram] out-of-stock message failed: ${result.reason}`);
     }
+    results.push(result);
   }
   return results;
 }
 
 /**
- * One order can push several different cards to 0 or 1 left at once (e.g. a big cart
- * of singles that each happened to be the last copy) — sending a Telegram message per
- * card floods the topic. This sends at most two: one roll-up for everything now sold
- * out, one for everything now down to its last copy. Each carries a button that pulls
- * the full current picture, since restocked cards drop off this snapshot as time passes.
+ * One order can sell out several different cards at once (e.g. a big cart of singles
+ * that each happened to be the last copy) — sending a Telegram message per card floods
+ * the topic, so this sends one roll-up instead. Silent when nothing sold out, since that's
+ * the common case and there's nothing worth pinging about.
  */
-function notifyStockAlerts(products) {
-  if (!products.length) return Promise.resolve({ ok: true });
-  return sendStockGroups(products);
+function notifyOutOfStock(products) {
+  if (!isConfigured() || !products.length) return Promise.resolve({ ok: true });
+  return sendOutOfStockList(products);
+}
+
+/**
+ * The on-demand report (button tap / `/stock`), unlike notifyOutOfStock above: it always
+ * replies, even with nothing to report, since it was explicitly asked for.
+ */
+function sendFullStockReport() {
+  const products = currentOutOfStock();
+  if (!products.length) {
+    return post('sendMessage', {
+      chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID,
+      text: '<b>Stock report</b>\nNothing out of stock right now.',
+      parse_mode: 'HTML',
+      reply_markup: STOCK_REPORT_BUTTON,
+    });
+  }
+  return sendOutOfStockList(products);
 }
 
 function answerCallbackQuery(id) {
@@ -246,14 +236,14 @@ async function handleUpdate(update) {
   const cq = update.callback_query;
   if (cq && cq.data === 'stock_report') {
     await answerCallbackQuery(cq.id);
-    if (isFromAdminChat(cq.message.chat.id)) await sendStockGroups(currentStockAlerts());
+    if (isFromAdminChat(cq.message.chat.id)) await sendFullStockReport();
     return;
   }
 
   const msg = update.message;
   const text = msg && typeof msg.text === 'string' ? msg.text.trim() : '';
   if ((text === '/stock' || text.startsWith('/stock@')) && isFromAdminChat(msg.chat.id)) {
-    await sendStockGroups(currentStockAlerts());
+    await sendFullStockReport();
   }
 }
 
@@ -300,7 +290,7 @@ async function startPolling() {
   // Defensive: getUpdates 409s if a webhook is set. This app has never called
   // setWebhook, but clearing it is cheap insurance against a stale one from elsewhere.
   await post('deleteWebhook', {}).catch(() => {});
-  await post('setMyCommands', { commands: [{ command: 'stock', description: 'Current low/out-of-stock report' }] }).catch(() => {});
+  await post('setMyCommands', { commands: [{ command: 'stock', description: 'Current out-of-stock report' }] }).catch(() => {});
 
   let offset = 0;
   while (polling) {
@@ -339,7 +329,7 @@ async function sendTest() {
 
 module.exports = {
   notifyNewOrder,
-  notifyStockAlerts,
+  notifyOutOfStock,
   sendTest,
   isConfigured,
   buildMessage,

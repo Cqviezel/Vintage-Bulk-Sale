@@ -217,13 +217,10 @@ router.post('/promo/validate', (req, res) => {
  * The whole point of the backend: reserving stock and writing the order happen in
  * one SQLite transaction, so two customers cannot both buy the same single card.
  */
-// "Running low" — worth pinging the seller so they can pull/relist before it oversells.
-const LOW_STOCK_THRESHOLD = 1;
-
 const placeOrder = db.transaction((input) => {
   const settings = getSettings();
   const reserved = [];
-  const lowStock = [];
+  const outOfStock = [];
 
   for (const productId of input.productIds) {
     const product = selectProductForUpdate.get(productId);
@@ -240,8 +237,8 @@ const placeOrder = db.transaction((input) => {
     reserved.push(product);
 
     const remaining = product.qty - 1;
-    if (remaining <= LOW_STOCK_THRESHOLD) {
-      lowStock.push({ name: product.name, set: product.set_name, qty: remaining });
+    if (remaining <= 0) {
+      outOfStock.push({ name: product.name, set: product.set_name, qty: remaining });
     }
   }
 
@@ -301,7 +298,7 @@ const placeOrder = db.transaction((input) => {
   }));
   for (const item of items) insertOrderItem.run(item);
 
-  return { order, items, settings, lowStock };
+  return { order, items, settings, outOfStock };
 });
 
 router.post('/orders', orderLimiter, async (req, res, next) => {
@@ -352,7 +349,7 @@ router.post('/orders', orderLimiter, async (req, res, next) => {
     }
 
     // Prices come from the database, never from the browser.
-    const { order, items, settings, lowStock } = placeOrder({
+    const { order, items, settings, outOfStock } = placeOrder({
       productIds,
       buyer,
       telegram: telegramHandle,
@@ -393,7 +390,7 @@ router.post('/orders', orderLimiter, async (req, res, next) => {
     });
 
     telegram.notifyNewOrder(order, items).catch(() => {});
-    telegram.notifyStockAlerts(lowStock).catch(() => {});
+    telegram.notifyOutOfStock(outOfStock).catch(() => {});
   } catch (err) {
     next(err);
   }
