@@ -283,13 +283,22 @@ function isRestockChannelConfigured() {
  * unset. Only fires for cards that actually went live, since a set imported as drafts
  * (to price/review first) isn't purchasable yet and isn't news.
  */
+// Same "UPD" burst custom emoji already used as the Bulk Restock Updates topic icon.
+const RESTOCK_HEADER_EMOJI = '<tg-emoji emoji-id="5375338737028841420">🔄</tg-emoji>';
+// Same custom emoji the shop's own pinned announcement uses right before this exact link.
+const STOREFRONT_LINK_EMOJI = '<tg-emoji emoji-id="5253767677670862169">🔜</tg-emoji>';
+const STOREFRONT_URL = 'https://crazedtcg.com/';
+
 function notifyRestock(setName, liveCount) {
   if (!isRestockChannelConfigured() || liveCount <= 0) return Promise.resolve({ ok: true });
   const label = liveCount === 1 ? 'card' : 'cards';
   return post('sendMessage', {
     chat_id: process.env.TELEGRAM_RESTOCK_CHANNEL,
     message_thread_id: threadId('TELEGRAM_RESTOCK_TOPIC'),
-    text: `🎉 <b>Restocked: ${escapeHtml(setName)}</b>\n${liveCount} ${label} from this set just went live — check the shop!`,
+    text:
+      `${RESTOCK_HEADER_EMOJI} <b>Restocked: ${escapeHtml(setName)}</b>\n` +
+      `${liveCount} ${label} from this set just went live — check the shop!\n\n` +
+      `${STOREFRONT_LINK_EMOJI} ${STOREFRONT_URL}`,
     parse_mode: 'HTML',
     disable_web_page_preview: true,
   });
