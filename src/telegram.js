@@ -147,10 +147,33 @@ const STOCK_REPORT_BUTTON = {
   inline_keyboard: [[{ text: '📋 Full stock report', callback_data: 'stock_report' }]],
 };
 
+// Telegram rejects any message text over 4096 characters. Stay well clear of that so
+// a long heading ("Low stock (200) — part 12/12") never tips a chunk over the edge.
+const TELEGRAM_MAX_LEN = 3800;
+
+/** Groups `lines` into chunks that each join (with '\n') to at most `maxLen` characters. */
+function chunkLines(lines, maxLen) {
+  const chunks = [];
+  let current = [];
+  let len = 0;
+  for (const line of lines) {
+    if (current.length && len + line.length + 1 > maxLen) {
+      chunks.push(current);
+      current = [];
+      len = 0;
+    }
+    current.push(line);
+    len += line.length + 1;
+  }
+  if (current.length) chunks.push(current);
+  return chunks;
+}
+
 /**
  * Out-of-stock and low-stock always go to their own topics — same rule whether this is
  * one order's worth of alerts or the full current report, so tapping the report button
- * from Low Stock doesn't dump out-of-stock cards into that topic too.
+ * from Low Stock doesn't dump out-of-stock cards into that topic too. A long list is
+ * split across multiple messages rather than hitting Telegram's 4096-char cap.
  */
 async function sendStockGroups(products) {
   if (!isConfigured()) return { ok: false, reason: 'not configured' };
@@ -174,19 +197,25 @@ async function sendStockGroups(products) {
 
   const results = [];
   for (const [label, group, topicEnvVar] of groups) {
-    const text = [`<b>${label}</b> (${group.length})`, ...group.map(stockLine)].join('\n');
-    const result = await post('sendMessage', {
-      chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID,
-      message_thread_id: threadId(topicEnvVar),
-      text,
-      parse_mode: 'HTML',
-      disable_web_page_preview: true,
-      reply_markup: STOCK_REPORT_BUTTON,
-    });
-    if (!result.ok) {
-      console.error(`[telegram] ${label.toLowerCase()} message failed: ${result.reason}`);
+    const chunks = chunkLines(group.map(stockLine), TELEGRAM_MAX_LEN);
+    const multiPart = chunks.length > 1;
+
+    for (let i = 0; i < chunks.length; i++) {
+      const heading = `<b>${label}</b> (${group.length})${multiPart ? ` — part ${i + 1}/${chunks.length}` : ''}`;
+      const result = await post('sendMessage', {
+        chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID,
+        message_thread_id: threadId(topicEnvVar),
+        text: [heading, ...chunks[i]].join('\n'),
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+        // Only the last part carries the refresh button, so it isn't repeated per chunk.
+        ...(i === chunks.length - 1 ? { reply_markup: STOCK_REPORT_BUTTON } : {}),
+      });
+      if (!result.ok) {
+        console.error(`[telegram] ${label.toLowerCase()} message failed: ${result.reason}`);
+      }
+      results.push(result);
     }
-    results.push(result);
   }
   return results;
 }
