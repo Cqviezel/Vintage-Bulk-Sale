@@ -78,6 +78,35 @@ The token stays on the server. It is never sent to a browser, which is why this 
 be done from a static page. If Telegram is down, the order is still saved — the failure
 is recorded on the order and the **Resend** button retries it.
 
+### Routing to topics
+
+If `TELEGRAM_ADMIN_CHAT_ID` is a group with **Topics** enabled, each notification kind
+can be sent to its own topic instead of dumping everything into General:
+
+| Env var | Notification |
+|---|---|
+| `TELEGRAM_TOPIC_SALES` | New orders (and Admin → Orders → Resend) |
+| `TELEGRAM_TOPIC_LOW_STOCK` | A card drops to its last one |
+| `TELEGRAM_TOPIC_OUT_OF_STOCK` | A card sells out |
+
+Get a topic's thread ID from its **Copy Link** in Telegram — it's the number after the
+chat ID, e.g. `https://t.me/c/<chat>/<THIS NUMBER>`. Leave any of the three blank and
+that notification kind falls back to General. **Send test message** always posts to
+General, regardless of these settings.
+
+### Current stock report
+
+Low/out-of-stock alerts carry a **📋 Full stock report** button — tap it, or send `/stock`
+in the chat, and the bot replies with everything currently live at 1-or-fewer or sold out.
+This is a live snapshot of the `products` table, not a log: once a card is restocked (qty
+raised and status set back to **live**), or a sold-out order is marked paid (retiring the
+card to **sold**), it drops off on the next tap — nothing to clean up by hand.
+
+Answering this requires the server to poll Telegram for updates in the background, which
+starts automatically whenever the bot is configured. Only run one instance of the app
+against a given bot token at a time — e.g. don't leave a local `npm start` running
+alongside the production deploy — or they'll race each other for the same button taps.
+
 ## Bulk import / export
 
 Admin → Products has **Bulk Import CSV** and **Export CSV**.

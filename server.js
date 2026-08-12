@@ -159,11 +159,15 @@ const server = app.listen(PORT, HOST, () => {
   if (!telegram.isConfigured()) {
     console.warn('  ! Telegram not configured — orders will save but you will not be pinged.');
     console.warn('    Set TELEGRAM_BOT_TOKEN and TELEGRAM_ADMIN_CHAT_ID in .env\n');
+  } else {
+    // Fire-and-forget: this is a long-running poll loop, not a one-off request.
+    telegram.startPolling();
   }
 });
 
 function shutdown(signal) {
   console.log(`\n${signal} received, closing.`);
+  telegram.stopPolling();
   server.close(() => {
     try {
       db.close();

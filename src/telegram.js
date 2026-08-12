@@ -8,6 +8,16 @@ function isConfigured() {
   return Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_ADMIN_CHAT_ID);
 }
 
+/**
+ * Forum-topic thread ID for a notification kind, if the group has topics and this one
+ * is mapped in .env. Omitting message_thread_id entirely (undefined survives
+ * JSON.stringify by being dropped) posts to the group's General topic instead.
+ */
+function threadId(envVar) {
+  const raw = process.env[envVar];
+  return raw ? Number(raw) : undefined;
+}
+
 function money(n) {
   return '$' + Number(n || 0).toFixed(2);
 }
@@ -76,7 +86,7 @@ async function post(path, body, timeoutMs = 10_000) {
     if (!res.ok || payload.ok === false) {
       return { ok: false, reason: payload.description || `HTTP ${res.status}` };
     }
-    return { ok: true };
+    return { ok: true, result: payload.result };
   } catch (err) {
     return { ok: false, reason: err.name === 'AbortError' ? 'timed out after 10s' : err.message };
   } finally {
@@ -96,6 +106,7 @@ async function notifyNewOrder(order, items) {
 
   const result = await post('sendMessage', {
     chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID,
+    message_thread_id: threadId('TELEGRAM_TOPIC_SALES'),
     text: buildMessage(order, items),
     parse_mode: 'HTML',
     disable_web_page_preview: true,
@@ -110,24 +121,177 @@ async function notifyNewOrder(order, items) {
   return result;
 }
 
-/** Fired right after an order pushes a card to 0 or 1 left, so it can be pulled/relisted. */
-async function notifyLowStock(product) {
+function stockLine(product) {
+  const detail = product.set ? ` — ${escapeHtml(product.set)}` : '';
+  const left = product.qty <= 0 ? 'sold out' : `${product.qty} left`;
+  return `• ${escapeHtml(product.name)}${detail} is ${left}.`;
+}
+
+// Same "1 or fewer" line public.js uses to decide a card needs an alert.
+const REPORT_THRESHOLD = 1;
+
+// A card leaves this query the moment it's restocked (qty rises and status is set back
+// to 'live') or finalized (paid orders flip a sold-out card from 'reserved' to 'sold') —
+// so the report always reflects what's still actionable right now, not a fixed log.
+const stockReportRows = db.prepare(
+  `SELECT name, set_name AS setName, qty FROM products
+   WHERE (status = 'live' AND qty <= ?) OR (status = 'reserved' AND qty <= 0)
+   ORDER BY qty ASC, name COLLATE NOCASE`
+);
+
+function currentStockAlerts() {
+  return stockReportRows.all(REPORT_THRESHOLD).map((r) => ({ name: r.name, set: r.setName, qty: r.qty }));
+}
+
+const STOCK_REPORT_BUTTON = {
+  inline_keyboard: [[{ text: '📋 Full stock report', callback_data: 'stock_report' }]],
+};
+
+/**
+ * Out-of-stock and low-stock always go to their own topics — same rule whether this is
+ * one order's worth of alerts or the full current report, so tapping the report button
+ * from Low Stock doesn't dump out-of-stock cards into that topic too.
+ */
+async function sendStockGroups(products) {
   if (!isConfigured()) return { ok: false, reason: 'not configured' };
 
-  const left = product.qty <= 0 ? 'sold out' : `${product.qty} left`;
-  const detail = product.set ? ` — ${escapeHtml(product.set)}` : '';
-
-  const result = await post('sendMessage', {
-    chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID,
-    text: `<b>Low stock</b>\n${escapeHtml(product.name)}${detail} is ${left}.`,
-    parse_mode: 'HTML',
-    disable_web_page_preview: true,
-  });
-
-  if (!result.ok) {
-    console.error(`[telegram] low-stock alert for "${product.name}" failed: ${result.reason}`);
+  if (!products.length) {
+    return post('sendMessage', {
+      chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID,
+      text: '<b>Stock report</b>\nNothing low or out of stock right now.',
+      parse_mode: 'HTML',
+      reply_markup: STOCK_REPORT_BUTTON,
+    });
   }
-  return result;
+
+  const outOfStock = products.filter((p) => p.qty <= 0);
+  const lowStock = products.filter((p) => p.qty > 0);
+
+  const groups = [
+    outOfStock.length && ['Out of stock', outOfStock, 'TELEGRAM_TOPIC_OUT_OF_STOCK'],
+    lowStock.length && ['Low stock', lowStock, 'TELEGRAM_TOPIC_LOW_STOCK'],
+  ].filter(Boolean);
+
+  const results = [];
+  for (const [label, group, topicEnvVar] of groups) {
+    const text = [`<b>${label}</b> (${group.length})`, ...group.map(stockLine)].join('\n');
+    const result = await post('sendMessage', {
+      chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID,
+      message_thread_id: threadId(topicEnvVar),
+      text,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+      reply_markup: STOCK_REPORT_BUTTON,
+    });
+    if (!result.ok) {
+      console.error(`[telegram] ${label.toLowerCase()} message failed: ${result.reason}`);
+    }
+    results.push(result);
+  }
+  return results;
+}
+
+/**
+ * One order can push several different cards to 0 or 1 left at once (e.g. a big cart
+ * of singles that each happened to be the last copy) — sending a Telegram message per
+ * card floods the topic. This sends at most two: one roll-up for everything now sold
+ * out, one for everything now down to its last copy. Each carries a button that pulls
+ * the full current picture, since restocked cards drop off this snapshot as time passes.
+ */
+function notifyStockAlerts(products) {
+  if (!products.length) return Promise.resolve({ ok: true });
+  return sendStockGroups(products);
+}
+
+function answerCallbackQuery(id) {
+  return post('answerCallbackQuery', { callback_query_id: id });
+}
+
+// Only the configured shop chat gets a reply — otherwise anyone who can message this
+// bot (a stray DM, or it sitting in an unrelated group) could pull the full inventory.
+function isFromAdminChat(chatId) {
+  return String(chatId) === String(process.env.TELEGRAM_ADMIN_CHAT_ID);
+}
+
+async function handleUpdate(update) {
+  const cq = update.callback_query;
+  if (cq && cq.data === 'stock_report') {
+    await answerCallbackQuery(cq.id);
+    if (isFromAdminChat(cq.message.chat.id)) await sendStockGroups(currentStockAlerts());
+    return;
+  }
+
+  const msg = update.message;
+  const text = msg && typeof msg.text === 'string' ? msg.text.trim() : '';
+  if ((text === '/stock' || text.startsWith('/stock@')) && isFromAdminChat(msg.chat.id)) {
+    await sendStockGroups(currentStockAlerts());
+  }
+}
+
+let polling = false;
+let pollAbortController = null;
+
+/** Own fetch rather than post() — needs its own AbortController so stopPolling() can
+    cut the in-flight long-poll short instead of leaving the process waiting on it. */
+async function getUpdates(offset) {
+  const controller = new AbortController();
+  pollAbortController = controller;
+  const timer = setTimeout(() => controller.abort(), 35_000);
+  try {
+    const res = await fetch(`${API_ROOT}/bot${process.env.TELEGRAM_BOT_TOKEN}/getUpdates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ offset, timeout: 30, allowed_updates: ['message', 'callback_query'] }),
+      signal: controller.signal,
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok || payload.ok === false) {
+      return { ok: false, reason: payload.description || `HTTP ${res.status}` };
+    }
+    return { ok: true, result: payload.result };
+  } catch (err) {
+    return { ok: false, reason: err.name === 'AbortError' ? 'aborted' : err.message };
+  } finally {
+    clearTimeout(timer);
+    pollAbortController = null;
+  }
+}
+
+/**
+ * Long-polls for the "Full stock report" button tap and the /stock command. There's no
+ * webhook (this app has no fixed public HTTPS URL when run locally), so this is what
+ * lets the bot respond to anything instead of only ever sending. Running two instances
+ * against the same bot token at once (e.g. a local dev server left open alongside
+ * production) makes them race for the same updates — only run one at a time.
+ */
+async function startPolling() {
+  if (!isConfigured() || polling) return;
+  polling = true;
+
+  // Defensive: getUpdates 409s if a webhook is set. This app has never called
+  // setWebhook, but clearing it is cheap insurance against a stale one from elsewhere.
+  await post('deleteWebhook', {}).catch(() => {});
+  await post('setMyCommands', { commands: [{ command: 'stock', description: 'Current low/out-of-stock report' }] }).catch(() => {});
+
+  let offset = 0;
+  while (polling) {
+    const result = await getUpdates(offset);
+    if (!polling) break;
+    if (!result.ok) {
+      console.error('[telegram] getUpdates failed:', result.reason);
+      await new Promise((r) => setTimeout(r, 5000));
+      continue;
+    }
+    for (const update of result.result || []) {
+      offset = update.update_id + 1;
+      handleUpdate(update).catch((err) => console.error('[telegram] update handling failed:', err.message));
+    }
+  }
+}
+
+function stopPolling() {
+  polling = false;
+  if (pollAbortController) pollAbortController.abort();
 }
 
 async function sendTest() {
@@ -144,4 +308,12 @@ async function sendTest() {
   });
 }
 
-module.exports = { notifyNewOrder, notifyLowStock, sendTest, isConfigured, buildMessage };
+module.exports = {
+  notifyNewOrder,
+  notifyStockAlerts,
+  sendTest,
+  isConfigured,
+  buildMessage,
+  startPolling,
+  stopPolling,
+};

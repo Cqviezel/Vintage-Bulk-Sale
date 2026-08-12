@@ -393,9 +393,7 @@ router.post('/orders', orderLimiter, async (req, res, next) => {
     });
 
     telegram.notifyNewOrder(order, items).catch(() => {});
-    for (const product of lowStock) {
-      telegram.notifyLowStock(product).catch(() => {});
-    }
+    telegram.notifyStockAlerts(lowStock).catch(() => {});
   } catch (err) {
     next(err);
   }
