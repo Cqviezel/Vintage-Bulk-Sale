@@ -106,6 +106,25 @@ starts automatically whenever the bot is configured. Only run one instance of th
 against a given bot token at a time — e.g. don't leave a local `npm start` running
 alongside the production deploy — or they'll race each other for the same button taps.
 
+### Managing orders from Telegram
+
+Every order notification is a live status tracker, not just a one-off message. It carries
+a button for whatever comes next — **Mark Paid → Mark Packed → Mark Mailed → Mark
+Completed** — and tapping one edits that same message in place rather than sending a new
+one, so the card always shows the order's current status. **❌ Cancel & Restock** needs a
+second tap to confirm (Telegram has no native confirm dialog, unlike the web admin's),
+and returns the cards to the shelf exactly like cancelling from Admin → Orders does — it's
+the same underlying logic either way, not a separate implementation.
+
+Two commands cover pulling up orders without the web admin:
+
+- `/orders` — currently-open orders (not completed/cancelled), oldest first, each with an
+  **Open** button that sends a fresh copy of that order's card. Like the stock report,
+  this is a live snapshot, not a full history — for that, use Admin → Orders → **Export
+  CSV**.
+- `/order CTCG-1234` — looks up one specific order by ID, any status, handy for answering
+  a customer's question without logging in.
+
 ## Bulk import / export
 
 Admin → Products has **Bulk Import CSV** and **Export CSV**.

@@ -1,6 +1,7 @@
 'use strict';
 
 const { db } = require('./db');
+const orders = require('./orders');
 
 const API_ROOT = 'https://api.telegram.org';
 
@@ -30,11 +31,24 @@ function escapeHtml(s) {
     .replace(/>/g, '&gt;');
 }
 
+// Displayed on the order card and its live status updates — the same card is sent once
+// on creation and then edited in place as its status changes, so the wording can't say
+// "new" forever.
+const STATUS_LABEL = {
+  'awaiting payment': 'Awaiting Payment',
+  paid: 'Paid',
+  packed: 'Packed',
+  mailed: 'Mailed',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+};
+
 function buildMessage(order, items) {
   const lines = [
-    '<b>New Crazed TCG order</b>',
+    '<b>Crazed TCG order</b>',
     '',
     `<b>Order:</b> ${escapeHtml(order.id)}`,
+    `<b>Status:</b> ${escapeHtml(STATUS_LABEL[order.status] || order.status)}`,
     `<b>Customer:</b> ${escapeHtml(order.buyer)}`,
   ];
 
@@ -94,6 +108,57 @@ async function post(path, body, timeoutMs = 10_000) {
   }
 }
 
+const ADVANCE_LABEL = {
+  paid: '✅ Mark Paid',
+  packed: '📦 Mark Packed',
+  mailed: '📮 Mark Mailed',
+  completed: '🏁 Mark Completed',
+};
+
+/**
+ * The buttons under an order card. 'confirm_cancel' swaps in a Yes/Back pair instead of
+ * mutating on the first tap — Cancel & Restock touches real inventory, and the web admin
+ * gates the same action behind a JS confirm() dialog Telegram has no native equivalent of.
+ */
+function buildOrderKeyboard(order, mode = 'default') {
+  if (mode === 'confirm_cancel') {
+    return {
+      inline_keyboard: [
+        [{ text: '⚠️ Yes, cancel & restock', callback_data: `order:${order.id}:cancel_confirm` }],
+        [{ text: '← Back', callback_data: `order:${order.id}:cancel_back` }],
+      ],
+    };
+  }
+  if (order.status === 'completed' || order.status === 'cancelled') {
+    return { inline_keyboard: [] };
+  }
+  const i = orders.ORDER_FLOW.indexOf(order.status);
+  const next = i >= 0 && i < orders.ORDER_FLOW.length - 1 ? orders.ORDER_FLOW[i + 1] : null;
+  const rows = [];
+  if (next) rows.push([{ text: ADVANCE_LABEL[next], callback_data: `order:${order.id}:advance` }]);
+  rows.push([{ text: '❌ Cancel & Restock', callback_data: `order:${order.id}:cancel_ask` }]);
+  return { inline_keyboard: rows };
+}
+
+/**
+ * Edits an order card in place after a status change, so it reads as one evolving
+ * status tracker instead of a new message per step. Telegram errors with "message is
+ * not modified" when nothing actually changed (e.g. a racing duplicate tap lands after
+ * the state is already reflected) — that's a harmless no-op here, not a failure.
+ */
+async function editOrderCard(chatId, messageId, order, items, mode = 'default') {
+  const result = await post('editMessageText', {
+    chat_id: chatId,
+    message_id: messageId,
+    text: buildMessage(order, items),
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
+    reply_markup: buildOrderKeyboard(order, mode),
+  });
+  if (!result.ok && /message is not modified/i.test(result.reason || '')) return { ok: true };
+  return result;
+}
+
 /**
  * Never throws into the request path — a Telegram outage must not stop a customer
  * from checking out. Failures are recorded on the order so admin can see and retry.
@@ -110,6 +175,7 @@ async function notifyNewOrder(order, items) {
     text: buildMessage(order, items),
     parse_mode: 'HTML',
     disable_web_page_preview: true,
+    reply_markup: buildOrderKeyboard(order),
   });
 
   if (result.ok) {
@@ -222,8 +288,9 @@ function sendFullStockReport() {
   return sendOutOfStockList(products);
 }
 
-function answerCallbackQuery(id) {
-  return post('answerCallbackQuery', { callback_query_id: id });
+/** `text` shows as a small toast on the tapping device; showAlert makes it a blocking popup. */
+function answerCallbackQuery(id, text, showAlert = false) {
+  return post('answerCallbackQuery', { callback_query_id: id, ...(text ? { text, show_alert: showAlert } : {}) });
 }
 
 // Only the configured shop chat gets a reply — otherwise anyone who can message this
@@ -232,18 +299,162 @@ function isFromAdminChat(chatId) {
   return String(chatId) === String(process.env.TELEGRAM_ADMIN_CHAT_ID);
 }
 
+function orderSummaryLine(o) {
+  return `• <code>${escapeHtml(o.id)}</code> — ${escapeHtml(STATUS_LABEL[o.status] || o.status)} — ${money(o.total)}`;
+}
+
+/** `/orders` — currently-open orders only, capped and oldest-first, mirroring the stock
+    report's "live snapshot, not a full log" approach. Full history stays on the web admin. */
+function sendOpenOrdersList(chatId, replyThreadId) {
+  const rows = orders.listOpenOrders();
+  if (!rows.length) {
+    return post('sendMessage', {
+      chat_id: chatId,
+      message_thread_id: replyThreadId,
+      text: '<b>Orders</b>\nNothing open right now.',
+      parse_mode: 'HTML',
+    });
+  }
+  const text = [`<b>Open orders</b> (${rows.length})`, ...rows.map(orderSummaryLine)].join('\n');
+  return post('sendMessage', {
+    chat_id: chatId,
+    message_thread_id: replyThreadId,
+    text,
+    parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: rows.map((o) => [{ text: `Open ${o.id}`, callback_data: `order:${o.id}:view` }]) },
+  });
+}
+
+/** Same CTCG-#### normalization the storefront's own order lookup uses. */
+function normalizeOrderId(raw) {
+  const digits = String(raw || '').trim().toUpperCase().replace(/^CTCG-?/, '');
+  return digits ? `CTCG-${digits}` : '';
+}
+
+/** `/order <id>` — any status, read-only card once terminal, for pulling up a specific
+    order (e.g. answering a customer) without browsing the open-orders list. */
+function sendOrderLookup(chatId, replyThreadId, rawId) {
+  if (!String(rawId || '').trim()) {
+    return post('sendMessage', {
+      chat_id: chatId,
+      message_thread_id: replyThreadId,
+      text: '<b>Orders</b>\nUsage: /order CTCG-1234',
+      parse_mode: 'HTML',
+    });
+  }
+  const id = normalizeOrderId(rawId);
+  const order = id ? orders.findOrder(id) : null;
+  if (!order) {
+    return post('sendMessage', {
+      chat_id: chatId,
+      message_thread_id: replyThreadId,
+      text: `<b>Orders</b>\nNo order found for "${escapeHtml(rawId)}".`,
+      parse_mode: 'HTML',
+    });
+  }
+  return post('sendMessage', {
+    chat_id: chatId,
+    message_thread_id: replyThreadId,
+    text: buildMessage(order, orders.getOrderItems(id)),
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
+    reply_markup: buildOrderKeyboard(order),
+  });
+}
+
+// Guards against a rapid double-tap firing two concurrent mutations for the same order.
+// handleUpdate's caller runs each update fire-and-forget (see startPolling below), so two
+// callback_query updates arriving in the same getUpdates batch really can race each other.
+const orderLocks = new Set();
+
+/** Routes an `order:<id>:<action>` callback_data. Returns false if `cq` wasn't one of ours. */
+async function handleOrderCallback(cq) {
+  const m = /^order:([A-Za-z0-9-]+):(advance|cancel_ask|cancel_confirm|cancel_back|view)$/.exec(cq.data || '');
+  if (!m) return false;
+  const [, id, action] = m;
+
+  if (!isFromAdminChat(cq.message.chat.id)) {
+    await answerCallbackQuery(cq.id);
+    return true;
+  }
+
+  if (action === 'view' || action === 'cancel_ask' || action === 'cancel_back') {
+    const order = orders.findOrder(id);
+    if (!order) {
+      await answerCallbackQuery(cq.id, 'Order not found.', true);
+      return true;
+    }
+    await answerCallbackQuery(cq.id);
+
+    if (action === 'view') {
+      await post('sendMessage', {
+        chat_id: cq.message.chat.id,
+        message_thread_id: cq.message.message_thread_id,
+        text: buildMessage(order, orders.getOrderItems(id)),
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+        reply_markup: buildOrderKeyboard(order),
+      });
+    } else {
+      await post('editMessageReplyMarkup', {
+        chat_id: cq.message.chat.id,
+        message_id: cq.message.message_id,
+        reply_markup: buildOrderKeyboard(order, action === 'cancel_ask' ? 'confirm_cancel' : 'default'),
+      });
+    }
+    return true;
+  }
+
+  // Mutating actions from here: advance, cancel_confirm.
+  if (orderLocks.has(id)) {
+    await answerCallbackQuery(cq.id, 'Still processing, try again.', true);
+    return true;
+  }
+  orderLocks.add(id);
+  try {
+    const result = orders.advanceOrderStatus(id, action === 'cancel_confirm' ? 'cancelled' : undefined);
+    await answerCallbackQuery(cq.id, result.ok ? undefined : result.error, !result.ok);
+
+    // Refresh the card either way — on failure this self-heals a stale keyboard back to
+    // the true current state (e.g. someone already advanced it via the web admin).
+    const current = result.ok ? result.order : orders.findOrder(id);
+    if (current) {
+      const items = result.ok ? result.items : orders.getOrderItems(id);
+      await editOrderCard(cq.message.chat.id, cq.message.message_id, current, items);
+    }
+  } finally {
+    orderLocks.delete(id);
+  }
+  return true;
+}
+
 async function handleUpdate(update) {
   const cq = update.callback_query;
-  if (cq && cq.data === 'stock_report') {
-    await answerCallbackQuery(cq.id);
-    if (isFromAdminChat(cq.message.chat.id)) await sendFullStockReport();
+  if (cq) {
+    if (await handleOrderCallback(cq)) return;
+    if (cq.data === 'stock_report') {
+      await answerCallbackQuery(cq.id);
+      if (isFromAdminChat(cq.message.chat.id)) await sendFullStockReport();
+      return;
+    }
     return;
   }
 
   const msg = update.message;
   const text = msg && typeof msg.text === 'string' ? msg.text.trim() : '';
-  if ((text === '/stock' || text.startsWith('/stock@')) && isFromAdminChat(msg.chat.id)) {
+  if (!text || !isFromAdminChat(msg.chat.id)) return;
+
+  // Replies land wherever the command was typed, falling back to Sales — unlike /stock's
+  // reply, which always targets its own topic regardless of where it was invoked.
+  const replyThreadId = msg.message_thread_id || threadId('TELEGRAM_TOPIC_SALES');
+
+  if (text === '/stock' || text.startsWith('/stock@')) {
     await sendFullStockReport();
+  } else if (text === '/orders' || text.startsWith('/orders@')) {
+    await sendOpenOrdersList(msg.chat.id, replyThreadId);
+  } else if (/^\/order(@\w+)?(\s|$)/.test(text)) {
+    const arg = text.replace(/^\/order(@\w+)?\s*/, '');
+    await sendOrderLookup(msg.chat.id, replyThreadId, arg);
   }
 }
 
@@ -290,7 +501,13 @@ async function startPolling() {
   // Defensive: getUpdates 409s if a webhook is set. This app has never called
   // setWebhook, but clearing it is cheap insurance against a stale one from elsewhere.
   await post('deleteWebhook', {}).catch(() => {});
-  await post('setMyCommands', { commands: [{ command: 'stock', description: 'Current out-of-stock report' }] }).catch(() => {});
+  await post('setMyCommands', {
+    commands: [
+      { command: 'stock', description: 'Current out-of-stock report' },
+      { command: 'orders', description: 'List open orders' },
+      { command: 'order', description: 'Look up one order by ID' },
+    ],
+  }).catch(() => {});
 
   let offset = 0;
   while (polling) {

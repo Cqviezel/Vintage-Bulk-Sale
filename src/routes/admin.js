@@ -13,6 +13,7 @@ const auth = require('../auth');
 const telegram = require('../telegram');
 const csv = require('../csv');
 const ptcg = require('../pokemontcg');
+const orders = require('../orders');
 
 const router = express.Router();
 
@@ -24,8 +25,7 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const CONDITIONS = new Set(['NM', 'LP', 'MP', 'HP']);
 const VARIANTS = new Set(['Normal', 'Holo', 'Reverse Holo', '1st Edition']);
 const STATUSES = new Set(['live', 'draft', 'reserved', 'sold', 'hidden']);
-const ORDER_FLOW = ['awaiting payment', 'paid', 'packed', 'mailed', 'completed'];
-const ORDER_STATUSES = new Set([...ORDER_FLOW, 'cancelled']);
+const { ORDER_FLOW } = orders;
 
 /* ------------------------------------------------------------------ auth --- */
 
@@ -642,13 +642,6 @@ router.post('/upload', (req, res) => {
 
 /* ---------------------------------------------------------------- orders --- */
 
-const allOrders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 500');
-const oneOrder = db.prepare('SELECT * FROM orders WHERE id = ?');
-const itemsForOrder = db.prepare('SELECT * FROM order_items WHERE order_id = ? ORDER BY id');
-const setOrderStatus = db.prepare(
-  "UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?"
-);
-
 function toAdminOrder(row, items) {
   return {
     id: row.id,
@@ -681,8 +674,8 @@ function toAdminOrder(row, items) {
 }
 
 router.get('/orders', (req, res) => {
-  const rows = allOrders.all();
-  res.json(rows.map((row) => toAdminOrder(row, itemsForOrder.all(row.id))));
+  const rows = orders.listAllOrders();
+  res.json(rows.map((row) => toAdminOrder(row, orders.getOrderItems(row.id))));
 });
 
 // Must come before /orders/:id or that route would swallow this path as an id lookup.
@@ -693,7 +686,7 @@ const ORDER_EXPORT_HEADERS = [
 
 router.get('/orders/export.csv', (req, res) => {
   const rows = [];
-  for (const o of allOrders.all()) {
+  for (const o of orders.listAllOrders()) {
     const base = {
       order_id: o.id,
       date: o.created_at,
@@ -704,7 +697,7 @@ router.get('/orders/export.csv', (req, res) => {
       delivery: o.delivery,
       status: o.status,
     };
-    const items = itemsForOrder.all(o.id);
+    const items = orders.getOrderItems(o.id);
     if (!items.length) {
       rows.push({ ...base, card: '', set: '', number: '', condition: '', variant: '', price: '' });
       continue;
@@ -728,61 +721,15 @@ router.get('/orders/export.csv', (req, res) => {
 });
 
 router.get('/orders/:id', (req, res) => {
-  const row = oneOrder.get(req.params.id);
+  const row = orders.findOrder(req.params.id);
   if (!row) return res.status(404).json({ error: 'Order not found.' });
-  res.json(toAdminOrder(row, itemsForOrder.all(row.id)));
-});
-
-/** Marking an order paid retires its zero-stock cards from 'reserved' to 'sold'. */
-const markSoldOut = db.transaction((orderId) => {
-  const items = itemsForOrder.all(orderId);
-  for (const item of items) {
-    if (!item.product_id) continue;
-    db.prepare(
-      "UPDATE products SET status = 'sold', updated_at = datetime('now') " +
-        "WHERE id = ? AND qty <= 0 AND status = 'reserved'"
-    ).run(item.product_id);
-  }
-});
-
-/** Cancelling returns each card to the shelf. */
-const restock = db.transaction((orderId) => {
-  const items = itemsForOrder.all(orderId);
-  for (const item of items) {
-    if (!item.product_id) continue;
-    db.prepare(
-      "UPDATE products SET qty = qty + 1, status = 'live', updated_at = datetime('now') WHERE id = ?"
-    ).run(item.product_id);
-  }
+  res.json(toAdminOrder(row, orders.getOrderItems(row.id)));
 });
 
 router.post('/orders/:id/status', (req, res) => {
-  const row = oneOrder.get(req.params.id);
-  if (!row) return res.status(404).json({ error: 'Order not found.' });
-
-  let next = String((req.body && req.body.status) || '').trim();
-
-  // No explicit status means "advance one step".
-  if (!next) {
-    const i = ORDER_FLOW.indexOf(row.status);
-    if (i === -1 || i === ORDER_FLOW.length - 1) {
-      return res.status(400).json({ error: 'This order is already at its final status.' });
-    }
-    next = ORDER_FLOW[i + 1];
-  }
-
-  if (!ORDER_STATUSES.has(next)) {
-    return res.status(400).json({ error: 'Unknown order status.' });
-  }
-  if (row.status === 'cancelled' && next !== 'cancelled') {
-    return res.status(409).json({ error: 'A cancelled order cannot be reopened.' });
-  }
-
-  if (next === 'cancelled' && row.status !== 'cancelled') restock(row.id);
-  if (next === 'paid' && row.status !== 'paid') markSoldOut(row.id);
-
-  setOrderStatus.run(next, row.id);
-  res.json(toAdminOrder(oneOrder.get(row.id), itemsForOrder.all(row.id)));
+  const result = orders.advanceOrderStatus(req.params.id, req.body && req.body.status);
+  if (!result.ok) return res.status(result.httpStatus).json({ error: result.error });
+  res.json(toAdminOrder(result.order, result.items));
 });
 
 /**
@@ -791,7 +738,7 @@ router.post('/orders/:id/status', (req, res) => {
  * the record can't silently strand reserved inventory.
  */
 router.delete('/orders/:id', (req, res) => {
-  const row = oneOrder.get(req.params.id);
+  const row = orders.findOrder(req.params.id);
   if (!row) return res.status(404).json({ error: 'Order not found.' });
 
   if (row.status !== 'cancelled' && row.status !== 'completed') {
@@ -805,10 +752,10 @@ router.delete('/orders/:id', (req, res) => {
 });
 
 router.post('/orders/:id/notify', async (req, res) => {
-  const row = oneOrder.get(req.params.id);
+  const row = orders.findOrder(req.params.id);
   if (!row) return res.status(404).json({ error: 'Order not found.' });
 
-  const result = await telegram.notifyNewOrder(row, itemsForOrder.all(row.id));
+  const result = await telegram.notifyNewOrder(row, orders.getOrderItems(row.id));
   if (!result.ok) return res.status(502).json({ error: result.reason });
   res.json({ ok: true });
 });
