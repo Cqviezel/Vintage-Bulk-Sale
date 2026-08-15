@@ -414,25 +414,46 @@ async function handleForwardCallback(cq) {
   try {
     let sent = 0;
     const targets = forwardTargets();
-    for (const target of targets) {
-      const result =
-        target.via === 'userbot'
-          ? await userbot.forwardMessage({
-              fromChat: origin && origin.chat,
-              messageId: origin && origin.messageId,
-              toChat: target.chat,
-              threadId: target.threadId,
-            })
-          : await post('forwardMessage', {
-              chat_id: target.chat,
-              message_thread_id: target.threadId,
-              from_chat_id: cq.message.chat.id,
-              message_id: Number(adminMsgId),
-            });
-      if (result.ok) {
-        sent++;
-      } else {
-        console.error(`[telegram] forward to ${target.chat} (${target.via}) failed: ${result.reason}`);
+    const batchSize = 5; // Send 5 targets at a time
+    const delayMs = 1000; // 1 second delay between batches
+    
+    // Split targets into batches and process with delays to avoid Telegram rate limiting
+    for (let i = 0; i < targets.length; i += batchSize) {
+      const batch = targets.slice(i, i + batchSize);
+      
+      // Forward all targets in this batch in parallel
+      const results = await Promise.all(
+        batch.map((target) =>
+          target.via === 'userbot'
+            ? userbot.forwardMessage({
+                fromChat: origin && origin.chat,
+                messageId: origin && origin.messageId,
+                toChat: target.chat,
+                threadId: target.threadId,
+              })
+            : post('forwardMessage', {
+                chat_id: target.chat,
+                message_thread_id: target.threadId,
+                from_chat_id: cq.message.chat.id,
+                message_id: Number(adminMsgId),
+              })
+        )
+      );
+      
+      // Count successes and log failures
+      for (let j = 0; j < results.length; j++) {
+        const result = results[j];
+        const target = batch[j];
+        if (result.ok) {
+          sent++;
+        } else {
+          console.error(`[telegram] forward to ${target.chat} (${target.via}) failed: ${result.reason}`);
+        }
+      }
+      
+      // Wait before next batch (except after the last batch)
+      if (i + batchSize < targets.length) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
     await answerCallbackQuery(
