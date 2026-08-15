@@ -11,6 +11,7 @@ const SqliteStore = require('better-sqlite3-session-store')(session);
 const { db, DATA_DIR } = require('./src/db');
 const auth = require('./src/auth');
 const telegram = require('./src/telegram');
+const telegramUserbot = require('./src/telegramUserbot');
 const publicRoutes = require('./src/routes/public');
 const adminRoutes = require('./src/routes/admin');
 
@@ -163,11 +164,16 @@ const server = app.listen(PORT, HOST, () => {
   // Fire-and-forget: this is a long-running poll loop, not a one-off request. Also covers
   // channel-post auto-forwarding, which can be configured independently of order alerts.
   telegram.startPolling();
+
+  if (telegramUserbot.isConfigured()) {
+    telegramUserbot.start().catch((err) => console.error('[telegram] userbot login failed:', err.message));
+  }
 });
 
 function shutdown(signal) {
   console.log(`\n${signal} received, closing.`);
   telegram.stopPolling();
+  telegramUserbot.stop().catch(() => {});
   server.close(() => {
     try {
       db.close();

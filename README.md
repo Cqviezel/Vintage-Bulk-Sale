@@ -150,6 +150,38 @@ Append `:<threadId>` to a target to land it in one Topic instead of General — 
 **Copy Link** trick as `TELEGRAM_RESTOCK_TOPIC` above, e.g.
 `TELEGRAM_FORWARD_TARGET_CHANNELS=@bunbreaks:3`.
 
+#### Channels the bot isn't an admin of
+
+Telegram only lets a bot post into a channel it's already an admin of. If you want to
+advertise into a channel you don't control well enough to add the bot as admin, prefix
+that one target with `userbot:` to route it through a separate logged-in Telegram
+account instead — the account just needs to already be a member there (posting into a
+group's General topic just needs normal "send messages" rights; posting into a specific
+channel's feed still needs that account to be a channel admin itself, same as any other
+member trying to post to a channel — the userbot doesn't get around that, it just means
+*you* don't have to add the shop's bot specifically):
+
+```
+TELEGRAM_FORWARD_TARGET_CHANNELS=@channel_the_bot_can_post_to,userbot:@bunbreaks:3
+```
+
+One-time setup for the userbot account:
+
+1. Log in to [my.telegram.org](https://my.telegram.org) with that account, create an app
+   under **API development tools**, and copy the `api_id` / `api_hash`.
+2. Put those in `.env` as `TELEGRAM_USERBOT_API_ID` / `TELEGRAM_USERBOT_API_HASH`, then run:
+   ```
+   npm run telegram-userbot-login
+   ```
+   It asks for the phone number, the code Telegram texts to it, and the 2FA password if
+   one is set, then prints a session string.
+3. Paste that as `TELEGRAM_USERBOT_SESSION` in `.env` and restart the app.
+
+That session string is equivalent to the account's password — treat it like a secret,
+never commit it, and use a dedicated account rather than a personal one if you can, since
+anyone who gets it can act as that account indefinitely until it's revoked from Telegram's
+**Settings → Devices**.
+
 ## Bulk import / export
 
 Admin → Products has **Bulk Import CSV** and **Export CSV**.

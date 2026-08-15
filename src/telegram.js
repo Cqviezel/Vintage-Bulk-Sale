@@ -2,6 +2,7 @@
 
 const { db } = require('./db');
 const orders = require('./orders');
+const userbot = require('./telegramUserbot');
 
 const API_ROOT = 'https://api.telegram.org';
 
@@ -309,20 +310,22 @@ function isForwardConfigured() {
 }
 
 // Comma-separated so one post can go out to several ad channels at once. Each entry is
-// "chat" or "chat:threadId" — the optional suffix targets one topic in a channel/group
-// that has Topics enabled, same thread-ID-from-Copy-Link convention as TELEGRAM_RESTOCK_TOPIC.
+// "chat", "chat:threadId", or prefixed "userbot:chat" / "userbot:chat:threadId" — the
+// userbot prefix routes that one target through the logged-in account (telegramUserbot.js)
+// instead of the shop's own bot, for channels the bot was never made an admin of. The
+// optional ":threadId" suffix targets one topic, same convention as TELEGRAM_RESTOCK_TOPIC.
 function forwardTargets() {
   return String(process.env.TELEGRAM_FORWARD_TARGET_CHANNELS || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
     .map((entry) => {
-      const i = entry.lastIndexOf(':');
-      // A leading "@" or a bare numeric chat ID never contains ':', so any ':' found is
-      // the thread-ID separator — but a colon-free entry (i === -1) has no topic suffix.
-      if (i === -1) return { chat: entry, threadId: undefined };
-      const threadId = Number(entry.slice(i + 1));
-      return Number.isFinite(threadId) ? { chat: entry.slice(0, i), threadId } : { chat: entry, threadId: undefined };
+      const via = entry.startsWith('userbot:') ? 'userbot' : 'bot';
+      const rest = via === 'userbot' ? entry.slice('userbot:'.length) : entry;
+      const i = rest.lastIndexOf(':');
+      if (i === -1) return { chat: rest, threadId: undefined, via };
+      const threadId = Number(rest.slice(i + 1));
+      return Number.isFinite(threadId) ? { chat: rest.slice(0, i), threadId, via } : { chat: rest, threadId: undefined, via };
     });
 }
 
@@ -333,10 +336,28 @@ function isForwardedMessage(msg) {
   return Boolean(msg.forward_origin || msg.forward_from_chat || msg.forward_from || msg.forward_date);
 }
 
-const FORWARD_PROMPT_KEYBOARD = (msgId) => ({
+/**
+ * The userbot targets can't reach into the admin chat the way the shop's bot can — it
+ * needs the post's true original chat + message ID so it can forward directly from
+ * there (it's already a member of that channel). Only forwards of an actual channel
+ * post carry that; other forward types (DMs, "hidden sender") return null.
+ */
+function channelOrigin(msg) {
+  const o = msg.forward_origin;
+  if (o && o.type === 'channel' && o.chat && o.message_id) {
+    return { chat: o.chat.username ? '@' + o.chat.username : String(o.chat.id), messageId: o.message_id };
+  }
+  if (msg.forward_from_chat && msg.forward_from_chat.type === 'channel' && msg.forward_from_message_id) {
+    const c = msg.forward_from_chat;
+    return { chat: c.username ? '@' + c.username : String(c.id), messageId: msg.forward_from_message_id };
+  }
+  return null;
+}
+
+const FORWARD_PROMPT_KEYBOARD = (msgId, origin) => ({
   inline_keyboard: [[
-    { text: '📢 Send to ad channels', callback_data: `fwd:${msgId}:send` },
-    { text: '✖ Cancel', callback_data: `fwd:${msgId}:cancel` },
+    { text: '📢 Send to ad channels', callback_data: `fwd:${msgId}:${origin ? origin.chat : '0'}:${origin ? origin.messageId : 0}:s` },
+    { text: '✖ Cancel', callback_data: `fwd:${msgId}:c` },
   ]],
 });
 
@@ -354,22 +375,23 @@ async function promptForward(msg) {
     message_thread_id: msg.message_thread_id,
     reply_to_message_id: msg.message_id,
     text: 'Forward this to your ad channels?',
-    reply_markup: FORWARD_PROMPT_KEYBOARD(msg.message_id),
+    reply_markup: FORWARD_PROMPT_KEYBOARD(msg.message_id, channelOrigin(msg)),
   });
 }
 
-/** Routes an `fwd:<messageId>:<action>` callback_data. Returns false if `cq` wasn't one of ours. */
+/** Routes an `fwd:<adminMsgId>:c` or `fwd:<adminMsgId>:<originChat>:<originMsgId>:s` callback_data. */
 async function handleForwardCallback(cq) {
-  const m = /^fwd:(\d+):(send|cancel)$/.exec(cq.data || '');
-  if (!m) return false;
-  const [, messageId, action] = m;
+  const data = cq.data || '';
+  const cancel = /^fwd:(\d+):c$/.exec(data);
+  const send = /^fwd:(\d+):([^:]+):(\d+):s$/.exec(data);
+  if (!cancel && !send) return false;
 
   if (!isFromAdminChat(cq.message.chat.id)) {
     await answerCallbackQuery(cq.id);
     return true;
   }
 
-  if (action === 'cancel') {
+  if (cancel) {
     await answerCallbackQuery(cq.id);
     await post('editMessageText', {
       chat_id: cq.message.chat.id,
@@ -380,26 +402,37 @@ async function handleForwardCallback(cq) {
     return true;
   }
 
+  const [, adminMsgId, originChatRaw, originMsgIdRaw] = send;
+  const origin = originChatRaw !== '0' ? { chat: originChatRaw, messageId: Number(originMsgIdRaw) } : null;
+
   // Guards against a double-tap re-forwarding while the first tap is still in flight.
-  if (forwardLocks.has(messageId)) {
+  if (forwardLocks.has(adminMsgId)) {
     await answerCallbackQuery(cq.id, 'Still sending, try again.', true);
     return true;
   }
-  forwardLocks.add(messageId);
+  forwardLocks.add(adminMsgId);
   try {
     let sent = 0;
     const targets = forwardTargets();
     for (const target of targets) {
-      const result = await post('forwardMessage', {
-        chat_id: target.chat,
-        message_thread_id: target.threadId,
-        from_chat_id: cq.message.chat.id,
-        message_id: Number(messageId),
-      });
+      const result =
+        target.via === 'userbot'
+          ? await userbot.forwardMessage({
+              fromChat: origin && origin.chat,
+              messageId: origin && origin.messageId,
+              toChat: target.chat,
+              threadId: target.threadId,
+            })
+          : await post('forwardMessage', {
+              chat_id: target.chat,
+              message_thread_id: target.threadId,
+              from_chat_id: cq.message.chat.id,
+              message_id: Number(adminMsgId),
+            });
       if (result.ok) {
         sent++;
       } else {
-        console.error(`[telegram] forward to ${target.chat} failed: ${result.reason}`);
+        console.error(`[telegram] forward to ${target.chat} (${target.via}) failed: ${result.reason}`);
       }
     }
     await answerCallbackQuery(
@@ -414,7 +447,7 @@ async function handleForwardCallback(cq) {
       reply_markup: { inline_keyboard: [] },
     });
   } finally {
-    forwardLocks.delete(messageId);
+    forwardLocks.delete(adminMsgId);
   }
   return true;
 }
