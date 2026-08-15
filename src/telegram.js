@@ -414,7 +414,15 @@ async function handleForwardCallback(cq) {
   try {
     let sent = 0;
     const targets = forwardTargets();
-    for (const target of targets) {
+
+    // Firing all 45+ forwards at once trips Telegram's anti-spam rate limit on
+    // contacts.ResolveUsername, which can lead to hours-long cooldowns. Instead, forward in
+    // small batches processed in parallel, with a pause between batches to pace requests.
+    const FORWARD_BATCH_SIZE = 5;
+    const FORWARD_BATCH_DELAY_MS = 1000;
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    const forwardOne = async (target) => {
       const result =
         target.via === 'userbot'
           ? await userbot.forwardMessage({
@@ -434,6 +442,12 @@ async function handleForwardCallback(cq) {
       } else {
         console.error(`[telegram] forward to ${target.chat} (${target.via}) failed: ${result.reason}`);
       }
+    };
+
+    for (let i = 0; i < targets.length; i += FORWARD_BATCH_SIZE) {
+      const batch = targets.slice(i, i + FORWARD_BATCH_SIZE);
+      await Promise.all(batch.map(forwardOne));
+      if (i + FORWARD_BATCH_SIZE < targets.length) await sleep(FORWARD_BATCH_DELAY_MS);
     }
     await answerCallbackQuery(
       cq.id,
