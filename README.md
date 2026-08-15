@@ -136,6 +136,20 @@ Cards left as **draft** (to price or review before going live) don't count and w
 trigger an announcement — only what actually became purchasable. Nothing else (single Add
 Product, Bulk Import CSV) triggers this; if you want it to, ask.
 
+### Forwarding to advertising channels
+
+Set `TELEGRAM_FORWARD_TARGET_CHANNELS` to one or more channels (comma-separated) and you
+can hand-pick what gets advertised: forward any message to the bot in your admin chat —
+a post from your broadcast channel, a photo, anything — and it replies with a **📢 Send to
+ad channels** / **✖ Cancel** button instead of relaying it right away, so a stray forward
+never silently blasts out. Tapping **Send** re-forwards the original message to every
+target, each still tagged "Forwarded from ..." its original source, not from your admin
+chat. The bot needs to already be able to send messages in every target channel.
+
+Append `:<threadId>` to a target to land it in one Topic instead of General — same
+**Copy Link** trick as `TELEGRAM_RESTOCK_TOPIC` above, e.g.
+`TELEGRAM_FORWARD_TARGET_CHANNELS=@bunbreaks:3`.
+
 ## Bulk import / export
 
 Admin → Products has **Bulk Import CSV** and **Export CSV**.

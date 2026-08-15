@@ -304,6 +304,121 @@ function notifyRestock(setName, liveCount) {
   });
 }
 
+function isForwardConfigured() {
+  return Boolean(process.env.TELEGRAM_BOT_TOKEN && forwardTargets().length);
+}
+
+// Comma-separated so one post can go out to several ad channels at once. Each entry is
+// "chat" or "chat:threadId" — the optional suffix targets one topic in a channel/group
+// that has Topics enabled, same thread-ID-from-Copy-Link convention as TELEGRAM_RESTOCK_TOPIC.
+function forwardTargets() {
+  return String(process.env.TELEGRAM_FORWARD_TARGET_CHANNELS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const i = entry.lastIndexOf(':');
+      // A leading "@" or a bare numeric chat ID never contains ':', so any ':' found is
+      // the thread-ID separator — but a colon-free entry (i === -1) has no topic suffix.
+      if (i === -1) return { chat: entry, threadId: undefined };
+      const threadId = Number(entry.slice(i + 1));
+      return Number.isFinite(threadId) ? { chat: entry.slice(0, i), threadId } : { chat: entry, threadId: undefined };
+    });
+}
+
+// Bot API 7.0+ reports a forward's provenance as a single `forward_origin` object;
+// older servers/clients may still send the pre-7.0 forward_from(_chat)/forward_date
+// trio. Checking all of them keeps this working regardless of which shape arrives.
+function isForwardedMessage(msg) {
+  return Boolean(msg.forward_origin || msg.forward_from_chat || msg.forward_from || msg.forward_date);
+}
+
+const FORWARD_PROMPT_KEYBOARD = (msgId) => ({
+  inline_keyboard: [[
+    { text: '📢 Send to ad channels', callback_data: `fwd:${msgId}:send` },
+    { text: '✖ Cancel', callback_data: `fwd:${msgId}:cancel` },
+  ]],
+});
+
+/**
+ * Lets you hand-pick what gets advertised: forward any message to the bot in the admin
+ * chat (a channel post, a DM, anything) and it replies with a confirm button rather than
+ * relaying it immediately — a stray forward into the admin chat shouldn't silently blast
+ * out to every ad channel. Confirming re-forwards the original message on, so each target
+ * shows "Forwarded from <its original source>", not from this admin chat.
+ */
+async function promptForward(msg) {
+  if (!isForwardConfigured()) return;
+  await post('sendMessage', {
+    chat_id: msg.chat.id,
+    message_thread_id: msg.message_thread_id,
+    reply_to_message_id: msg.message_id,
+    text: 'Forward this to your ad channels?',
+    reply_markup: FORWARD_PROMPT_KEYBOARD(msg.message_id),
+  });
+}
+
+/** Routes an `fwd:<messageId>:<action>` callback_data. Returns false if `cq` wasn't one of ours. */
+async function handleForwardCallback(cq) {
+  const m = /^fwd:(\d+):(send|cancel)$/.exec(cq.data || '');
+  if (!m) return false;
+  const [, messageId, action] = m;
+
+  if (!isFromAdminChat(cq.message.chat.id)) {
+    await answerCallbackQuery(cq.id);
+    return true;
+  }
+
+  if (action === 'cancel') {
+    await answerCallbackQuery(cq.id);
+    await post('editMessageText', {
+      chat_id: cq.message.chat.id,
+      message_id: cq.message.message_id,
+      text: 'Cancelled.',
+      reply_markup: { inline_keyboard: [] },
+    });
+    return true;
+  }
+
+  // Guards against a double-tap re-forwarding while the first tap is still in flight.
+  if (forwardLocks.has(messageId)) {
+    await answerCallbackQuery(cq.id, 'Still sending, try again.', true);
+    return true;
+  }
+  forwardLocks.add(messageId);
+  try {
+    let sent = 0;
+    const targets = forwardTargets();
+    for (const target of targets) {
+      const result = await post('forwardMessage', {
+        chat_id: target.chat,
+        message_thread_id: target.threadId,
+        from_chat_id: cq.message.chat.id,
+        message_id: Number(messageId),
+      });
+      if (result.ok) {
+        sent++;
+      } else {
+        console.error(`[telegram] forward to ${target.chat} failed: ${result.reason}`);
+      }
+    }
+    await answerCallbackQuery(
+      cq.id,
+      sent === targets.length ? `Sent to ${sent} channel${sent === 1 ? '' : 's'}.` : `Sent to ${sent}/${targets.length} — check logs.`,
+      sent !== targets.length
+    );
+    await post('editMessageText', {
+      chat_id: cq.message.chat.id,
+      message_id: cq.message.message_id,
+      text: sent ? `✅ Forwarded to ${sent} channel${sent === 1 ? '' : 's'}.` : '❌ Forward failed for all channels.',
+      reply_markup: { inline_keyboard: [] },
+    });
+  } finally {
+    forwardLocks.delete(messageId);
+  }
+  return true;
+}
+
 /**
  * The on-demand report (button tap / `/stock`), unlike notifyOutOfStock above: it always
  * replies, even with nothing to report, since it was explicitly asked for.
@@ -400,6 +515,9 @@ function sendOrderLookup(chatId, replyThreadId, rawId) {
 // callback_query updates arriving in the same getUpdates batch really can race each other.
 const orderLocks = new Set();
 
+// Same double-tap guard as orderLocks, keyed by the forwarded message's ID instead of an order ID.
+const forwardLocks = new Set();
+
 /** Routes an `order:<id>:<action>` callback_data. Returns false if `cq` wasn't one of ours. */
 async function handleOrderCallback(cq) {
   const m = /^order:([A-Za-z0-9-]+):(advance|cancel_ask|cancel_confirm|cancel_back|view)$/.exec(cq.data || '');
@@ -465,6 +583,7 @@ async function handleUpdate(update) {
   const cq = update.callback_query;
   if (cq) {
     if (await handleOrderCallback(cq)) return;
+    if (await handleForwardCallback(cq)) return;
     if (cq.data === 'stock_report') {
       await answerCallbackQuery(cq.id);
       if (isFromAdminChat(cq.message.chat.id)) await sendFullStockReport();
@@ -474,6 +593,11 @@ async function handleUpdate(update) {
   }
 
   const msg = update.message;
+  if (msg && isFromAdminChat(msg.chat.id) && isForwardedMessage(msg)) {
+    await promptForward(msg);
+    return;
+  }
+
   const text = msg && typeof msg.text === 'string' ? msg.text.trim() : '';
   if (!text || !isFromAdminChat(msg.chat.id)) return;
 
@@ -528,7 +652,7 @@ async function getUpdates(offset) {
  * production) makes them race for the same updates — only run one at a time.
  */
 async function startPolling() {
-  if (!isConfigured() || polling) return;
+  if ((!isConfigured() && !isForwardConfigured()) || polling) return;
   polling = true;
 
   // Defensive: getUpdates 409s if a webhook is set. This app has never called
