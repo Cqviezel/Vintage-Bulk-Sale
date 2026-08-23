@@ -114,6 +114,24 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_page_views_created ON page_views(created_at);
+
+  -- Standalone Telegram "claim sale" listings: a photo + name + price posted straight
+  -- to a public channel with a first-tap-wins Claim button, separate from storefront
+  -- inventory (no set/number/condition/qty).
+  CREATE TABLE IF NOT EXISTS claim_items (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                TEXT NOT NULL,
+    price               REAL NOT NULL DEFAULT 0,
+    photo_file_id       TEXT NOT NULL,
+    channel_message_id  INTEGER,
+    status              TEXT NOT NULL DEFAULT 'live',
+    claimed_by_id       TEXT NOT NULL DEFAULT '',
+    claimed_by_name     TEXT NOT NULL DEFAULT '',
+    claimed_at          TEXT,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_claim_items_status ON claim_items(status);
 `);
 
 /** Adds a column to a table that already exists on disk from before this field was added. */
