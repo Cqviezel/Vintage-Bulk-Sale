@@ -2,7 +2,6 @@
 
 const { db } = require('./db');
 const orders = require('./orders');
-const claimSale = require('./claimSale');
 const userbot = require('./telegramUserbot');
 
 const API_ROOT = 'https://api.telegram.org';
@@ -429,115 +428,6 @@ async function sendRestockMediaGroup(sets, totalCount) {
   if (!result.ok) console.error(`[telegram] restock media group failed: ${result.reason}`);
 }
 
-function isClaimChannelConfigured() {
-  return Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CLAIM_CHANNEL);
-}
-
-// "Card Name | 45" or "Card Name | $45.00" — deliberately simple since it's typed as a
-// photo caption on a phone. Anything that doesn't match is left alone rather than
-// bounced with an error, so a casual photo sent to the admin chat doesn't get a
-// confusing reply.
-const CLAIM_CAPTION_RE = /^(.+?)\|\s*\$?([\d,]+(?:\.\d+)?)\s*$/;
-
-function buildClaimCaption(item, claimedByName) {
-  const lines = [`<b>${escapeHtml(item.name)}</b>`, money(item.price)];
-  if (claimedByName) lines.push('', `✅ CLAIMED by ${escapeHtml(claimedByName)}`);
-  return lines.join('\n');
-}
-
-function buildClaimKeyboard(id) {
-  return { inline_keyboard: [[{ text: '🔒 Claim it', callback_data: `claim:${id}:go` }]] };
-}
-
-/**
- * A photo sent directly to the admin chat (not forwarded — forwards go through
- * promptForward instead) with a "Name | Price" caption becomes a claim-sale post:
- * reuses the photo's existing Telegram file_id (no re-upload) and posts it straight
- * to TELEGRAM_CLAIM_CHANNEL with a Claim button.
- */
-async function handleClaimIntake(msg) {
-  if (!msg.photo || !msg.photo.length) return false;
-  const match = CLAIM_CAPTION_RE.exec(msg.caption || '');
-  if (!match) return false;
-
-  if (!isClaimChannelConfigured()) {
-    await post('sendMessage', {
-      chat_id: msg.chat.id,
-      message_thread_id: msg.message_thread_id,
-      reply_to_message_id: msg.message_id,
-      text: 'TELEGRAM_CLAIM_CHANNEL is not set — cannot post claim listings.',
-    });
-    return true;
-  }
-
-  const name = match[1].trim();
-  const price = Number(match[2].replace(/,/g, ''));
-  const photoFileId = msg.photo[msg.photo.length - 1].file_id;
-  const item = claimSale.createClaimItem({ name, price, photoFileId });
-
-  const result = await post('sendPhoto', {
-    chat_id: process.env.TELEGRAM_CLAIM_CHANNEL,
-    photo: photoFileId,
-    caption: buildClaimCaption(item),
-    parse_mode: 'HTML',
-    reply_markup: buildClaimKeyboard(item.id),
-  });
-
-  if (result.ok) {
-    claimSale.setChannelMessage(item.id, result.result.message_id);
-  }
-
-  await post('sendMessage', {
-    chat_id: msg.chat.id,
-    message_thread_id: msg.message_thread_id,
-    reply_to_message_id: msg.message_id,
-    text: result.ok ? '✅ Posted.' : `❌ Post failed: ${escapeHtml(result.reason)}`,
-    parse_mode: 'HTML',
-  });
-  return true;
-}
-
-/** Routes a `claim:<id>:go` callback_data. Unlike order/forward callbacks, these come
-    from the public claim channel, from any user — not gated by isFromAdminChat. */
-async function handleClaimCallback(cq) {
-  const m = /^claim:(\d+):go$/.exec(cq.data || '');
-  if (!m) return false;
-  const id = Number(m[1]);
-
-  const claimerName = cq.from.username ? '@' + cq.from.username : cq.from.first_name || 'someone';
-  const result = claimSale.claim(id, String(cq.from.id), claimerName);
-
-  if (!result.ok) {
-    await answerCallbackQuery(cq.id, 'Sorry, already claimed!', true);
-    return true;
-  }
-
-  await answerCallbackQuery(cq.id, 'You claimed it! 🎉');
-
-  const item = result.item;
-  if (item.channel_message_id) {
-    await post('editMessageCaption', {
-      chat_id: process.env.TELEGRAM_CLAIM_CHANNEL,
-      message_id: item.channel_message_id,
-      caption: buildClaimCaption(item, claimerName),
-      parse_mode: 'HTML',
-      reply_markup: { inline_keyboard: [] },
-    });
-  }
-
-  if (isConfigured()) {
-    await post('sendMessage', {
-      chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID,
-      message_thread_id: threadId('TELEGRAM_TOPIC_SALES'),
-      text:
-        `<b>Claimed!</b>\n${escapeHtml(item.name)} — ${money(item.price)}\n` +
-        `By: ${escapeHtml(claimerName)}`,
-      parse_mode: 'HTML',
-    });
-  }
-  return true;
-}
-
 function isForwardConfigured() {
   return Boolean(process.env.TELEGRAM_BOT_TOKEN && forwardTargets().length);
 }
@@ -850,7 +740,6 @@ async function handleUpdate(update) {
   if (cq) {
     if (await handleOrderCallback(cq)) return;
     if (await handleForwardCallback(cq)) return;
-    if (await handleClaimCallback(cq)) return;
     if (cq.data === 'stock_report') {
       await answerCallbackQuery(cq.id);
       if (isFromAdminChat(cq.message.chat.id)) await sendFullStockReport();
@@ -864,8 +753,6 @@ async function handleUpdate(update) {
     await promptForward(msg);
     return;
   }
-
-  if (msg && isFromAdminChat(msg.chat.id) && (await handleClaimIntake(msg))) return;
 
   const text = msg && typeof msg.text === 'string' ? msg.text.trim() : '';
   if (!text || !isFromAdminChat(msg.chat.id)) return;
