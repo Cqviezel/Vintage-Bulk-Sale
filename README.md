@@ -128,13 +128,22 @@ Two commands cover pulling up orders without the web admin:
 ### Public restock announcements
 
 Set `TELEGRAM_RESTOCK_CHANNEL` to a chat's `@username` (and optionally
-`TELEGRAM_RESTOCK_TOPIC` if it has Topics) and every Admin → Products → **Add by Set**
-import that puts cards live posts an announcement there — separate from the private admin
-chat everything else in this section goes to, since this one is meant for customers to
-see. The bot needs to already be a member of that chat with permission to send messages.
-Cards left as **draft** (to price or review before going live) don't count and won't
-trigger an announcement — only what actually became purchasable. Nothing else (single Add
-Product, Bulk Import CSV) triggers this; if you want it to, ask.
+`TELEGRAM_RESTOCK_TOPIC` if it has Topics) and Admin → Products → **Add by Set** posts an
+announcement there — separate from the private admin chat everything else in this section
+goes to, since this one is meant for customers to see. The bot needs to already be a
+member of that chat with permission to send messages. Cards left as **draft** (to price or
+review before going live) don't count and won't trigger an announcement — only what
+actually became purchasable. Nothing else (single Add Product, Bulk Import CSV) triggers
+this; if you want it to, ask.
+
+Importing several sets back-to-back doesn't post one message per set — they batch into a
+single announcement instead, sent ~75 seconds after the last import (or after 5 minutes of
+continuous importing, whichever comes first), so a multi-set session reads as one clean
+update rather than a burst of separate posts. The announcement lists every set + how many
+cards from it went live, followed by a photo album sampling cards across the batch (up to
+Telegram's 10-photo limit per album — the summary text says "Showing N of M" if there were
+more). A batch still in progress when the app shuts down (e.g. a Railway redeploy) is sent
+immediately rather than dropped.
 
 ### Forwarding to advertising channels
 

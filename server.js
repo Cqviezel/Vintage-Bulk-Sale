@@ -170,18 +170,21 @@ const server = app.listen(PORT, HOST, () => {
   }
 });
 
-function shutdown(signal) {
+async function shutdown(signal) {
   console.log(`\n${signal} received, closing.`);
+  // Bumped from 10s: flushing a pending restock batch can mean two sequential Telegram
+  // round-trips (summary + photo album) on top of everything else closing down.
+  setTimeout(() => process.exit(1), 20_000).unref();
   telegram.stopPolling();
   telegramUserbot.stop().catch(() => {});
+  await telegram.flushRestocks().catch((err) => console.error('[telegram] flush on shutdown failed:', err.message));
   server.close(() => {
     try {
       db.close();
     } catch { /* already closed */ }
     process.exit(0);
   });
-  setTimeout(() => process.exit(1), 10_000).unref();
 }
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => { shutdown('SIGTERM'); });
+process.on('SIGINT', () => { shutdown('SIGINT'); });

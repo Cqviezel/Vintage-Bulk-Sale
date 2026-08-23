@@ -568,8 +568,7 @@ router.post('/products/bulk-set', (req, res) => {
 
   res.status(201).json({ imported: rows.length, merged });
 
-  const liveCount = rows.filter((r) => r.status === 'live').length;
-  telegram.notifyRestock(setName, liveCount).catch(() => {});
+  telegram.queueRestock(setName, rows);
 });
 
 /* --------------------------------------------------------------- uploads --- */

@@ -2,6 +2,7 @@
 
 const { db } = require('./db');
 const orders = require('./orders');
+const claimSale = require('./claimSale');
 const userbot = require('./telegramUserbot');
 
 const API_ROOT = 'https://api.telegram.org';
@@ -290,19 +291,251 @@ const RESTOCK_HEADER_EMOJI = '<tg-emoji emoji-id="5375338737028841420">🔄</tg-
 const STOREFRONT_LINK_EMOJI = '<tg-emoji emoji-id="5253767677670862169">🔜</tg-emoji>';
 const STOREFRONT_URL = 'https://crazedtcg.com/';
 
-function notifyRestock(setName, liveCount) {
-  if (!isRestockChannelConfigured() || liveCount <= 0) return Promise.resolve({ ok: true });
-  const label = liveCount === 1 ? 'card' : 'cards';
-  return post('sendMessage', {
+// Time since the LAST import before posting, and a hard ceiling on how long a
+// continuously-active import session can delay the first post. Tuned for a single admin
+// doing a multi-set import session, not a high-traffic queue: 75s covers the gap between
+// picking one set and the next in the Add by Set modal; 5 min bounds how stale the "just
+// went live" framing can get even if imports keep coming.
+const RESTOCK_DEBOUNCE_MS = 75_000;
+const RESTOCK_MAX_WAIT_MS = 5 * 60_000;
+// Telegram's hard cap on items per sendMediaGroup call.
+const RESTOCK_MEDIA_GROUP_CAP = 10;
+
+// In-memory only — an in-flight batch lost to a hard crash is an acceptable loss for a
+// marketing post, same tradeoff the rest of this file already makes for Telegram sends.
+let pendingRestocks = null; // Map<setName, { cards: [{name, set_name, number, image, price}] }>
+let restockDebounceTimer = null;
+let restockMaxWaitTimer = null;
+
+/**
+ * Queues cards from one "Add by Set" import for a batched public announcement instead of
+ * posting immediately — importing several sets back-to-back in one sitting collapses into
+ * one message instead of spamming the channel with one per set. `liveRows` is whatever the
+ * caller already has in scope (draft rows are filtered out here, not the caller's job).
+ */
+function queueRestock(setName, liveRows) {
+  if (!isRestockChannelConfigured()) return;
+  const cards = (liveRows || [])
+    .filter((r) => r.status === 'live')
+    .map((r) => ({ name: r.name, set_name: r.set_name, number: r.number, image: r.image, price: r.price }));
+  if (!cards.length) return;
+
+  if (!pendingRestocks) pendingRestocks = new Map();
+  const existing = pendingRestocks.get(setName);
+  if (existing) existing.cards.push(...cards);
+  else pendingRestocks.set(setName, { cards });
+
+  clearTimeout(restockDebounceTimer);
+  restockDebounceTimer = setTimeout(flushRestocks, RESTOCK_DEBOUNCE_MS);
+  if (!restockMaxWaitTimer) restockMaxWaitTimer = setTimeout(flushRestocks, RESTOCK_MAX_WAIT_MS);
+}
+
+/**
+ * Sends the batched restock announcement built up by queueRestock: one text summary
+ * (one line per set), then a photo album sampling across the newly-live sets. Called by
+ * either timer above, and by the app's shutdown hook so a redeploy mid-debounce doesn't
+ * silently drop the batch. Never throws — this runs off a bare timer with nothing to catch it.
+ */
+async function flushRestocks() {
+  clearTimeout(restockDebounceTimer);
+  clearTimeout(restockMaxWaitTimer);
+  restockDebounceTimer = null;
+  restockMaxWaitTimer = null;
+  if (!pendingRestocks || !pendingRestocks.size) return;
+
+  // Snapshot and clear before any await, so a queueRestock call racing in during the
+  // send below starts a fresh batch instead of merging into the one already going out.
+  const batch = pendingRestocks;
+  pendingRestocks = null;
+
+  const sets = [...batch.entries()].map(([setName, data]) => ({ setName, cards: data.cards }));
+  const totalCount = sets.reduce((n, s) => n + s.cards.length, 0);
+  if (!totalCount) return;
+
+  try {
+    const summary = await sendRestockSummary(sets, totalCount);
+    if (summary.ok) await sendRestockMediaGroup(sets, totalCount);
+  } catch (err) {
+    console.error('[telegram] restock flush failed:', err.message);
+  }
+}
+
+/** One line per set, chunked the same way the out-of-stock roll-up is. */
+async function sendRestockSummary(sets, totalCount) {
+  const setLines = sets.map(
+    (s) => `• <b>${escapeHtml(s.setName)}</b> — ${s.cards.length} card${s.cards.length === 1 ? '' : 's'}`
+  );
+  const chunks = chunkLines(setLines, TELEGRAM_MAX_LEN);
+  const multiPart = chunks.length > 1;
+
+  let allOk = true;
+  for (let i = 0; i < chunks.length; i++) {
+    const last = i === chunks.length - 1;
+    const heading =
+      `${RESTOCK_HEADER_EMOJI} <b>Restocked</b> — ${totalCount} card${totalCount === 1 ? '' : 's'} across ` +
+      `${sets.length} set${sets.length === 1 ? '' : 's'}${multiPart ? ` — part ${i + 1}/${chunks.length}` : ''}`;
+    const lines = [heading, ...chunks[i]];
+    if (last) lines.push('', `${STOREFRONT_LINK_EMOJI} ${STOREFRONT_URL}`);
+    const result = await post('sendMessage', {
+      chat_id: process.env.TELEGRAM_RESTOCK_CHANNEL,
+      message_thread_id: threadId('TELEGRAM_RESTOCK_TOPIC'),
+      text: lines.join('\n'),
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+    });
+    if (!result.ok) {
+      console.error(`[telegram] restock summary failed: ${result.reason}`);
+      allOk = false;
+    }
+  }
+  return { ok: allOk };
+}
+
+/**
+ * A photo album sampling across every set in the batch (round-robin, not just the first
+ * set's cards), capped at Telegram's 10-per-album limit. Skips entirely if nothing in the
+ * batch has an image. sendMediaGroup is all-or-nothing — one bad URL fails the whole call —
+ * so this doesn't retry or fall back to individual sendPhoto calls, just logs and moves on;
+ * the text summary above has already posted regardless.
+ */
+async function sendRestockMediaGroup(sets, totalCount) {
+  const withImages = sets.map((s) => ({ setName: s.setName, cards: s.cards.filter((c) => c.image) }));
+  const sample = [];
+  for (let round = 0; sample.length < RESTOCK_MEDIA_GROUP_CAP; round++) {
+    let addedThisRound = false;
+    for (const s of withImages) {
+      if (round < s.cards.length && sample.length < RESTOCK_MEDIA_GROUP_CAP) {
+        sample.push(s.cards[round]);
+        addedThisRound = true;
+      }
+    }
+    if (!addedThisRound) break;
+  }
+  if (!sample.length) return;
+
+  const caption =
+    sample.length < totalCount ? `Showing ${sample.length} of ${totalCount} — full list above` : `All ${totalCount} — full list above`;
+  const media = sample.map((card, i) => ({
+    type: 'photo',
+    media: card.image,
+    ...(i === 0 ? { caption, parse_mode: 'HTML' } : {}),
+  }));
+
+  const result = await post('sendMediaGroup', {
     chat_id: process.env.TELEGRAM_RESTOCK_CHANNEL,
     message_thread_id: threadId('TELEGRAM_RESTOCK_TOPIC'),
-    text:
-      `${RESTOCK_HEADER_EMOJI} <b>Restocked: ${escapeHtml(setName)}</b>\n` +
-      `${liveCount} ${label} from this set just went live — check the shop!\n\n` +
-      `${STOREFRONT_LINK_EMOJI} ${STOREFRONT_URL}`,
-    parse_mode: 'HTML',
-    disable_web_page_preview: true,
+    media,
   });
+  if (!result.ok) console.error(`[telegram] restock media group failed: ${result.reason}`);
+}
+
+function isClaimChannelConfigured() {
+  return Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CLAIM_CHANNEL);
+}
+
+// "Card Name | 45" or "Card Name | $45.00" — deliberately simple since it's typed as a
+// photo caption on a phone. Anything that doesn't match is left alone rather than
+// bounced with an error, so a casual photo sent to the admin chat doesn't get a
+// confusing reply.
+const CLAIM_CAPTION_RE = /^(.+?)\|\s*\$?([\d,]+(?:\.\d+)?)\s*$/;
+
+function buildClaimCaption(item, claimedByName) {
+  const lines = [`<b>${escapeHtml(item.name)}</b>`, money(item.price)];
+  if (claimedByName) lines.push('', `✅ CLAIMED by ${escapeHtml(claimedByName)}`);
+  return lines.join('\n');
+}
+
+function buildClaimKeyboard(id) {
+  return { inline_keyboard: [[{ text: '🔒 Claim it', callback_data: `claim:${id}:go` }]] };
+}
+
+/**
+ * A photo sent directly to the admin chat (not forwarded — forwards go through
+ * promptForward instead) with a "Name | Price" caption becomes a claim-sale post:
+ * reuses the photo's existing Telegram file_id (no re-upload) and posts it straight
+ * to TELEGRAM_CLAIM_CHANNEL with a Claim button.
+ */
+async function handleClaimIntake(msg) {
+  if (!msg.photo || !msg.photo.length) return false;
+  const match = CLAIM_CAPTION_RE.exec(msg.caption || '');
+  if (!match) return false;
+
+  if (!isClaimChannelConfigured()) {
+    await post('sendMessage', {
+      chat_id: msg.chat.id,
+      message_thread_id: msg.message_thread_id,
+      reply_to_message_id: msg.message_id,
+      text: 'TELEGRAM_CLAIM_CHANNEL is not set — cannot post claim listings.',
+    });
+    return true;
+  }
+
+  const name = match[1].trim();
+  const price = Number(match[2].replace(/,/g, ''));
+  const photoFileId = msg.photo[msg.photo.length - 1].file_id;
+  const item = claimSale.createClaimItem({ name, price, photoFileId });
+
+  const result = await post('sendPhoto', {
+    chat_id: process.env.TELEGRAM_CLAIM_CHANNEL,
+    photo: photoFileId,
+    caption: buildClaimCaption(item),
+    parse_mode: 'HTML',
+    reply_markup: buildClaimKeyboard(item.id),
+  });
+
+  if (result.ok) {
+    claimSale.setChannelMessage(item.id, result.result.message_id);
+  }
+
+  await post('sendMessage', {
+    chat_id: msg.chat.id,
+    message_thread_id: msg.message_thread_id,
+    reply_to_message_id: msg.message_id,
+    text: result.ok ? '✅ Posted.' : `❌ Post failed: ${escapeHtml(result.reason)}`,
+    parse_mode: 'HTML',
+  });
+  return true;
+}
+
+/** Routes a `claim:<id>:go` callback_data. Unlike order/forward callbacks, these come
+    from the public claim channel, from any user — not gated by isFromAdminChat. */
+async function handleClaimCallback(cq) {
+  const m = /^claim:(\d+):go$/.exec(cq.data || '');
+  if (!m) return false;
+  const id = Number(m[1]);
+
+  const claimerName = cq.from.username ? '@' + cq.from.username : cq.from.first_name || 'someone';
+  const result = claimSale.claim(id, String(cq.from.id), claimerName);
+
+  if (!result.ok) {
+    await answerCallbackQuery(cq.id, 'Sorry, already claimed!', true);
+    return true;
+  }
+
+  await answerCallbackQuery(cq.id, 'You claimed it! 🎉');
+
+  const item = result.item;
+  if (item.channel_message_id) {
+    await post('editMessageCaption', {
+      chat_id: process.env.TELEGRAM_CLAIM_CHANNEL,
+      message_id: item.channel_message_id,
+      caption: buildClaimCaption(item, claimerName),
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: [] },
+    });
+  }
+
+  if (isConfigured()) {
+    await post('sendMessage', {
+      chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID,
+      message_thread_id: threadId('TELEGRAM_TOPIC_SALES'),
+      text:
+        `<b>Claimed!</b>\n${escapeHtml(item.name)} — ${money(item.price)}\n` +
+        `By: ${escapeHtml(claimerName)}`,
+      parse_mode: 'HTML',
+    });
+  }
+  return true;
 }
 
 function isForwardConfigured() {
@@ -617,6 +850,7 @@ async function handleUpdate(update) {
   if (cq) {
     if (await handleOrderCallback(cq)) return;
     if (await handleForwardCallback(cq)) return;
+    if (await handleClaimCallback(cq)) return;
     if (cq.data === 'stock_report') {
       await answerCallbackQuery(cq.id);
       if (isFromAdminChat(cq.message.chat.id)) await sendFullStockReport();
@@ -630,6 +864,8 @@ async function handleUpdate(update) {
     await promptForward(msg);
     return;
   }
+
+  if (msg && isFromAdminChat(msg.chat.id) && (await handleClaimIntake(msg))) return;
 
   const text = msg && typeof msg.text === 'string' ? msg.text.trim() : '';
   if (!text || !isFromAdminChat(msg.chat.id)) return;
@@ -737,7 +973,8 @@ async function sendTest() {
 module.exports = {
   notifyNewOrder,
   notifyOutOfStock,
-  notifyRestock,
+  queueRestock,
+  flushRestocks,
   sendTest,
   isConfigured,
   buildMessage,
