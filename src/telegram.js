@@ -297,12 +297,10 @@ const STOREFRONT_URL = 'https://crazedtcg.com/';
 // went live" framing can get even if imports keep coming.
 const RESTOCK_DEBOUNCE_MS = 75_000;
 const RESTOCK_MAX_WAIT_MS = 5 * 60_000;
-// Telegram's hard cap on items per sendMediaGroup call.
-const RESTOCK_MEDIA_GROUP_CAP = 10;
 
 // In-memory only — an in-flight batch lost to a hard crash is an acceptable loss for a
 // marketing post, same tradeoff the rest of this file already makes for Telegram sends.
-let pendingRestocks = null; // Map<setName, { cards: [{name, set_name, number, image, price}] }>
+let pendingRestocks = null; // Map<setName, { cards: [{name, price}] }>
 let restockDebounceTimer = null;
 let restockMaxWaitTimer = null;
 
@@ -314,9 +312,7 @@ let restockMaxWaitTimer = null;
  */
 function queueRestock(setName, liveRows) {
   if (!isRestockChannelConfigured()) return;
-  const cards = (liveRows || [])
-    .filter((r) => r.status === 'live')
-    .map((r) => ({ name: r.name, set_name: r.set_name, number: r.number, image: r.image, price: r.price }));
+  const cards = (liveRows || []).filter((r) => r.status === 'live').map((r) => ({ name: r.name, price: r.price }));
   if (!cards.length) return;
 
   if (!pendingRestocks) pendingRestocks = new Map();
@@ -331,9 +327,9 @@ function queueRestock(setName, liveRows) {
 
 /**
  * Sends the batched restock announcement built up by queueRestock: one text summary
- * (one line per set), then a photo album sampling across the newly-live sets. Called by
- * either timer above, and by the app's shutdown hook so a redeploy mid-debounce doesn't
- * silently drop the batch. Never throws — this runs off a bare timer with nothing to catch it.
+ * listing every set and card. Called by either timer above, and by the app's shutdown
+ * hook so a redeploy mid-debounce doesn't silently drop the batch. Never throws — this
+ * runs off a bare timer with nothing to catch it.
  */
 async function flushRestocks() {
   clearTimeout(restockDebounceTimer);
@@ -352,25 +348,25 @@ async function flushRestocks() {
   if (!totalCount) return;
 
   try {
-    const summary = await sendRestockSummary(sets, totalCount);
-    if (summary.ok) await sendRestockMediaGroup(sets, totalCount);
+    await sendRestockSummary(sets, totalCount);
   } catch (err) {
     console.error('[telegram] restock flush failed:', err.message);
   }
 }
 
+// Small stand-in for a photo — Telegram text messages can't embed real images inline.
+const RESTOCK_CARD_ICON = '🃏';
+
 /**
- * A bold set heading + one line per card (name and price), not just a per-set count —
- * the photo album below only carries a sample with one caption for the whole group
- * (Telegram doesn't render per-photo captions in an album), so this text is the only
- * place every card's name actually shows up. Chunked the same way the out-of-stock
- * roll-up is, since a big batch can easily run past one message's length.
+ * A bold set heading + one line per card (name and price), not just a per-set count.
+ * Chunked the same way the out-of-stock roll-up is, since a big batch can easily run
+ * past one message's length.
  */
 async function sendRestockSummary(sets, totalCount) {
   const lines = [];
   for (const s of sets) {
     lines.push(`<b>${escapeHtml(s.setName)}</b> (${s.cards.length})`);
-    for (const c of s.cards) lines.push(`• ${escapeHtml(c.name)} — ${money(c.price)}`);
+    for (const c of s.cards) lines.push(`${RESTOCK_CARD_ICON} ${escapeHtml(c.name)} — ${money(c.price)}`);
     lines.push('');
   }
   lines.pop(); // drop the trailing blank line after the last set
@@ -398,44 +394,6 @@ async function sendRestockSummary(sets, totalCount) {
     }
   }
   return { ok: allOk };
-}
-
-/**
- * A photo album sampling across every set in the batch (round-robin, not just the first
- * set's cards), capped at Telegram's 10-per-album limit. Skips entirely if nothing in the
- * batch has an image. sendMediaGroup is all-or-nothing — one bad URL fails the whole call —
- * so this doesn't retry or fall back to individual sendPhoto calls, just logs and moves on;
- * the text summary above has already posted regardless.
- */
-async function sendRestockMediaGroup(sets, totalCount) {
-  const withImages = sets.map((s) => ({ setName: s.setName, cards: s.cards.filter((c) => c.image) }));
-  const sample = [];
-  for (let round = 0; sample.length < RESTOCK_MEDIA_GROUP_CAP; round++) {
-    let addedThisRound = false;
-    for (const s of withImages) {
-      if (round < s.cards.length && sample.length < RESTOCK_MEDIA_GROUP_CAP) {
-        sample.push(s.cards[round]);
-        addedThisRound = true;
-      }
-    }
-    if (!addedThisRound) break;
-  }
-  if (!sample.length) return;
-
-  const caption =
-    sample.length < totalCount ? `Showing ${sample.length} of ${totalCount} — full list above` : `All ${totalCount} — full list above`;
-  const media = sample.map((card, i) => ({
-    type: 'photo',
-    media: card.image,
-    ...(i === 0 ? { caption, parse_mode: 'HTML' } : {}),
-  }));
-
-  const result = await post('sendMediaGroup', {
-    chat_id: process.env.TELEGRAM_RESTOCK_CHANNEL,
-    message_thread_id: threadId('TELEGRAM_RESTOCK_TOPIC'),
-    media,
-  });
-  if (!result.ok) console.error(`[telegram] restock media group failed: ${result.reason}`);
 }
 
 function isForwardConfigured() {

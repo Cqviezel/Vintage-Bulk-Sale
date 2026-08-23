@@ -139,11 +139,10 @@ this; if you want it to, ask.
 Importing several sets back-to-back doesn't post one message per set — they batch into a
 single announcement instead, sent ~75 seconds after the last import (or after 5 minutes of
 continuous importing, whichever comes first), so a multi-set session reads as one clean
-update rather than a burst of separate posts. The announcement lists every set + how many
-cards from it went live, followed by a photo album sampling cards across the batch (up to
-Telegram's 10-photo limit per album — the summary text says "Showing N of M" if there were
-more). A batch still in progress when the app shuts down (e.g. a Railway redeploy) is sent
-immediately rather than dropped.
+update rather than a burst of separate posts. The announcement lists every set as a
+heading, with every card that went live from it underneath (name + price). A batch still
+in progress when the app shuts down (e.g. a Railway redeploy) is sent immediately rather
+than dropped.
 
 ### Forwarding to advertising channels
 
