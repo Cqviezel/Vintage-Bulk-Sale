@@ -359,12 +359,22 @@ async function flushRestocks() {
   }
 }
 
-/** One line per set, chunked the same way the out-of-stock roll-up is. */
+/**
+ * A bold set heading + one line per card (name and price), not just a per-set count —
+ * the photo album below only carries a sample with one caption for the whole group
+ * (Telegram doesn't render per-photo captions in an album), so this text is the only
+ * place every card's name actually shows up. Chunked the same way the out-of-stock
+ * roll-up is, since a big batch can easily run past one message's length.
+ */
 async function sendRestockSummary(sets, totalCount) {
-  const setLines = sets.map(
-    (s) => `• <b>${escapeHtml(s.setName)}</b> — ${s.cards.length} card${s.cards.length === 1 ? '' : 's'}`
-  );
-  const chunks = chunkLines(setLines, TELEGRAM_MAX_LEN);
+  const lines = [];
+  for (const s of sets) {
+    lines.push(`<b>${escapeHtml(s.setName)}</b> (${s.cards.length})`);
+    for (const c of s.cards) lines.push(`• ${escapeHtml(c.name)} — ${money(c.price)}`);
+    lines.push('');
+  }
+  lines.pop(); // drop the trailing blank line after the last set
+  const chunks = chunkLines(lines, TELEGRAM_MAX_LEN);
   const multiPart = chunks.length > 1;
 
   let allOk = true;
@@ -373,12 +383,12 @@ async function sendRestockSummary(sets, totalCount) {
     const heading =
       `${RESTOCK_HEADER_EMOJI} <b>Restocked</b> — ${totalCount} card${totalCount === 1 ? '' : 's'} across ` +
       `${sets.length} set${sets.length === 1 ? '' : 's'}${multiPart ? ` — part ${i + 1}/${chunks.length}` : ''}`;
-    const lines = [heading, ...chunks[i]];
-    if (last) lines.push('', `${STOREFRONT_LINK_EMOJI} ${STOREFRONT_URL}`);
+    const messageLines = [heading, ...chunks[i]];
+    if (last) messageLines.push('', `${STOREFRONT_LINK_EMOJI} ${STOREFRONT_URL}`);
     const result = await post('sendMessage', {
       chat_id: process.env.TELEGRAM_RESTOCK_CHANNEL,
       message_thread_id: threadId('TELEGRAM_RESTOCK_TOPIC'),
-      text: lines.join('\n'),
+      text: messageLines.join('\n'),
       parse_mode: 'HTML',
       disable_web_page_preview: true,
     });
