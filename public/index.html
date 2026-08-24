@@ -123,7 +123,10 @@
 <aside class="drawer" id="cartDrawer" aria-label="Shopping cart">
   <div class="panel-head">
     <h3>Your Cart</h3>
-    <button class="close" id="cartClose" aria-label="Close cart">&times;</button>
+    <div style="display:flex;align-items:center;gap:14px">
+      <button id="cartClearAll" class="remove hidden">Clear cart</button>
+      <button class="close" id="cartClose" aria-label="Close cart">&times;</button>
+    </div>
   </div>
   <div class="cart-items" id="cartItems"></div>
   <div class="drawer-foot">

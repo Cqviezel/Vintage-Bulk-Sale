@@ -650,6 +650,7 @@ function removeFromCart(id) {
 function renderCart() {
   const items = cartItems();
   $('#cartCount').textContent = items.reduce((n, p) => n + p.cartQty, 0);
+  $('#cartClearAll').classList.toggle('hidden', !items.length);
 
   $('#cartItems').innerHTML = items.length
     ? items
@@ -662,11 +663,14 @@ function renderCart() {
         <div class="small muted">${esc(p.set)} &middot; ${esc(
               p.variant && p.variant !== 'Normal' ? `${p.condition}, ${p.variant}` : p.condition
             )}</div>
-        ${p.cartQty > 1 ? `<div class="small muted">${money(p.price)} each</div>` : ''}
+        ${
+          p.qty > 1
+            ? `<div class="small muted">${money(p.price)} each</div>${stepperHtml(p.id, p.cartQty, p.qty)}`
+            : ''
+        }
       </div>
       <div style="text-align:right">
-        <b>${money(p.price * p.cartQty)}</b>
-        ${p.qty > 1 ? stepperHtml(p.id, p.cartQty, p.qty) : ''}
+        <b>${money(p.price * p.cartQty)}</b><br>
         <button class="remove" data-remove="${esc(p.id)}">Remove</button>
       </div>
     </div>`
@@ -1089,6 +1093,11 @@ function closeCart() {
 }
 $('#cartClose').onclick = closeCart;
 $('#overlay').onclick = closeCart;
+
+$('#cartClearAll').onclick = () => {
+  cart.clear();
+  commitCartChange();
+};
 
 $('#buyerDelivery').addEventListener('change', updateCheckoutTotals);
 
