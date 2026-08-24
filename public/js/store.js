@@ -4,7 +4,8 @@
    the only thing kept in this browser is the shopper's own cart. */
 
 const LOGO = '/img/logo-460.jpg';
-const CART_KEY = 'ctcg_cart_v2';
+const CART_KEY = 'ctcg_cart_v3';
+const CART_KEY_LEGACY = 'ctcg_cart_v2'; // pre-quantity cart shape: a plain array of ids
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
@@ -12,7 +13,7 @@ const $$ = (s) => Array.from(document.querySelectorAll(s));
 let products = [];
 let settings = { mailing: 0, minimum: 0, telegram: '', paynow: '' };
 let tradeShows = [];
-let cart = new Set(loadCart());
+let cart = new Map(loadCart()); // id -> quantity
 let appliedPromo = null; // { code, discount } — cleared whenever the cart contents change
 
 const PAGE_SIZE = 24;
@@ -142,10 +143,19 @@ function toast(msg, isError) {
   toast._timer = setTimeout(() => t.classList.remove('show'), isError ? 4200 : 2000);
 }
 
+/** Returns [[id, qty], ...] pairs. Falls back to the pre-quantity cart (a plain array
+    of ids) and migrates each to qty 1, so upgrading this file doesn't wipe carts that
+    were saved before quantities existed. */
 function loadCart() {
   try {
-    const raw = JSON.parse(localStorage.getItem(CART_KEY) || '[]');
-    return Array.isArray(raw) ? raw.filter((id) => typeof id === 'string') : [];
+    const raw = JSON.parse(localStorage.getItem(CART_KEY) || 'null');
+    if (Array.isArray(raw)) {
+      return raw
+        .filter((e) => e && typeof e.id === 'string' && Number.isInteger(e.qty) && e.qty > 0)
+        .map((e) => [e.id, e.qty]);
+    }
+    const old = JSON.parse(localStorage.getItem(CART_KEY_LEGACY) || '[]');
+    return Array.isArray(old) ? old.filter((id) => typeof id === 'string').map((id) => [id, 1]) : [];
   } catch {
     return [];
   }
@@ -153,7 +163,7 @@ function loadCart() {
 
 function saveCart() {
   try {
-    localStorage.setItem(CART_KEY, JSON.stringify([...cart]));
+    localStorage.setItem(CART_KEY, JSON.stringify([...cart].map(([id, qty]) => ({ id, qty }))));
   } catch { /* private browsing, ignore */ }
 }
 
@@ -178,18 +188,27 @@ async function load() {
     products = productData;
     settings = settingData;
 
-    // Drop anything that sold while this tab was idle.
-    const live = new Set(products.map((p) => p.id));
+    // Drop anything that sold out, and lower any line that now exceeds current stock,
+    // while this tab was idle.
+    const live = new Map(products.map((p) => [p.id, p.qty]));
     let dropped = 0;
-    for (const id of [...cart]) {
-      if (!live.has(id)) {
+    let reduced = 0;
+    for (const [id, qty] of [...cart]) {
+      const stock = live.get(id);
+      if (stock === undefined) {
         cart.delete(id);
         dropped++;
+      } else if (qty > stock) {
+        cart.set(id, stock);
+        reduced++;
       }
     }
-    if (dropped) {
+    if (dropped || reduced) {
       saveCart();
-      toast(`${dropped} card${dropped === 1 ? ' was' : 's were'} sold and removed from your cart.`, true);
+      const parts = [];
+      if (dropped) parts.push(`${dropped} card${dropped === 1 ? ' was' : 's were'} sold and removed from your cart`);
+      if (reduced) parts.push(`${reduced} card${reduced === 1 ? "'s quantity was" : "s' quantities were"} lowered to match stock`);
+      toast(parts.join('; ') + '.', true);
     }
 
     renderSetOptions();
@@ -334,6 +353,27 @@ function renderTradeShows() {
     .join('');
 }
 
+/** Shared +/- control used on grid cards, quick view, and the cart drawer — one markup
+    source so the three don't drift out of sync. `+` disables once cartQty hits stock. */
+function stepperHtml(id, cartQty, stock) {
+  return `<div class="qty-stepper" data-stepper="${esc(id)}">
+      <button type="button" class="qty-btn" data-step="-1" aria-label="Decrease quantity">&minus;</button>
+      <span class="qty-value">${cartQty}</span>
+      <button type="button" class="qty-btn" data-step="1" aria-label="Increase quantity"${cartQty >= stock ? ' disabled' : ''}>+</button>
+    </div>`;
+}
+
+/** Binds every stepper's +/- buttons within `root` (a freshly-rendered container). */
+function wireQtySteppers(root) {
+  root.querySelectorAll('[data-step]').forEach((b) => {
+    b.onclick = (e) => {
+      e.stopPropagation();
+      const id = b.closest('[data-stepper]').dataset.stepper;
+      (b.dataset.step === '1' ? incrementQty : decrementQty)(id);
+    };
+  });
+}
+
 function renderProducts() {
   const q = $('#storeSearch').value.trim().toLowerCase();
   const set = $('#storeSet').value;
@@ -362,7 +402,7 @@ function renderProducts() {
   $('#productGrid').innerHTML = pageItems.length
     ? pageItems
         .map((p) => {
-          const inCart = cart.has(p.id);
+          const cartQty = cart.get(p.id) || 0;
           return `
       <article class="product" data-view="${esc(p.id)}">
         <div class="product-image" role="button" tabindex="0" aria-label="View details for ${esc(p.name)}">
@@ -377,9 +417,7 @@ function renderProducts() {
           ${p.variant && p.variant !== 'Normal' ? `<span class="tag">${esc(p.variant)}</span>` : ''}
           <span class="tag stock${p.qty <= 1 ? ' low' : ''}">${p.qty} left</span>
         </div>
-        <button class="add${inCart ? ' added' : ''}" data-add="${esc(p.id)}">
-          ${inCart ? '&check; Added' : 'Add to Cart'}
-        </button>
+        ${cartQty > 0 ? stepperHtml(p.id, cartQty, p.qty) : `<button class="add" data-add="${esc(p.id)}">Add to Cart</button>`}
       </article>`;
         })
         .join('')
@@ -388,9 +426,10 @@ function renderProducts() {
   $$('[data-add]').forEach((b) => {
     b.onclick = (e) => {
       e.stopPropagation();
-      toggleCart(b.dataset.add);
+      addToCart(b.dataset.add);
     };
   });
+  wireQtySteppers($('#productGrid'));
 
   $$('[data-view]').forEach((el) => {
     el.onclick = () => openQuickView(el.dataset.view);
@@ -435,7 +474,7 @@ function openQuickView(id) {
 
   $('#quickViewTitle').textContent = p.name;
 
-  const inCart = cart.has(p.id);
+  const cartQty = cart.get(p.id) || 0;
   const related = products.filter((x) => x.set === p.set && x.id !== p.id).slice(0, 6);
 
   $('#quickViewBody').innerHTML = `
@@ -452,9 +491,9 @@ function openQuickView(id) {
           <span class="tag stock${p.qty <= 1 ? ' low' : ''}">${p.qty} left</span>
         </div>
         ${p.notes ? `<div class="notice" style="margin-top:12px">${esc(p.notes)}</div>` : ''}
-        <button class="add${inCart ? ' added' : ''}" id="quickViewAdd" style="margin-top:16px">
-          ${inCart ? '&check; Added' : 'Add to Cart'}
-        </button>
+        <div id="quickViewAddWrap" style="margin-top:16px">
+          ${cartQty > 0 ? stepperHtml(p.id, cartQty, p.qty) : `<button class="add" id="quickViewAdd">Add to Cart</button>`}
+        </div>
       </div>
     </div>
     ${
@@ -481,10 +520,23 @@ function openQuickView(id) {
         : ''
     }`;
 
-  $('#quickViewAdd').onclick = () => {
-    toggleCart(p.id);
-    openQuickView(id);
-  };
+  const addBtn = $('#quickViewAdd');
+  if (addBtn) {
+    addBtn.onclick = () => {
+      addToCart(p.id);
+      openQuickView(id);
+    };
+  }
+  // Re-opens quick view after each tap (rather than just wireQtySteppers) so the
+  // stepper's own count and the +/- disabled state stay in sync with the new qty.
+  $$('#quickViewAddWrap [data-step]').forEach((b) => {
+    b.onclick = (e) => {
+      e.stopPropagation();
+      const stepId = b.closest('[data-stepper]').dataset.stepper;
+      (b.dataset.step === '1' ? incrementQty : decrementQty)(stepId);
+      openQuickView(id);
+    };
+  });
 
   $$('#quickViewBody [data-view]').forEach((btn) => {
     btn.onclick = () => openQuickView(btn.dataset.view);
@@ -516,8 +568,10 @@ function wireRelatedScroll() {
   nextBtn.onclick = () => row.scrollBy({ left: 240, behavior: 'smooth' });
 }
 
+// `cartQty` names the line quantity — `p.qty` on a product already means its live
+// stock, so merging the two under one name would silently shadow the stock number.
 function cartItems() {
-  return products.filter((p) => cart.has(p.id));
+  return products.filter((p) => cart.has(p.id)).map((p) => ({ ...p, cartQty: cart.get(p.id) }));
 }
 
 /** A changed cart can invalidate an applied code's minimum spend, so make them re-apply it. */
@@ -528,18 +582,48 @@ function clearPromo() {
   $('#promoMessage').className = 'small';
 }
 
-function toggleCart(id) {
-  if (cart.has(id)) cart.delete(id);
-  else cart.add(id);
+/** Every cart mutator below ends here: saves, drops a now-stale promo (with a toast,
+    but only if one was actually applied — a silent clearPromo() no-ops for shoppers who
+    never applied a code), and re-renders. */
+function commitCartChange() {
+  const hadPromo = Boolean(appliedPromo);
   saveCart();
   clearPromo();
+  if (hadPromo) toast('Your cart changed, so the promo code was removed. Please re-apply it.', true);
   renderProducts();
   renderCart();
 }
 
+function addToCart(id) {
+  if (!cart.has(id)) cart.set(id, 1);
+  commitCartChange();
+}
+
+function setCartQty(id, nextQty) {
+  const product = products.find((p) => p.id === id);
+  const stock = product ? product.qty : 0;
+  const clamped = Math.max(0, Math.min(nextQty, stock));
+  if (clamped <= 0) cart.delete(id);
+  else cart.set(id, clamped);
+  commitCartChange();
+}
+
+function incrementQty(id) {
+  setCartQty(id, (cart.get(id) || 0) + 1);
+}
+
+function decrementQty(id) {
+  setCartQty(id, (cart.get(id) || 0) - 1);
+}
+
+function removeFromCart(id) {
+  cart.delete(id);
+  commitCartChange();
+}
+
 function renderCart() {
   const items = cartItems();
-  $('#cartCount').textContent = items.length;
+  $('#cartCount').textContent = items.reduce((n, p) => n + p.cartQty, 0);
 
   $('#cartItems').innerHTML = items.length
     ? items
@@ -552,9 +636,11 @@ function renderCart() {
         <div class="small muted">${esc(p.set)} &middot; ${esc(
               p.variant && p.variant !== 'Normal' ? `${p.condition}, ${p.variant}` : p.condition
             )}</div>
+        ${p.cartQty > 1 ? `<div class="small muted">${money(p.price)} each</div>` : ''}
       </div>
       <div style="text-align:right">
-        <b>${money(p.price)}</b><br>
+        <b>${money(p.price * p.cartQty)}</b>
+        ${stepperHtml(p.id, p.cartQty, p.qty)}
         <button class="remove" data-remove="${esc(p.id)}">Remove</button>
       </div>
     </div>`
@@ -563,10 +649,11 @@ function renderCart() {
     : '<div class="empty">Your cart is empty.</div>';
 
   $$('[data-remove]').forEach((b) => {
-    b.onclick = () => toggleCart(b.dataset.remove);
+    b.onclick = () => removeFromCart(b.dataset.remove);
   });
+  wireQtySteppers($('#cartItems'));
 
-  const subtotal = items.reduce((sum, p) => sum + Number(p.price), 0);
+  const subtotal = items.reduce((sum, p) => sum + Number(p.price) * p.cartQty, 0);
   const posting = $('#buyerDelivery').value !== 'Self-Pickup';
   const fee = items.length && posting ? Number(settings.mailing) : 0;
 
@@ -665,7 +752,7 @@ async function applyPromo() {
   try {
     const result = await api('/api/promo/validate', {
       method: 'POST',
-      body: JSON.stringify({ code, items: cartItems().map((p) => ({ id: p.id })) }),
+      body: JSON.stringify({ code, items: cartItems().map((p) => ({ id: p.id, qty: p.cartQty })) }),
     });
     appliedPromo = { code: result.code, discount: result.discount };
     msg.className = 'small promo-ok';
@@ -677,6 +764,29 @@ async function applyPromo() {
   }
 
   updateCheckoutTotals();
+}
+
+/** Every problem with the checkout form at once, not just the first one hit — the
+    server re-validates all of this independently, this is purely a friendlier UX pass. */
+function validateCheckout(payload) {
+  const errors = [];
+  if (!payload.buyer) errors.push('Please enter your name.');
+  if (!payload.telegram && !payload.email) {
+    errors.push('Add a Telegram handle or an email so we can reach you.');
+  }
+  if (payload.telegram && !/^@[A-Za-z0-9_]{4,32}$/.test(payload.telegram)) {
+    errors.push('Telegram handle should look like @yourname.');
+  }
+  if (payload.delivery === 'Tracked Mailing' && !payload.address) {
+    errors.push('Please enter your mailing address.');
+  }
+  if (payload.delivery === 'Tracked Mailing' && !payload.phone) {
+    errors.push('Please enter a contact number for the courier.');
+  }
+  if (payload.phone && !/^[+\d][\d\s-]{6,29}$/.test(payload.phone)) {
+    errors.push('That phone number does not look valid.');
+  }
+  return errors;
 }
 
 async function submitOrder() {
@@ -698,26 +808,14 @@ async function submitOrder() {
     address: $('#buyerAddress').value.trim(),
     delivery: $('#buyerDelivery').value,
     promoCode: appliedPromo ? appliedPromo.code : '',
-    items: items.map((p) => ({ id: p.id })),
+    items: items.map((p) => ({ id: p.id, qty: p.cartQty })),
   };
 
-  // Friendly client-side checks; the server re-validates all of these.
-  if (!payload.buyer) return showCheckoutError('Please enter your name.');
-  if (!payload.telegram && !payload.email) {
-    return showCheckoutError('Add a Telegram handle or an email so we can reach you.');
-  }
-  if (payload.telegram && !/^@[A-Za-z0-9_]{4,32}$/.test(payload.telegram)) {
-    return showCheckoutError('Telegram handle should look like @yourname.');
-  }
-  if (payload.delivery === 'Tracked Mailing' && !payload.address) {
-    return showCheckoutError('Please enter your mailing address.');
-  }
-  if (payload.delivery === 'Tracked Mailing' && !payload.phone) {
-    return showCheckoutError('Please enter a contact number for the courier.');
-  }
-  if (payload.phone && !/^[+\d][\d\s-]{6,29}$/.test(payload.phone)) {
-    return showCheckoutError('That phone number does not look valid.');
-  }
+  // Friendly client-side checks; the server re-validates all of these. Collected up
+  // front rather than returning on the first failure, so a shopper with two mistakes
+  // doesn't have to resubmit twice to find the second one.
+  const errors = validateCheckout(payload);
+  if (errors.length) return showCheckoutError(errors);
 
   button.disabled = true;
   button.textContent = 'Placing order…';
@@ -749,10 +847,17 @@ async function submitOrder() {
   }
 }
 
+/** Accepts a single message (every existing call site) or an array of them (the
+    validateCheckout case) — more than one renders as a list instead of one line. */
 function showCheckoutError(message) {
   const box = $('#checkoutError');
-  box.textContent = message;
+  const list = Array.isArray(message) ? message : [message];
+  box.innerHTML =
+    list.length > 1
+      ? `<ul style="margin:0;padding-left:18px">${list.map((m) => `<li>${esc(m)}</li>`).join('')}</ul>`
+      : esc(list[0]);
   box.classList.remove('hidden');
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 /**
@@ -856,12 +961,57 @@ function showConfirmation(order) {
   });
 });
 
-$('#latestDrop').onclick = (e) => {
+/** Clears every catalogue filter back to its default — used whenever a nav link means
+    "start over," so a set filter picked earlier doesn't silently keep narrowing results
+    the shopper thinks they've left behind. */
+function resetFilters() {
+  $('#storeSearch').value = '';
+  $('#storeSet').value = '';
+  $('#storePrice').value = '';
+  $('#storeCondition').value = '';
+  $('#storeVariant').value = '';
+}
+
+function goToAllCards(e) {
   e.preventDefault();
+  resetFilters();
+  currentPage = 1;
+  renderProducts();
+  $('#catalogue').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function goToLatestDrop(e) {
+  e.preventDefault();
+  resetFilters();
   $('#storePrice').value = 'new';
   currentPage = 1;
   renderProducts();
   $('#catalogue').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+$$('[data-nav="all-cards"]').forEach((a) => (a.onclick = goToAllCards));
+$('#latestDrop').onclick = goToLatestDrop;
+
+function closeMobileNavMenu() {
+  $('#mobileNavMenu').classList.add('hidden');
+  $('#mobileNav').setAttribute('aria-expanded', 'false');
+}
+
+$('#mobileNav').onclick = (e) => {
+  e.stopPropagation();
+  const menu = $('#mobileNavMenu');
+  const willOpen = menu.classList.contains('hidden');
+  menu.classList.toggle('hidden', !willOpen);
+  $('#mobileNav').setAttribute('aria-expanded', String(willOpen));
+};
+
+$('#mobileAllCards').onclick = (e) => {
+  closeMobileNavMenu();
+  goToAllCards(e);
+};
+$('#mobileLatestDrop').onclick = (e) => {
+  closeMobileNavMenu();
+  goToLatestDrop(e);
 };
 
 function closeBrowseSetsMenu() {
@@ -885,7 +1035,10 @@ $('#browseSets').onclick = (e) => {
 };
 
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.nav-dropdown')) closeBrowseSetsMenu();
+  if (!e.target.closest('.nav-dropdown')) {
+    closeBrowseSetsMenu();
+    closeMobileNavMenu();
+  }
 });
 
 $('#cartOpen').onclick = () => {
@@ -941,6 +1094,7 @@ document.addEventListener('keydown', (e) => {
     closeModals();
     closeCart();
     closeBrowseSetsMenu();
+    closeMobileNavMenu();
   }
 });
 

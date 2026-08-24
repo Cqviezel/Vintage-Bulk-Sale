@@ -192,10 +192,31 @@ function checkPromoEligibility(row, subtotal) {
   return { ok: true, discount: Number(Math.min(raw, subtotal).toFixed(2)) };
 }
 
-function subtotalForIds(productIds) {
-  return productIds.reduce((sum, id) => {
+// Per-line cap is deliberately generous but not unbounded -- a shopper legitimately
+// buying a big lot of the same bulk single shouldn't hit this, but it stops a
+// malformed/tampered payload from looping absurdly. MAX_TOTAL_QTY caps the whole order.
+const MAX_ITEM_QTY = 99;
+const MAX_TOTAL_QTY = 99;
+
+/** Dedupes a cart payload into [{id, qty}], summing qty for any id sent more than once
+    (a qty stepper never should, but a replayed/tampered request might), and clamping
+    each line to a sane range -- the server never trusts a quantity past "at least 1,
+    not silly" regardless of what the browser claims. */
+function normalizeCartItems(rawItems) {
+  const items = Array.isArray(rawItems) ? rawItems : [];
+  const byId = new Map();
+  for (const raw of items) {
+    const id = String(raw && raw.id ? raw.id : raw);
+    const qty = Math.max(1, Math.min(MAX_ITEM_QTY, Number.isInteger(raw && raw.qty) ? raw.qty : 1));
+    byId.set(id, Math.min(MAX_ITEM_QTY, (byId.get(id) || 0) + qty));
+  }
+  return [...byId].map(([id, qty]) => ({ id, qty }));
+}
+
+function subtotalForItems(items) {
+  return items.reduce((sum, { id, qty }) => {
     const p = selectProductForUpdate.get(id);
-    return sum + (p ? Number(p.price) : 0);
+    return sum + (p ? Number(p.price) * qty : 0);
   }, 0);
 }
 
@@ -203,9 +224,8 @@ router.post('/promo/validate', (req, res) => {
   const code = String((req.body && req.body.code) || '').trim().toUpperCase();
   if (!code) return res.status(400).json({ error: 'Enter a promo code.' });
 
-  const rawItems = Array.isArray(req.body && req.body.items) ? req.body.items : [];
-  const productIds = [...new Set(rawItems.map((i) => String(i && i.id ? i.id : i)))];
-  const subtotal = subtotalForIds(productIds);
+  const items = normalizeCartItems(req.body && req.body.items);
+  const subtotal = subtotalForItems(items);
 
   const result = checkPromoEligibility(findPromoCode.get(code), subtotal);
   if (!result.ok) return res.status(400).json({ error: result.error });
@@ -222,21 +242,30 @@ const placeOrder = db.transaction((input) => {
   const reserved = [];
   const outOfStock = [];
 
-  for (const productId of input.productIds) {
+  for (const { id: productId, qty: wantQty } of input.items) {
     const product = selectProductForUpdate.get(productId);
     if (!product) {
       throw Object.assign(new Error('One of the cards is no longer listed.'), { status: 409 });
     }
-    const changed = decrementProduct.run(productId).changes;
-    if (changed !== 1) {
-      throw Object.assign(
-        new Error(`"${product.name}" was just sold to someone else. Please remove it and try again.`),
-        { status: 409 }
-      );
-    }
-    reserved.push(product);
 
-    const remaining = product.qty - 1;
+    // order_items stays "1 row = 1 physical unit" -- looping the existing per-unit
+    // reserve here (rather than adding a qty column) means Telegram, admin, and CSV
+    // already render N rows correctly for N units with no changes of their own.
+    let reservedForLine = 0;
+    for (let i = 0; i < wantQty; i++) {
+      const changed = decrementProduct.run(productId).changes;
+      if (changed !== 1) {
+        const message =
+          reservedForLine > 0
+            ? `Only ${reservedForLine} of "${product.name}" ${reservedForLine === 1 ? 'is' : 'are'} left, but you requested ${wantQty}. Please adjust the quantity and try again.`
+            : `"${product.name}" was just sold to someone else. Please remove it and try again.`;
+        throw Object.assign(new Error(message), { status: 409 });
+      }
+      reserved.push(product);
+      reservedForLine++;
+    }
+
+    const remaining = product.qty - reservedForLine;
     if (remaining <= 0) {
       outOfStock.push({ name: product.name, set: product.set_name, qty: remaining });
     }
@@ -343,14 +372,18 @@ router.post('/orders', orderLimiter, async (req, res, next) => {
       return res.status(400).json({ error: 'That is too many cards for one order.' });
     }
 
-    const productIds = [...new Set(rawItems.map((i) => String(i && i.id ? i.id : i)))];
-    if (productIds.some((id) => !id || id.length > 64)) {
+    const cartItems = normalizeCartItems(rawItems);
+    if (cartItems.some((i) => !i.id || i.id.length > 64)) {
       return res.status(400).json({ error: 'Your cart contains an invalid item.' });
+    }
+    const totalQty = cartItems.reduce((n, i) => n + i.qty, 0);
+    if (totalQty > MAX_TOTAL_QTY) {
+      return res.status(400).json({ error: 'That is too many cards for one order.' });
     }
 
     // Prices come from the database, never from the browser.
     const { order, items, settings, outOfStock } = placeOrder({
-      productIds,
+      items: cartItems,
       buyer,
       telegram: telegramHandle,
       email,
