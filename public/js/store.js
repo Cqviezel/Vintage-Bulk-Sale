@@ -236,24 +236,34 @@ function renderSetOptions() {
 }
 
 /** Renders (and rebinds) just the button list inside the Browse Sets dropdown, so the
-    search box above it can filter without touching the rest of the panel. */
+    search box above it can filter without touching the rest of the panel. Browsing
+    (no query) collapses each era behind a tap so a buyer isn't handed the full flat
+    list at once; a search result is already narrow, so it stays a flat list. */
 function renderBrowseSetsList(groups) {
   const current = $('#storeSet').value;
   const hasQuery = $('#browseSetsSearch').value.trim() !== '';
 
-  const body =
-    groups
-      .map(
-        (g) =>
-          `<div class="menu-era" role="presentation">${esc(g.label)}</div>` +
-          g.sets
-            .map(
-              (s) =>
-                `<button role="menuitem" data-set="${esc(s)}"${s === current ? ' class="active"' : ''}>${esc(s)}</button>`
-            )
-            .join('')
-      )
-      .join('') || '<div class="menu-empty">No sets match.</div>';
+  const setButton = (s) =>
+    `<button role="menuitem" data-set="${esc(s)}"${s === current ? ' class="active"' : ''}>${esc(s)}</button>`;
+
+  let body;
+  if (hasQuery) {
+    body =
+      groups.map((g) => `<div class="menu-era" role="presentation">${esc(g.label)}</div>` + g.sets.map(setButton).join('')).join('') ||
+      '<div class="menu-empty">No sets match.</div>';
+  } else {
+    const singleGroup = groups.length === 1;
+    body =
+      groups
+        .map(
+          (g) =>
+            `<details class="menu-era-group" name="browseSetsEra"${singleGroup ? ' open' : ''}>` +
+            `<summary>${esc(g.label)}</summary>` +
+            `<div class="menu-era-sets">${g.sets.map(setButton).join('')}</div>` +
+            `</details>`
+        )
+        .join('') || '<div class="menu-empty">No sets match.</div>';
+  }
 
   $('#browseSetsList').innerHTML =
     (hasQuery ? '' : `<button role="menuitem" data-set=""${current === '' ? ' class="active"' : ''}>All Sets</button>`) + body;
