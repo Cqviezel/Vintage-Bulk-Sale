@@ -114,6 +114,18 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_page_views_created ON page_views(created_at);
+
+  -- Caches the userbot's resolved chat -> peer lookups (telegramUserbot.js) so repeat
+  -- forwards to the same channel never re-hit contacts.ResolveUsername, which Telegram
+  -- flood-limits hard and which a bare process restart used to force a fresh call to
+  -- every time (the client's entity cache only ever lived in memory).
+  CREATE TABLE IF NOT EXISTS telegram_entity_cache (
+    chat_ref     TEXT PRIMARY KEY,
+    class_name   TEXT NOT NULL,
+    entity_id    TEXT NOT NULL,
+    access_hash  TEXT,
+    cached_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 /** Adds a column to a table that already exists on disk from before this field was added. */

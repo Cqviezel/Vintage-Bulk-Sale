@@ -4,6 +4,48 @@ const crypto = require('crypto');
 const bigInt = require('big-integer');
 const { TelegramClient, Api } = require('teleproto');
 const { StringSession } = require('teleproto/sessions');
+const { db } = require('./db');
+
+const getCachedEntity = db.prepare(
+  'SELECT class_name, entity_id, access_hash FROM telegram_entity_cache WHERE chat_ref = ?'
+);
+const upsertCachedEntity = db.prepare(
+  `INSERT INTO telegram_entity_cache (chat_ref, class_name, entity_id, access_hash) VALUES (@chat_ref, @class_name, @entity_id, @access_hash)
+   ON CONFLICT(chat_ref) DO UPDATE SET class_name = excluded.class_name, entity_id = excluded.entity_id, access_hash = excluded.access_hash, cached_at = datetime('now')`
+);
+
+// Rebuilds just enough of the Input peer variant to forward with — no live resolve.
+function inputPeerFromCache(row) {
+  const id = bigInt(row.entity_id);
+  const accessHash = row.access_hash != null ? bigInt(row.access_hash) : undefined;
+  if (row.class_name === 'Channel') return new Api.InputPeerChannel({ channelId: id, accessHash });
+  if (row.class_name === 'User') return new Api.InputPeerUser({ userId: id, accessHash });
+  if (row.class_name === 'Chat') return new Api.InputPeerChat({ chatId: id });
+  return null;
+}
+
+/**
+ * Resolves a chat reference (an @username or a numeric chat ID, as a string) to a peer
+ * the raw API will accept — served from a persistent cache whenever possible. Telegram
+ * flood-limits contacts.ResolveUsername hard (multi-hour bans on repeat offenses), and
+ * the client's own entity cache is in-memory only, so every process restart used to force
+ * a fresh resolve for every configured forward target. Once a chat_ref has been resolved
+ * successfully, this never resolves it again.
+ */
+async function resolveChat(client, chatRef) {
+  const cached = getCachedEntity.get(chatRef);
+  const cachedPeer = cached && inputPeerFromCache(cached);
+  if (cachedPeer) return cachedPeer;
+
+  const entity = await client.getEntity(chatRef);
+  upsertCachedEntity.run({
+    chat_ref: chatRef,
+    class_name: entity.className,
+    entity_id: String(entity.id),
+    access_hash: entity.accessHash != null ? String(entity.accessHash) : null,
+  });
+  return entity;
+}
 
 // Separate from the bot (TELEGRAM_BOT_TOKEN): this logs in as a real Telegram account
 // (via scripts/telegram-userbot-login.js) so it can post into channels the shop's own
@@ -74,7 +116,7 @@ async function forwardMessage({ fromChat, messageId, toChat, threadId }) {
   }
   try {
     const client = await connect();
-    const [fromEntity, toEntity] = await Promise.all([client.getEntity(fromChat), client.getEntity(toChat)]);
+    const [fromEntity, toEntity] = await Promise.all([resolveChat(client, fromChat), resolveChat(client, toChat)]);
     await client.invoke(
       new Api.messages.ForwardMessages({
         fromPeer: fromEntity,
