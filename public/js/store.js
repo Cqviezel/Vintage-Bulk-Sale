@@ -354,13 +354,26 @@ function renderTradeShows() {
 }
 
 /** Shared +/- control used on grid cards, quick view, and the cart drawer — one markup
-    source so the three don't drift out of sync. `+` disables once cartQty hits stock. */
+    source so the three don't drift out of sync. Only used when there's actually a
+    range to adjust (stock >= 2) — see inCartHtml() for the single-copy case, where a
+    stepper with a permanently-maxed "+" would just be confusing. */
 function stepperHtml(id, cartQty, stock) {
   return `<div class="qty-stepper" data-stepper="${esc(id)}">
       <button type="button" class="qty-btn" data-step="-1" aria-label="Decrease quantity">&minus;</button>
       <span class="qty-value">${cartQty}</span>
       <button type="button" class="qty-btn" data-step="1" aria-label="Increase quantity"${cartQty >= stock ? ' disabled' : ''}>+</button>
     </div>`;
+}
+
+/** A listing with only 1 in stock can never go above qty 1, so there's nothing to
+    step — this is the pre-quantity "✓ Added" toggle instead, tapping it removes. */
+function inCartHtml(id) {
+  return `<button class="add added" data-remove="${esc(id)}">&check; Added</button>`;
+}
+
+/** Picks between the two above based on whether stepping actually means anything. */
+function cartControlHtml(id, cartQty, stock) {
+  return stock <= 1 ? inCartHtml(id) : stepperHtml(id, cartQty, stock);
 }
 
 /** Binds every stepper's +/- buttons within `root` (a freshly-rendered container). */
@@ -417,7 +430,7 @@ function renderProducts() {
           ${p.variant && p.variant !== 'Normal' ? `<span class="tag">${esc(p.variant)}</span>` : ''}
           <span class="tag stock${p.qty <= 1 ? ' low' : ''}">${p.qty} left</span>
         </div>
-        ${cartQty > 0 ? stepperHtml(p.id, cartQty, p.qty) : `<button class="add" data-add="${esc(p.id)}">Add to Cart</button>`}
+        ${cartQty > 0 ? cartControlHtml(p.id, cartQty, p.qty) : `<button class="add" data-add="${esc(p.id)}">Add to Cart</button>`}
       </article>`;
         })
         .join('')
@@ -427,6 +440,12 @@ function renderProducts() {
     b.onclick = (e) => {
       e.stopPropagation();
       addToCart(b.dataset.add);
+    };
+  });
+  $$('#productGrid [data-remove]').forEach((b) => {
+    b.onclick = (e) => {
+      e.stopPropagation();
+      removeFromCart(b.dataset.remove);
     };
   });
   wireQtySteppers($('#productGrid'));
@@ -492,7 +511,7 @@ function openQuickView(id) {
         </div>
         ${p.notes ? `<div class="notice" style="margin-top:12px">${esc(p.notes)}</div>` : ''}
         <div id="quickViewAddWrap" style="margin-top:16px">
-          ${cartQty > 0 ? stepperHtml(p.id, cartQty, p.qty) : `<button class="add" id="quickViewAdd">Add to Cart</button>`}
+          ${cartQty > 0 ? cartControlHtml(p.id, cartQty, p.qty) : `<button class="add" id="quickViewAdd">Add to Cart</button>`}
         </div>
       </div>
     </div>
@@ -537,6 +556,13 @@ function openQuickView(id) {
       openQuickView(id);
     };
   });
+  const removeBtn = $('#quickViewAddWrap [data-remove]');
+  if (removeBtn) {
+    removeBtn.onclick = () => {
+      removeFromCart(removeBtn.dataset.remove);
+      openQuickView(id);
+    };
+  }
 
   $$('#quickViewBody [data-view]').forEach((btn) => {
     btn.onclick = () => openQuickView(btn.dataset.view);
@@ -640,7 +666,7 @@ function renderCart() {
       </div>
       <div style="text-align:right">
         <b>${money(p.price * p.cartQty)}</b>
-        ${stepperHtml(p.id, p.cartQty, p.qty)}
+        ${p.qty > 1 ? stepperHtml(p.id, p.cartQty, p.qty) : ''}
         <button class="remove" data-remove="${esc(p.id)}">Remove</button>
       </div>
     </div>`
