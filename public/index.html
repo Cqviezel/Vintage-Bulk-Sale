@@ -11,6 +11,9 @@
 <meta property="og:description" content="Curated vintage trading card singles. PayNow checkout, tracked mailing, cards from $2.">
 <meta property="og:image" content="/img/logo.jpg">
 <meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
@@ -26,10 +29,17 @@
             <div class="menu-list" id="browseSetsList"></div>
           </div>
         </div>
-        <a href="#catalogue">All Cards</a>
+        <a href="#catalogue" data-nav="all-cards">All Cards</a>
         <a href="#catalogue" id="latestDrop">Latest Drop</a>
       </div>
       <div class="store-nav-right">
+        <div class="nav-dropdown mobile-nav-dropdown">
+          <button id="mobileNav" aria-haspopup="true" aria-expanded="false" aria-controls="mobileNavMenu" aria-label="Menu">&#9776;</button>
+          <div class="nav-dropdown-menu hidden" id="mobileNavMenu" role="menu">
+            <a role="menuitem" href="#catalogue" id="mobileAllCards">All Cards</a>
+            <a role="menuitem" href="#catalogue" id="mobileLatestDrop">Latest Drop</a>
+          </div>
+        </div>
         <button class="cart" id="cartOpen">Cart <span class="count" id="cartCount">0</span></button>
       </div>
     </header>
@@ -40,7 +50,7 @@
         <h1>Crazed TCG</h1>
         <div class="hero-title">Vintage Bulk Cards</div>
         <div class="hero-actions">
-          <a class="hero-primary" href="#catalogue">Browse Cards</a>
+          <a class="hero-primary" href="#catalogue" data-nav="all-cards">Browse Cards</a>
           <a class="hero-secondary" href="#" id="joinTelegram">Join Telegram</a>
         </div>
       </div>
@@ -98,7 +108,7 @@
         <span>Vintage cards made easy to browse.</span>
       </div>
       <nav>
-        <a href="#catalogue">All Cards</a>
+        <a href="#catalogue" data-nav="all-cards">All Cards</a>
         <a href="#" id="conditionGuide">Condition Guide</a>
         <a href="#" id="shippingInfo">Shipping &amp; Pickup</a>
         <a href="#" id="trackOrder">Track Order</a>
