@@ -373,12 +373,18 @@ async function sendRestockSummary(sets, totalCount) {
   const chunks = chunkLines(lines, TELEGRAM_MAX_LEN);
   const multiPart = chunks.length > 1;
 
+  // Named here so every set is visible at a glance even before the blockquote is
+  // expanded — with 2+ sets, Telegram's own collapsed preview may cut off after the
+  // first set's heading and a couple of its cards, hiding the rest until tapped open.
+  const setNames = sets.map((s) => escapeHtml(s.setName)).join(', ');
+
   let allOk = true;
   for (let i = 0; i < chunks.length; i++) {
     const last = i === chunks.length - 1;
     const heading =
       `${RESTOCK_HEADER_EMOJI} <b>Restocked</b> — ${totalCount} card${totalCount === 1 ? '' : 's'} across ` +
-      `${sets.length} set${sets.length === 1 ? '' : 's'}${multiPart ? ` — part ${i + 1}/${chunks.length}` : ''}`;
+      `${sets.length} set${sets.length === 1 ? '' : 's'}${multiPart ? ` — part ${i + 1}/${chunks.length}` : ''}` +
+      `${sets.length > 1 ? `\n${setNames}` : ''}`;
     const messageLines = [heading, '', `<blockquote expandable>${chunks[i].join('\n')}</blockquote>`];
     if (last) messageLines.push('', `${STOREFRONT_LINK_EMOJI} ${STOREFRONT_URL}`);
     const result = await post('sendMessage', {
