@@ -354,9 +354,6 @@ async function flushRestocks() {
   }
 }
 
-// Small stand-in for a photo — Telegram text messages can't embed real images inline.
-const RESTOCK_CARD_ICON = '🃏';
-
 /**
  * A bold set heading + one line per card (name and price), not just a per-set count.
  * Chunked the same way the out-of-stock roll-up is, since a big batch can easily run
@@ -366,7 +363,7 @@ async function sendRestockSummary(sets, totalCount) {
   const lines = [];
   for (const s of sets) {
     lines.push(`<b>${escapeHtml(s.setName)}</b> (${s.cards.length})`);
-    for (const c of s.cards) lines.push(`${RESTOCK_CARD_ICON} ${escapeHtml(c.name)} — ${money(c.price)}`);
+    for (const c of s.cards) lines.push(`• ${escapeHtml(c.name)} — ${money(c.price)}`);
     lines.push('');
   }
   lines.pop(); // drop the trailing blank line after the last set
