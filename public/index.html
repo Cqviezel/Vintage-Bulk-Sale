@@ -21,7 +21,10 @@
       <div class="store-nav-left">
         <div class="nav-dropdown">
           <button id="browseSets" aria-haspopup="true" aria-expanded="false" aria-controls="browseSetsMenu">Browse Sets &#9662;</button>
-          <div class="nav-dropdown-menu hidden" id="browseSetsMenu" role="menu"></div>
+          <div class="nav-dropdown-menu hidden" id="browseSetsMenu" role="menu">
+            <input type="text" id="browseSetsSearch" class="menu-search" placeholder="Search sets…" aria-label="Search sets">
+            <div class="menu-list" id="browseSetsList"></div>
+          </div>
         </div>
         <a href="#catalogue">All Cards</a>
         <a href="#catalogue" id="latestDrop">Latest Drop</a>

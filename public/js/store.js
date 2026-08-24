@@ -211,14 +211,18 @@ async function load() {
 
 /* ------------------------------------------------------------ rendering --- */
 
+// Cached so the search box below can re-filter without recomputing groups from
+// `products` on every keystroke — refreshed each time renderSetOptions() runs.
+let browseSetGroups = [];
+
 function renderSetOptions() {
   const sets = [...new Set(products.map((p) => p.set).filter(Boolean))];
-  const groups = groupSetsByEra(sets);
+  browseSetGroups = groupSetsByEra(sets);
   const current = $('#storeSet').value;
 
   $('#storeSet').innerHTML =
     '<option value="">All sets</option>' +
-    groups
+    browseSetGroups
       .map(
         (g) =>
           `<optgroup label="${esc(g.label)}">${g.sets
@@ -227,8 +231,17 @@ function renderSetOptions() {
       )
       .join('');
 
-  $('#browseSetsMenu').innerHTML =
-    `<button role="menuitem" data-set=""${current === '' ? ' class="active"' : ''}>All Sets</button>` +
+  $('#browseSetsSearch').value = '';
+  renderBrowseSetsList(browseSetGroups);
+}
+
+/** Renders (and rebinds) just the button list inside the Browse Sets dropdown, so the
+    search box above it can filter without touching the rest of the panel. */
+function renderBrowseSetsList(groups) {
+  const current = $('#storeSet').value;
+  const hasQuery = $('#browseSetsSearch').value.trim() !== '';
+
+  const body =
     groups
       .map(
         (g) =>
@@ -240,9 +253,12 @@ function renderSetOptions() {
             )
             .join('')
       )
-      .join('');
+      .join('') || '<div class="menu-empty">No sets match.</div>';
 
-  $$('#browseSetsMenu button').forEach((btn) => {
+  $('#browseSetsList').innerHTML =
+    (hasQuery ? '' : `<button role="menuitem" data-set=""${current === '' ? ' class="active"' : ''}>All Sets</button>`) + body;
+
+  $$('#browseSetsList button[data-set]').forEach((btn) => {
     btn.onclick = () => {
       $('#storeSet').value = btn.dataset.set;
       currentPage = 1;
@@ -253,6 +269,18 @@ function renderSetOptions() {
     };
   });
 }
+
+$('#browseSetsSearch').addEventListener('input', () => {
+  const q = $('#browseSetsSearch').value.trim().toLowerCase();
+  if (!q) {
+    renderBrowseSetsList(browseSetGroups);
+    return;
+  }
+  const filtered = browseSetGroups
+    .map((g) => ({ label: g.label, sets: g.sets.filter((s) => `${g.label} ${s}`.toLowerCase().includes(q)) }))
+    .filter((g) => g.sets.length);
+  renderBrowseSetsList(filtered);
+});
 
 const SHOW_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -838,8 +866,11 @@ $('#browseSets').onclick = (e) => {
   menu.classList.toggle('hidden', !willOpen);
   $('#browseSets').setAttribute('aria-expanded', String(willOpen));
   if (willOpen) {
-    const first = menu.querySelector('button');
-    if (first) first.focus();
+    // Fresh state each time it opens, so a search left over from last time doesn't
+    // silently hide sets the next visit.
+    $('#browseSetsSearch').value = '';
+    renderBrowseSetsList(browseSetGroups);
+    $('#browseSetsSearch').focus();
   }
 };
 
