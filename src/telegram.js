@@ -355,37 +355,64 @@ async function flushRestocks() {
 }
 
 /**
- * A bold set heading + one line per card name, not just a per-set count. The list itself
- * is wrapped in Telegram's expandable-blockquote entity so a big batch collapses to a
- * "Show more" tap instead of dumping dozens of lines straight into the chat — the always-
- * visible heading above it still gives the total at a glance either way. Chunked the same
- * way the out-of-stock roll-up is (each chunk gets its own open/close blockquote tags,
- * since a chunk is a standalone message), for batches too long for one message.
+ * Each set gets its own expandable blockquote — a bold heading + one line per card
+ * name — rather than one shared block for the whole batch, so a big set collapsing
+ * doesn't drag a small one along with it and each can be opened independently. The
+ * always-visible heading above them still names every set and gives the total either
+ * way. Whole set-blocks are packed into as few messages as fit (never splitting a
+ * block's own open/close tags across messages); a single set large enough to blow past
+ * one message's budget on its own falls back to chunkLines, same as the out-of-stock
+ * roll-up, producing "part N/M" blocks for just that set.
  */
 async function sendRestockSummary(sets, totalCount) {
-  const lines = [];
-  for (const s of sets) {
-    lines.push(`<b>${escapeHtml(s.setName)}</b> (${s.cards.length})`);
-    for (const c of s.cards) lines.push(`• ${escapeHtml(c.name)}`);
-    lines.push('');
-  }
-  lines.pop(); // drop the trailing blank line after the last set
-  const chunks = chunkLines(lines, TELEGRAM_MAX_LEN);
-  const multiPart = chunks.length > 1;
+  // The blocks below get packed under a smaller budget than TELEGRAM_MAX_LEN itself —
+  // the heading (count + set names) and footer link added around them in the loop below
+  // need their own headroom, or a message could tip past the intended cap even though
+  // every individual block stayed under it.
+  const CONTENT_BUDGET = TELEGRAM_MAX_LEN - 250;
 
-  // Named here so every set is visible at a glance even before the blockquote is
-  // expanded — with 2+ sets, Telegram's own collapsed preview may cut off after the
-  // first set's heading and a couple of its cards, hiding the rest until tapped open.
+  const setBlocks = [];
+  for (const s of sets) {
+    const cardLines = s.cards.map((c) => `• ${escapeHtml(c.name)}`);
+    const nameLabel = escapeHtml(s.setName);
+    const whole = `<blockquote expandable><b>${nameLabel}</b> (${cardLines.length})\n${cardLines.join('\n')}</blockquote>`;
+    if (whole.length <= CONTENT_BUDGET) {
+      setBlocks.push(whole);
+      continue;
+    }
+    const subChunks = chunkLines(cardLines, CONTENT_BUDGET - 80);
+    subChunks.forEach((chunkArr, idx) => {
+      const part = subChunks.length > 1 ? ` — part ${idx + 1}/${subChunks.length}` : '';
+      setBlocks.push(`<blockquote expandable><b>${nameLabel}</b> (${cardLines.length})${part}\n${chunkArr.join('\n')}</blockquote>`);
+    });
+  }
+
+  const messageGroups = [];
+  let current = [];
+  let currentLen = 0;
+  for (const block of setBlocks) {
+    if (current.length && currentLen + block.length + 2 > CONTENT_BUDGET) {
+      messageGroups.push(current);
+      current = [];
+      currentLen = 0;
+    }
+    current.push(block);
+    currentLen += block.length + 2;
+  }
+  if (current.length) messageGroups.push(current);
+
+  const multiPart = messageGroups.length > 1;
+  // Named here so every set is visible at a glance without expanding anything.
   const setNames = sets.map((s) => escapeHtml(s.setName)).join(', ');
 
   let allOk = true;
-  for (let i = 0; i < chunks.length; i++) {
-    const last = i === chunks.length - 1;
+  for (let i = 0; i < messageGroups.length; i++) {
+    const last = i === messageGroups.length - 1;
     const heading =
       `${RESTOCK_HEADER_EMOJI} <b>Restocked</b> — ${totalCount} card${totalCount === 1 ? '' : 's'} across ` +
-      `${sets.length} set${sets.length === 1 ? '' : 's'}${multiPart ? ` — part ${i + 1}/${chunks.length}` : ''}` +
+      `${sets.length} set${sets.length === 1 ? '' : 's'}${multiPart ? ` — part ${i + 1}/${messageGroups.length}` : ''}` +
       `${sets.length > 1 ? `\n${setNames}` : ''}`;
-    const messageLines = [heading, '', `<blockquote expandable>${chunks[i].join('\n')}</blockquote>`];
+    const messageLines = [heading, '', messageGroups[i].join('\n\n')];
     if (last) messageLines.push('', `${STOREFRONT_LINK_EMOJI} ${STOREFRONT_URL}`);
     const result = await post('sendMessage', {
       chat_id: process.env.TELEGRAM_RESTOCK_CHANNEL,
