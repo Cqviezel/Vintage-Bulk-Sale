@@ -17,7 +17,8 @@ img{display:block;max-width:100%;height:auto}
 .store-nav{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:58px;margin-bottom:20px;border-bottom:1px solid var(--line)}
 .store-nav-left,.store-nav-right{display:flex;align-items:center;gap:22px}
 .store-nav button,.store-nav a{border:0;background:transparent;font-size:13px;font-weight:650;color:#505851}
-.store-nav .cart{padding:9px 14px;border-radius:8px;background:var(--forest);color:#fff}
+.store-nav .cart{display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border-radius:8px;background:var(--forest);color:#fff}
+.store-nav .cart svg{flex-shrink:0}
 .nav-dropdown{position:relative}
 .nav-dropdown-menu{position:absolute;top:100%;left:0;margin-top:10px;padding:6px;min-width:220px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);z-index:30}
 .nav-dropdown-menu .menu-search{min-height:0;height:32px;padding:6px 9px;margin:0 0 6px;font-size:12px;border-radius:6px}
@@ -50,7 +51,8 @@ img{display:block;max-width:100%;height:auto}
 .hero h1{margin:0;font-size:clamp(48px,5.8vw,72px);line-height:.91;letter-spacing:-.06em}
 .hero-title{margin-top:13px;color:#ecd8ad;font-size:clamp(21px,2.45vw,31px);font-family:var(--font-display)}
 .hero-actions{display:flex;gap:10px;margin-top:22px}
-.hero-actions a{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:0 16px;border-radius:8px;font-size:12px;font-weight:750;transition:transform .15s ease,box-shadow .15s ease,background-color .15s ease}
+.hero-actions a{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:0 16px;border-radius:8px;font-size:12px;font-weight:750;transition:transform .15s ease,box-shadow .15s ease,background-color .15s ease}
+.hero-secondary svg{flex-shrink:0}
 .hero-primary{background:#fff;color:var(--forest)}
 .hero-primary:hover{transform:translateY(-1px);box-shadow:0 10px 20px rgba(0,0,0,.25)}
 .hero-secondary{border:1px solid #ffffff2c;background:#ffffff0d;color:#fff}
