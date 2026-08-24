@@ -300,7 +300,7 @@ const RESTOCK_MAX_WAIT_MS = 5 * 60_000;
 
 // In-memory only — an in-flight batch lost to a hard crash is an acceptable loss for a
 // marketing post, same tradeoff the rest of this file already makes for Telegram sends.
-let pendingRestocks = null; // Map<setName, { cards: [{name, price}] }>
+let pendingRestocks = null; // Map<setName, { cards: [{name}] }>
 let restockDebounceTimer = null;
 let restockMaxWaitTimer = null;
 
@@ -312,7 +312,7 @@ let restockMaxWaitTimer = null;
  */
 function queueRestock(setName, liveRows) {
   if (!isRestockChannelConfigured()) return;
-  const cards = (liveRows || []).filter((r) => r.status === 'live').map((r) => ({ name: r.name, price: r.price }));
+  const cards = (liveRows || []).filter((r) => r.status === 'live').map((r) => ({ name: r.name }));
   if (!cards.length) return;
 
   if (!pendingRestocks) pendingRestocks = new Map();
@@ -355,15 +355,18 @@ async function flushRestocks() {
 }
 
 /**
- * A bold set heading + one line per card (name and price), not just a per-set count.
- * Chunked the same way the out-of-stock roll-up is, since a big batch can easily run
- * past one message's length.
+ * A bold set heading + one line per card name, not just a per-set count. The list itself
+ * is wrapped in Telegram's expandable-blockquote entity so a big batch collapses to a
+ * "Show more" tap instead of dumping dozens of lines straight into the chat — the always-
+ * visible heading above it still gives the total at a glance either way. Chunked the same
+ * way the out-of-stock roll-up is (each chunk gets its own open/close blockquote tags,
+ * since a chunk is a standalone message), for batches too long for one message.
  */
 async function sendRestockSummary(sets, totalCount) {
   const lines = [];
   for (const s of sets) {
     lines.push(`<b>${escapeHtml(s.setName)}</b> (${s.cards.length})`);
-    for (const c of s.cards) lines.push(`• ${escapeHtml(c.name)} — ${money(c.price)}`);
+    for (const c of s.cards) lines.push(`• ${escapeHtml(c.name)}`);
     lines.push('');
   }
   lines.pop(); // drop the trailing blank line after the last set
@@ -376,7 +379,7 @@ async function sendRestockSummary(sets, totalCount) {
     const heading =
       `${RESTOCK_HEADER_EMOJI} <b>Restocked</b> — ${totalCount} card${totalCount === 1 ? '' : 's'} across ` +
       `${sets.length} set${sets.length === 1 ? '' : 's'}${multiPart ? ` — part ${i + 1}/${chunks.length}` : ''}`;
-    const messageLines = [heading, ...chunks[i]];
+    const messageLines = [heading, '', `<blockquote expandable>${chunks[i].join('\n')}</blockquote>`];
     if (last) messageLines.push('', `${STOREFRONT_LINK_EMOJI} ${STOREFRONT_URL}`);
     const result = await post('sendMessage', {
       chat_id: process.env.TELEGRAM_RESTOCK_CHANNEL,
