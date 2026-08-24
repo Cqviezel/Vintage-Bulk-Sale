@@ -13,7 +13,8 @@
     "dev": "node --watch server.js",
     "set-password": "node scripts/set-password.js",
     "import-demo": "node scripts/import-demo.js",
-    "telegram-userbot-login": "node scripts/telegram-userbot-login.js"
+    "telegram-userbot-login": "node scripts/telegram-userbot-login.js",
+    "telegram-userbot-login-qr": "node scripts/telegram-userbot-login-qr.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -28,5 +29,8 @@
     "multer": "^2.2.0",
     "sharp": "^0.35.3",
     "teleproto": "^1.228.5"
+  },
+  "devDependencies": {
+    "qrcode-terminal": "^0.12.0"
   }
 }
