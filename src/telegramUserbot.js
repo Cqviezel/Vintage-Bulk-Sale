@@ -62,6 +62,26 @@ function isConfigured() {
 // to redo per forward. Resolves to the same client on every call once connected.
 let clientPromise = null;
 
+/**
+ * Parses the forward targets from TELEGRAM_FORWARD_TARGET_CHANNELS env var.
+ * Format: "chat" or "chat:threadId" or "userbot:chat" or "userbot:chat:threadId"
+ * Returns array of { chat, via }
+ */
+function getForwardTargetsFromEnv() {
+  return String(process.env.TELEGRAM_FORWARD_TARGET_CHANNELS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const via = entry.startsWith('userbot:') ? 'userbot' : 'bot';
+      const rest = via === 'userbot' ? entry.slice('userbot:'.length) : entry;
+      const i = rest.lastIndexOf(':');
+      if (i === -1) return { chat: rest, threadId: undefined, via };
+      const threadId = Number(rest.slice(i + 1));
+      return Number.isFinite(threadId) ? { chat: rest.slice(0, i), threadId, via } : { chat: rest, threadId: undefined, via };
+    });
+}
+
 function connect() {
   if (!isConfigured()) return Promise.reject(new Error('userbot not configured'));
   if (!clientPromise) {
@@ -77,6 +97,10 @@ function connect() {
       // forwardMessage below can resolve a private channel by its numeric ID even
       // though it has no public @username to resolve through instead.
       .then(() => client.getDialogs())
+      // CRITICAL: Pre-resolve all forward targets at startup to avoid Telegram's rate
+      // limit during message forwarding. This runs once on connect, caching every target's
+      // ID and access hash. Subsequent forwards use the cache and hit zero rate limits.
+      .then(() => warmForwardTargetCache(client))
       .then(() => client)
       .catch((err) => {
         clientPromise = null;
@@ -84,6 +108,39 @@ function connect() {
       });
   }
   return clientPromise;
+}
+
+/**
+ * Resolves all userbot-targeted forward destinations at startup and caches them.
+ * This prevents rate-limit hits during forwarding when all 52 channels try to resolve
+ * in rapid succession.
+ */
+async function warmForwardTargetCache(client) {
+  const targets = getForwardTargetsFromEnv()
+    .filter(t => t.via === 'userbot')
+    .map(t => t.chat);
+  
+  if (!targets.length) return;
+  
+  console.log(`[userbot] warming cache for ${targets.length} forward targets...`);
+  let cached = 0;
+  let resolved = 0;
+  
+  for (const chatRef of targets) {
+    try {
+      const existing = getCachedEntity.get(chatRef);
+      if (existing) {
+        cached++;
+        continue;
+      }
+      await resolveChat(client, chatRef);
+      resolved++;
+    } catch (err) {
+      console.error(`[userbot] failed to resolve forward target ${chatRef}: ${err.message}`);
+    }
+  }
+  
+  console.log(`[userbot] cache warmed: ${cached} already cached, ${resolved} newly resolved`);
 }
 
 async function start() {
