@@ -6,8 +6,6 @@
 const LOGO = '/img/logo-460.jpg';
 const CART_KEY = 'ctcg_cart_v3';
 const CART_KEY_LEGACY = 'ctcg_cart_v2'; // pre-quantity cart shape: a plain array of ids
-const RECENTLY_VIEWED_KEY = 'ctcg_recently_viewed_v1';
-const RECENTLY_VIEWED_MAX = 8;
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
@@ -169,24 +167,6 @@ function saveCart() {
   } catch { /* private browsing, ignore */ }
 }
 
-function loadRecentlyViewed() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(RECENTLY_VIEWED_KEY) || '[]');
-    return Array.isArray(raw) ? raw.filter((id) => typeof id === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-/** Moves id to the front (deduping) and caps the list — most-recent-first. */
-function trackRecentlyViewed(id) {
-  try {
-    const ids = loadRecentlyViewed().filter((x) => x !== id);
-    ids.unshift(id);
-    localStorage.setItem(RECENTLY_VIEWED_KEY, JSON.stringify(ids.slice(0, RECENTLY_VIEWED_MAX)));
-  } catch { /* private browsing, ignore */ }
-}
-
 async function api(url, options) {
   const res = await fetch(url, {
     headers: { 'Content-Type': 'application/json' },
@@ -234,7 +214,6 @@ async function load() {
     renderSetOptions();
     renderProducts();
     renderCart();
-    renderRecentlyViewed();
   } catch (err) {
     $('#productGrid').innerHTML =
       `<div class="empty">Could not load the catalogue.<br><span class="small">${esc(err.message)}</span></div>`;
@@ -254,10 +233,17 @@ async function load() {
 // Cached so the search box below can re-filter without recomputing groups from
 // `products` on every keystroke — refreshed each time renderSetOptions() runs.
 let browseSetGroups = [];
+// One symbol URL per set name, for the Browse Sets dropdown — first product carrying
+// a given set wins, so a handful of older listings without one don't blank it out.
+let setSymbolByName = new Map();
 
 function renderSetOptions() {
   const sets = [...new Set(products.map((p) => p.set).filter(Boolean))];
   browseSetGroups = groupSetsByEra(sets);
+  setSymbolByName = new Map();
+  for (const p of products) {
+    if (p.set && p.setSymbol && !setSymbolByName.has(p.set)) setSymbolByName.set(p.set, p.setSymbol);
+  }
   const current = $('#storeSet').value;
 
   $('#storeSet').innerHTML =
@@ -283,8 +269,11 @@ function renderBrowseSetsList(groups) {
   const current = $('#storeSet').value;
   const hasQuery = $('#browseSetsSearch').value.trim() !== '';
 
-  const setButton = (s) =>
-    `<button role="menuitem" data-set="${esc(s)}"${s === current ? ' class="active"' : ''}>${esc(s)}</button>`;
+  const setButton = (s) => {
+    const symbol = setSymbolByName.get(s);
+    const icon = symbol ? `<img class="set-icon" src="${esc(symbol)}" alt="" loading="lazy">` : '';
+    return `<button role="menuitem" data-set="${esc(s)}"${s === current ? ' class="active"' : ''}>${icon}${esc(s)}</button>`;
+  };
 
   let body;
   if (hasQuery) {
@@ -372,37 +361,6 @@ function renderTradeShows() {
       </div>`;
     })
     .join('');
-}
-
-/** Cards whose quick-view was opened this browser, most-recent-first — tracked in
-    localStorage (trackRecentlyViewed) rather than the server, so it's per-device and
-    needs no account. Hidden entirely until there's at least one. */
-function renderRecentlyViewed() {
-  const section = $('#recentlyViewedSection');
-  const items = loadRecentlyViewed()
-    .map((id) => products.find((p) => p.id === id))
-    .filter(Boolean);
-
-  if (!items.length) {
-    section.classList.add('hidden');
-    return;
-  }
-  section.classList.remove('hidden');
-
-  $('#recentlyViewedRow').innerHTML = items
-    .map(
-      (p) => `
-    <button class="related-card" data-view="${esc(p.id)}">
-      <img src="${esc(p.image || LOGO)}" alt="" onload="this.classList.add('loaded')" onerror="this.onerror=null;this.src='${LOGO}'">
-      <span class="related-name">${esc(p.name)}</span>
-      <span class="related-price">${money(p.price)}</span>
-    </button>`
-    )
-    .join('');
-
-  $$('#recentlyViewedRow [data-view]').forEach((el) => {
-    el.onclick = () => openQuickView(el.dataset.view);
-  });
 }
 
 /** Shared +/- control used on grid cards, quick view, and the cart drawer — one markup
@@ -551,9 +509,6 @@ function renderPagination(totalPages) {
 function openQuickView(id) {
   const p = products.find((x) => x.id === id);
   if (!p) return;
-
-  trackRecentlyViewed(id);
-  renderRecentlyViewed();
 
   $('#quickViewTitle').textContent = p.name;
 
