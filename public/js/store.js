@@ -6,6 +6,8 @@
 const LOGO = '/img/logo-460.jpg';
 const CART_KEY = 'ctcg_cart_v3';
 const CART_KEY_LEGACY = 'ctcg_cart_v2'; // pre-quantity cart shape: a plain array of ids
+const RECENTLY_VIEWED_KEY = 'ctcg_recently_viewed_v1';
+const RECENTLY_VIEWED_MAX = 8;
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
@@ -167,6 +169,24 @@ function saveCart() {
   } catch { /* private browsing, ignore */ }
 }
 
+function loadRecentlyViewed() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECENTLY_VIEWED_KEY) || '[]');
+    return Array.isArray(raw) ? raw.filter((id) => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Moves id to the front (deduping) and caps the list — most-recent-first. */
+function trackRecentlyViewed(id) {
+  try {
+    const ids = loadRecentlyViewed().filter((x) => x !== id);
+    ids.unshift(id);
+    localStorage.setItem(RECENTLY_VIEWED_KEY, JSON.stringify(ids.slice(0, RECENTLY_VIEWED_MAX)));
+  } catch { /* private browsing, ignore */ }
+}
+
 async function api(url, options) {
   const res = await fetch(url, {
     headers: { 'Content-Type': 'application/json' },
@@ -214,6 +234,7 @@ async function load() {
     renderSetOptions();
     renderProducts();
     renderCart();
+    renderRecentlyViewed();
   } catch (err) {
     $('#productGrid').innerHTML =
       `<div class="empty">Could not load the catalogue.<br><span class="small">${esc(err.message)}</span></div>`;
@@ -353,6 +374,37 @@ function renderTradeShows() {
     .join('');
 }
 
+/** Cards whose quick-view was opened this browser, most-recent-first — tracked in
+    localStorage (trackRecentlyViewed) rather than the server, so it's per-device and
+    needs no account. Hidden entirely until there's at least one. */
+function renderRecentlyViewed() {
+  const section = $('#recentlyViewedSection');
+  const items = loadRecentlyViewed()
+    .map((id) => products.find((p) => p.id === id))
+    .filter(Boolean);
+
+  if (!items.length) {
+    section.classList.add('hidden');
+    return;
+  }
+  section.classList.remove('hidden');
+
+  $('#recentlyViewedRow').innerHTML = items
+    .map(
+      (p) => `
+    <button class="related-card" data-view="${esc(p.id)}">
+      <img src="${esc(p.image || LOGO)}" alt="" onload="this.classList.add('loaded')" onerror="this.onerror=null;this.src='${LOGO}'">
+      <span class="related-name">${esc(p.name)}</span>
+      <span class="related-price">${money(p.price)}</span>
+    </button>`
+    )
+    .join('');
+
+  $$('#recentlyViewedRow [data-view]').forEach((el) => {
+    el.onclick = () => openQuickView(el.dataset.view);
+  });
+}
+
 /** Shared +/- control used on grid cards, quick view, and the cart drawer — one markup
     source so the three don't drift out of sync. Only used when there's actually a
     range to adjust (stock >= 2) — see inCartHtml() for the single-copy case, where a
@@ -420,11 +472,11 @@ function renderProducts() {
       <article class="product" data-view="${esc(p.id)}">
         <div class="product-image" role="button" tabindex="0" aria-label="View details for ${esc(p.name)}">
           <img src="${esc(p.image || LOGO)}" alt="${esc(p.name)}" loading="lazy"
-               onerror="this.onerror=null;this.src='${LOGO}'">
+               onload="this.classList.add('loaded')" onerror="this.onerror=null;this.src='${LOGO}'">
           <span class="price">${money(p.price)}</span>
         </div>
         <h3>${esc(p.name)}</h3>
-        <div class="meta">${esc(p.set)}${p.number ? ' &middot; ' + esc(p.number) : ''}</div>
+        <div class="meta">${p.setSymbol ? `<img class="set-icon" src="${esc(p.setSymbol)}" alt="" loading="lazy">` : ''}${esc(p.set)}${p.number ? ' &middot; ' + esc(p.number) : ''}</div>
         <div class="tags">
           <span class="tag">${esc(p.condition)}</span>
           ${p.variant && p.variant !== 'Normal' ? `<span class="tag">${esc(p.variant)}</span>` : ''}
@@ -434,7 +486,16 @@ function renderProducts() {
       </article>`;
         })
         .join('')
-    : '<div class="empty">No cards match these filters.</div>';
+    : '<div class="empty">No cards match these filters.<br><button class="btn" id="emptyClearFilters" type="button" style="margin-top:14px">Clear filters</button></div>';
+
+  const emptyClearBtn = $('#emptyClearFilters');
+  if (emptyClearBtn) {
+    emptyClearBtn.onclick = () => {
+      resetFilters();
+      currentPage = 1;
+      renderProducts();
+    };
+  }
 
   $$('[data-add]').forEach((b) => {
     b.onclick = (e) => {
@@ -491,6 +552,9 @@ function openQuickView(id) {
   const p = products.find((x) => x.id === id);
   if (!p) return;
 
+  trackRecentlyViewed(id);
+  renderRecentlyViewed();
+
   $('#quickViewTitle').textContent = p.name;
 
   const cartQty = cart.get(p.id) || 0;
@@ -499,11 +563,11 @@ function openQuickView(id) {
   $('#quickViewBody').innerHTML = `
     <div class="quick-view">
       <div class="product-image quick-view-image">
-        <img src="${esc(p.image || LOGO)}" alt="${esc(p.name)}" onerror="this.onerror=null;this.src='${LOGO}'">
+        <img src="${esc(p.image || LOGO)}" alt="${esc(p.name)}" onload="this.classList.add('loaded')" onerror="this.onerror=null;this.src='${LOGO}'">
         <span class="price">${money(p.price)}</span>
       </div>
       <div class="quick-view-info">
-        <div class="meta">${esc(p.set)}${p.number ? ' &middot; ' + esc(p.number) : ''}</div>
+        <div class="meta">${p.setSymbol ? `<img class="set-icon" src="${esc(p.setSymbol)}" alt="" loading="lazy">` : ''}${esc(p.set)}${p.number ? ' &middot; ' + esc(p.number) : ''}</div>
         <div class="tags">
           <span class="tag">${esc(p.condition)}</span>
           ${p.variant && p.variant !== 'Normal' ? `<span class="tag">${esc(p.variant)}</span>` : ''}
@@ -526,7 +590,7 @@ function openQuickView(id) {
                    .map(
                      (r) => `
                    <button class="related-card" data-view="${esc(r.id)}">
-                     <img src="${esc(r.image || LOGO)}" alt="" onerror="this.onerror=null;this.src='${LOGO}'">
+                     <img src="${esc(r.image || LOGO)}" alt="" onload="this.classList.add('loaded')" onerror="this.onerror=null;this.src='${LOGO}'">
                      <span class="related-name">${esc(r.name)}</span>
                      <span class="related-price">${money(r.price)}</span>
                    </button>`
@@ -623,6 +687,16 @@ function commitCartChange() {
 function addToCart(id) {
   if (!cart.has(id)) cart.set(id, 1);
   commitCartChange();
+  pulseCartCount();
+}
+
+/** Restarts the cart-count pulse animation (removing then re-adding the class so it
+    replays even on back-to-back adds, which wouldn't retrigger a CSS animation otherwise). */
+function pulseCartCount() {
+  const el = $('#cartCount');
+  el.classList.remove('pulse');
+  void el.offsetWidth;
+  el.classList.add('pulse');
 }
 
 function setCartQty(id, nextQty) {
@@ -983,6 +1057,16 @@ function showConfirmation(order) {
 }
 
 /* ---------------------------------------------------------------- wiring --- */
+
+const backToTopBtn = $('#backToTop');
+if (backToTopBtn) {
+  window.addEventListener(
+    'scroll',
+    () => backToTopBtn.classList.toggle('show', window.scrollY > 600),
+    { passive: true }
+  );
+  backToTopBtn.onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+}
 
 ['storeSearch', 'storeSet', 'storePrice', 'storeCondition', 'storeVariant'].forEach((id) => {
   $('#' + id).addEventListener('input', () => {

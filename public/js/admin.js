@@ -803,6 +803,27 @@ async function backfillArtist() {
 }
 $('#backfillArtist').onclick = backfillArtist;
 
+async function backfillSetSymbols() {
+  const button = $('#backfillSetSymbols');
+  button.disabled = true;
+  button.textContent = 'Backfilling…';
+  try {
+    const data = await api('/api/admin/products/backfill-set-symbols', { method: 'POST' });
+    await loadProducts();
+    toast(
+      data.checked
+        ? `Checked ${data.checked} set${data.checked === 1 ? '' : 's'}, filled in an icon for ${data.updated}.`
+        : 'Nothing to backfill — every card already has a set icon.'
+    );
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Backfill Set Icons';
+  }
+}
+$('#backfillSetSymbols').onclick = backfillSetSymbols;
+
 /* -------------------------------------------------------------- add by set --- */
 
 let setsCache = null; // lazy-loaded, kept for the life of the page
@@ -914,6 +935,7 @@ async function openSetCards(set) {
   $('#setPagination').innerHTML = '';
   $('#setCommit').disabled = true;
   $('#setCommit').dataset.setName = set.name;
+  $('#setCommit').dataset.setSymbol = set.symbol || set.logo || '';
 
   try {
     const cards = await api(`/api/admin/sets/${encodeURIComponent(set.id)}/cards`);
@@ -1049,7 +1071,11 @@ async function commitSetImport() {
   try {
     const data = await api('/api/admin/products/bulk-set', {
       method: 'POST',
-      body: JSON.stringify({ setName: button.dataset.setName || '', cards }),
+      body: JSON.stringify({
+        setName: button.dataset.setName || '',
+        setSymbol: button.dataset.setSymbol || '',
+        cards,
+      }),
     });
     closeModals();
     await Promise.all([loadProducts(), loadStats()]);

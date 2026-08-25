@@ -73,6 +73,7 @@ function toAdminProduct(row) {
     id: row.id,
     name: row.name,
     set: row.set_name,
+    setSymbol: row.set_symbol,
     number: row.number,
     condition: row.condition,
     variant: row.variant,
@@ -88,11 +89,11 @@ function toAdminProduct(row) {
 const allProducts = db.prepare('SELECT * FROM products ORDER BY updated_at DESC');
 const oneProduct = db.prepare('SELECT * FROM products WHERE id = ?');
 const insertProduct = db.prepare(
-  `INSERT INTO products (id, name, set_name, number, condition, variant, price, qty, status, image, notes, artist)
-   VALUES (@id, @name, @set_name, @number, @condition, @variant, @price, @qty, @status, @image, @notes, @artist)`
+  `INSERT INTO products (id, name, set_name, set_symbol, number, condition, variant, price, qty, status, image, notes, artist)
+   VALUES (@id, @name, @set_name, @set_symbol, @number, @condition, @variant, @price, @qty, @status, @image, @notes, @artist)`
 );
 const updateProduct = db.prepare(
-  `UPDATE products SET name = @name, set_name = @set_name, number = @number,
+  `UPDATE products SET name = @name, set_name = @set_name, set_symbol = @set_symbol, number = @number,
      condition = @condition, variant = @variant, price = @price, qty = @qty, status = @status,
      image = @image, notes = @notes, artist = @artist, updated_at = datetime('now')
    WHERE id = @id`
@@ -118,6 +119,7 @@ function readProductBody(body) {
     values: {
       name,
       set_name: String(body.set || '').trim().slice(0, 160),
+      set_symbol: String(body.setSymbol || '').trim().slice(0, 500),
       number: String(body.number || '').trim().slice(0, 40),
       condition,
       variant,
@@ -175,7 +177,9 @@ router.put('/products/:id', (req, res) => {
   const { errors, values } = readProductBody(req.body || {});
   if (errors.length) return res.status(400).json({ error: errors.join(' ') });
 
-  updateProduct.run({ id: existing.id, ...values });
+  // The edit form has no set-symbol field of its own — that's only ever populated by
+  // the "Add by Set" import below, so a manual edit must not blank it back out.
+  updateProduct.run({ id: existing.id, ...values, set_symbol: existing.set_symbol });
   res.json(toAdminProduct(oneProduct.get(existing.id)));
 });
 
@@ -228,6 +232,36 @@ router.post('/products/backfill-artist', async (req, res) => {
   });
 
   res.json({ checked: rows.length, updated, rateLimited });
+});
+
+/**
+ * One-off maintenance: fills in `set_symbol` for any product missing it, by matching
+ * its set_name against the Pokémon TCG API's set catalogue (case-insensitive exact
+ * match). Existing rows never got this field written (it was added after they were
+ * created) — this runs it for you instead of a manual per-card edit. Unlike the artist
+ * backfill, this only needs one API call (the whole set catalogue) rather than one
+ * per card, so there's no rate-limit concern.
+ */
+router.post('/products/backfill-set-symbols', async (req, res) => {
+  const setNames = db
+    .prepare("SELECT DISTINCT set_name FROM products WHERE set_symbol = '' AND set_name != ''")
+    .all()
+    .map((r) => r.set_name);
+  if (!setNames.length) return res.json({ checked: 0, updated: 0 });
+
+  const sets = await ptcg.listSets();
+  const byName = new Map(sets.map((s) => [s.name.toLowerCase(), s.symbol || s.logo || '']));
+
+  const updateSetSymbol = db.prepare(
+    "UPDATE products SET set_symbol = ?, updated_at = datetime('now') WHERE set_name = ? AND set_symbol = ''"
+  );
+  let updated = 0;
+  for (const name of setNames) {
+    const symbol = byName.get(name.toLowerCase());
+    if (symbol) updated += updateSetSymbol.run(symbol, name).changes;
+  }
+
+  res.json({ checked: setNames.length, updated });
 });
 
 /* ----------------------------------------------------------- bulk import --- */
@@ -497,6 +531,7 @@ const MAX_SET_IMPORT_ROWS = 500;
 router.post('/products/bulk-set', (req, res) => {
   const body = req.body || {};
   const setName = String(body.setName || '').trim().slice(0, 160);
+  const setSymbol = String(body.setSymbol || '').trim().slice(0, 500);
   const cards = Array.isArray(body.cards) ? body.cards : [];
 
   if (!cards.length) return res.status(400).json({ error: 'No cards were sent.' });
@@ -521,6 +556,7 @@ router.post('/products/bulk-set', (req, res) => {
       id: 'p' + crypto.randomBytes(8).toString('hex'),
       name,
       set_name: setName,
+      set_symbol: setSymbol,
       number: String(c.number || '').trim().slice(0, 40),
       condition: CONDITIONS.has(c.condition) ? c.condition : 'NM',
       variant: VARIANTS.has(c.variant) ? c.variant : 'Normal',
@@ -556,6 +592,7 @@ router.post('/products/bulk-set', (req, res) => {
           image: row.image || current.image,
           notes: row.notes || current.notes,
           artist: row.artist || current.artist,
+          set_symbol: row.set_symbol || current.set_symbol,
         });
         merged++;
       } else {

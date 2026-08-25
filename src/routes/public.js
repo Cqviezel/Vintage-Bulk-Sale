@@ -17,6 +17,7 @@ function toPublicProduct(row) {
     id: row.id,
     name: row.name,
     set: row.set_name,
+    setSymbol: row.set_symbol,
     number: row.number,
     condition: row.condition,
     variant: row.variant,

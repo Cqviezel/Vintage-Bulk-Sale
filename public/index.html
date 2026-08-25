@@ -64,6 +64,13 @@
       </div>
     </section>
 
+    <section class="shows hidden" id="recentlyViewedSection">
+      <div class="shows-head">
+        <h2>Recently Viewed</h2>
+      </div>
+      <div class="related-row" id="recentlyViewedRow"></div>
+    </section>
+
     <section class="shows hidden" id="showsSection">
       <div class="shows-head">
         <h2><span class="pin">&#128205;</span>Find Us In Person</h2>
@@ -175,6 +182,10 @@
       <div class="summary total"><span>Order Total</span><span id="checkoutTotal">$0.00</span></div>
       <div id="checkoutError" class="notice error hidden" style="margin-top:12px"></div>
       <button class="checkout" id="submitOrder">Place Order</button>
+      <div class="trust-badges">
+        <span><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4zm-1 13l5-5-1.4-1.4L11 12.2 8.9 10.1 7.5 11.5 11 15z"/></svg>Secure PayNow Checkout</span>
+        <span><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 2 3 6.5v11L12 22l9-4.5v-11L12 2zm0 2.2 6.3 3.2L12 10.6 5.7 7.4 12 4.2zM5 9.3l6 3v7.4l-6-3V9.3zm8 10.4v-7.4l6-3v7.4l-6 3z"/></svg>Tracked &amp; Insured Mailing</span>
+      </div>
     </div>
   </div>
 </div>
@@ -232,6 +243,8 @@
     <div class="panel-body" id="infoBody"></div>
   </div>
 </div>
+
+<button class="back-to-top" id="backToTop" aria-label="Back to top">&uarr;</button>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 

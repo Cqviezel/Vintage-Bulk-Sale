@@ -142,6 +142,7 @@ ensureColumn('order_items', 'image', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('products', 'artist', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('orders', 'promo_code', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('orders', 'discount', "REAL NOT NULL DEFAULT 0");
+ensureColumn('products', 'set_symbol', "TEXT NOT NULL DEFAULT ''");
 
 /**
  * "Add by Set" used to save the Pokémon TCG API's low-res thumbnail instead of the
