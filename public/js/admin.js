@@ -840,8 +840,12 @@ function renderSetPicker() {
     ? setsCache
     : setsCache.filter((s) => `${s.name} ${s.series}`.toLowerCase().includes(q));
 
+  // A label only earns its keep once there's a second result group (card matches)
+  // to distinguish these from — plain browsing stays exactly as it always has.
+  const heading = q && lastCardSearchResults.length ? '<div class="small muted" style="margin-bottom:6px">Matching Sets</div>' : '';
+
   $('#setPickerResult').innerHTML = list.length
-    ? `<div class="set-grid">${list
+    ? `${heading}<div class="set-grid">${list
         .map(
           (s, i) => `<button class="set-card" type="button" data-set-index="${i}">
             <img src="${esc(s.logo || s.symbol || LOGO)}" alt="">
@@ -850,17 +854,88 @@ function renderSetPicker() {
           </button>`
         )
         .join('')}</div>`
-    : '<div class="muted small">No sets match that search.</div>';
+    : q
+    ? '<div class="muted small">No sets match that search.</div>'
+    : '';
 
   $$('[data-set-index]').forEach((b) => {
     b.onclick = () => openSetCards(list[Number(b.dataset.setIndex)]);
   });
 }
 
+/* ---------------------------------------------------------- pokemon search --- */
+
+let cardSearchDebounce = null;
+let cardSearchToken = 0;
+let lastCardSearchResults = [];
+
+function scheduleCardSearch() {
+  clearTimeout(cardSearchDebounce);
+  const q = ($('#setSearch').value || '').trim();
+  if (q.length < 2) {
+    lastCardSearchResults = [];
+    $('#cardSearchResults').innerHTML = '';
+    renderSetPicker();
+    return;
+  }
+  cardSearchDebounce = setTimeout(() => runCardSearch(q), 350);
+}
+
+async function runCardSearch(q) {
+  const token = ++cardSearchToken;
+  try {
+    const cards = await api(`/api/admin/cards/search?q=${encodeURIComponent(q)}`);
+    if (token !== cardSearchToken) return; // a newer keystroke already superseded this
+    lastCardSearchResults = cards;
+    renderCardSearchResults(cards);
+    renderSetPicker(); // re-run so the "Matching Sets" heading reflects the card results too
+  } catch {
+    if (token !== cardSearchToken) return;
+    lastCardSearchResults = [];
+    $('#cardSearchResults').innerHTML = '';
+  }
+}
+
+function renderCardSearchResults(cards) {
+  if (!cards.length) {
+    $('#cardSearchResults').innerHTML = '';
+    return;
+  }
+  $('#cardSearchResults').innerHTML = `
+    <div class="small muted" style="margin-bottom:6px">Matching Cards</div>
+    <div class="set-grid">${cards
+      .map(
+        (c, i) => `<button class="set-card" type="button" data-card-index="${i}">
+          <img src="${esc(c.setSymbol || LOGO)}" alt="">
+          <b>${esc(c.name)}</b>
+          <div class="small muted">${esc(c.setName)}${c.number ? ` &middot; #${esc(c.number)}` : ''}</div>
+        </button>`
+      )
+      .join('')}</div>`;
+
+  $$('#cardSearchResults [data-card-index]').forEach((b) => {
+    b.onclick = () => jumpToCardInSet(cards[Number(b.dataset.cardIndex)]);
+  });
+}
+
+async function jumpToCardInSet(cardHit) {
+  const set = setsCache && setsCache.find((s) => s.id === cardHit.setId);
+  if (!set) {
+    toast('Could not open that set.', true);
+    return;
+  }
+  await openSetCards(set);
+  $('#cardFilter').value = cardHit.name;
+  setPage = 1;
+  renderSetCardsPage();
+}
+
 async function openSetImport() {
   $('#setPickerView').classList.remove('hidden');
   $('#setCardsView').classList.add('hidden');
   $('#setSearch').value = '';
+  $('#cardSearchResults').innerHTML = '';
+  lastCardSearchResults = [];
   openModal('#setModal');
 
   if (setsCache) {
@@ -1093,7 +1168,10 @@ async function commitSetImport() {
 }
 
 $('#openSetImport').onclick = openSetImport;
-$('#setSearch').oninput = renderSetPicker;
+$('#setSearch').oninput = () => {
+  renderSetPicker();
+  scheduleCardSearch();
+};
 $('#backToSetPicker').onclick = () => {
   $('#setCardsView').classList.add('hidden');
   $('#setPickerView').classList.remove('hidden');

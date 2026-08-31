@@ -526,6 +526,17 @@ router.get('/sets/:id/cards', async (req, res) => {
   }
 });
 
+router.get('/cards/search', async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (!q) return res.json([]);
+  try {
+    res.json(await ptcg.searchCardsByName(q));
+  } catch (err) {
+    console.error('[cards search]', err);
+    res.status(502).json({ error: `The Pokémon TCG API isn't responding right now. ${CATALOG_DOWN_HINT}` });
+  }
+});
+
 const MAX_SET_IMPORT_ROWS = 500;
 
 router.post('/products/bulk-set', (req, res) => {

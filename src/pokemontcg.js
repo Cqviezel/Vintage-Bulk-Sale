@@ -388,11 +388,44 @@ async function listSetCards(setId) {
   return shaped;
 }
 
+const cardSearchCache = new Map();
+
+/**
+ * Cards matching a name, across every set — the "Add by Set" picker's Pokemon-name
+ * search. A prefix match (name:x*) rather than lookup()'s exact-ish matching, and
+ * returns a capped list of hits rather than resolving to one best guess: this is a
+ * search-assist UI, not a single-card lookup. Same 24h cache as the other catalog
+ * endpoints, keyed by the query itself.
+ */
+async function searchCardsByName(name) {
+  const q = String(name || '').trim();
+  if (!q) return [];
+
+  const key = q.toLowerCase();
+  const cached = cardSearchCache.get(key);
+  if (cached && Date.now() - cached.at < CATALOG_TTL) return cached.cards;
+
+  const url = `${API}?q=${encodeURIComponent(`name:${q}*`)}&orderBy=name&pageSize=30`;
+  const json = await fetchJson(url);
+  const cards = (Array.isArray(json.data) ? json.data : []).map((c) => ({
+    name: c.name,
+    number: c.number || '',
+    image: (c.images && (c.images.large || c.images.small)) || '',
+    setId: (c.set && c.set.id) || '',
+    setName: (c.set && c.set.name) || '',
+    setSymbol: (c.set && c.set.images && c.set.images.symbol) || '',
+  }));
+
+  cardSearchCache.set(key, { at: Date.now(), cards });
+  return cards;
+}
+
 module.exports = {
   lookup,
   lookupMany,
   listSets,
   listSetCards,
+  searchCardsByName,
   normaliseNumber,
   hasApiKey: () => Boolean(process.env.POKEMON_TCG_API_KEY),
 };
