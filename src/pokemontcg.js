@@ -300,6 +300,21 @@ const VARIANT_PRICE_KEYS = {
   '1stEditionHolofoil': '1st Edition',
 };
 
+/** Every priced print style becomes its own row candidate — a card sold as both Normal
+    and Reverse Holo shows up as two rows, each with its own market price. Shared by
+    listSetCards and searchCardsByName so both shape variants identically. */
+function priceVariants(prices) {
+  const variants = [];
+  for (const [key, variant] of Object.entries(VARIANT_PRICE_KEYS)) {
+    const p = prices[key];
+    if (p && typeof p.market === 'number' && !variants.some((v) => v.variant === variant)) {
+      variants.push({ variant, marketPrice: p.market });
+    }
+  }
+  if (!variants.length) variants.push({ variant: 'Normal', marketPrice: null });
+  return variants;
+}
+
 /** Sorts "4/102" before "58/102" before "TG10" — numeric first, then alphabetically. */
 function compareCardNumbers(a, b) {
   const an = parseInt(a, 10);
@@ -359,29 +374,14 @@ async function listSetCards(setId) {
   const cards = [...firstData, ...rest.flatMap((json) => (Array.isArray(json.data) ? json.data : []))];
 
   const shaped = cards
-    .map((c) => {
-      const prices = (c.tcgplayer && c.tcgplayer.prices) || {};
-
-      // Every priced print style becomes its own row candidate — a card sold as both
-      // Normal and Reverse Holo shows up as two rows, each with its own market price.
-      const variants = [];
-      for (const [key, variant] of Object.entries(VARIANT_PRICE_KEYS)) {
-        const p = prices[key];
-        if (p && typeof p.market === 'number' && !variants.some((v) => v.variant === variant)) {
-          variants.push({ variant, marketPrice: p.market });
-        }
-      }
-      if (!variants.length) variants.push({ variant: 'Normal', marketPrice: null });
-
-      return {
-        name: c.name,
-        number: c.number || '',
-        rarity: c.rarity || '',
-        image: (c.images && (c.images.large || c.images.small)) || '',
-        artist: c.artist || '',
-        variants,
-      };
-    })
+    .map((c) => ({
+      name: c.name,
+      number: c.number || '',
+      rarity: c.rarity || '',
+      image: (c.images && (c.images.large || c.images.small)) || '',
+      artist: c.artist || '',
+      variants: priceVariants((c.tcgplayer && c.tcgplayer.prices) || {}),
+    }))
     .sort((a, b) => compareCardNumbers(a.number, b.number));
 
   setCardsCache.set(setId, { at: Date.now(), cards: shaped });
@@ -411,9 +411,11 @@ async function searchCardsByName(name) {
     name: c.name,
     number: c.number || '',
     image: (c.images && (c.images.large || c.images.small)) || '',
+    artist: c.artist || '',
     setId: (c.set && c.set.id) || '',
     setName: (c.set && c.set.name) || '',
     setSymbol: (c.set && c.set.images && c.set.images.symbol) || '',
+    variants: priceVariants((c.tcgplayer && c.tcgplayer.prices) || {}),
   }));
 
   cardSearchCache.set(key, { at: Date.now(), cards });

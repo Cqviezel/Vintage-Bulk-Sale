@@ -382,7 +382,21 @@
 
       <div id="setPickerView">
         <input id="setSearch" placeholder="Search sets or a Pokemon name e.g. Base Set, Pikachu">
-        <div id="cardSearchResults"></div>
+
+        <div id="cardSearchSection" class="hidden" style="margin-top:14px">
+          <div class="small muted" style="margin-bottom:6px">Matching Cards</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Img</th><th>Card</th><th>Set</th><th>No.</th><th>Variant</th><th>Mkt</th><th>Qty</th><th>Cond.</th><th>Price</th></tr></thead>
+              <tbody id="cardSearchBody"></tbody>
+            </table>
+          </div>
+          <div class="notice" id="cardSearchSummary" style="margin-top:12px"></div>
+          <div class="actions" style="justify-content:flex-end;margin-top:12px">
+            <button class="btn primary" id="cardSearchCommit" type="button" disabled>Add Selected Cards</button>
+          </div>
+        </div>
+
         <div id="setPickerResult" style="margin-top:14px"></div>
       </div>
 

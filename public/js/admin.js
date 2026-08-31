@@ -868,13 +868,16 @@ function renderSetPicker() {
 let cardSearchDebounce = null;
 let cardSearchToken = 0;
 let lastCardSearchResults = [];
+let cardSearchRowsCache = null; // flattened one row per priced variant, like setRowsCache
+let cardSearchEdits = null; // parallel array: {qty, condition, price, variant} per row
+let cardSearchSummaryDebounce = null;
 
 function scheduleCardSearch() {
   clearTimeout(cardSearchDebounce);
   const q = ($('#setSearch').value || '').trim();
   if (q.length < 2) {
     lastCardSearchResults = [];
-    $('#cardSearchResults').innerHTML = '';
+    clearCardSearchResults();
     renderSetPicker();
     return;
   }
@@ -892,50 +895,170 @@ async function runCardSearch(q) {
   } catch {
     if (token !== cardSearchToken) return;
     lastCardSearchResults = [];
-    $('#cardSearchResults').innerHTML = '';
+    clearCardSearchResults();
   }
+}
+
+function clearCardSearchResults() {
+  cardSearchRowsCache = null;
+  cardSearchEdits = null;
+  $('#cardSearchSection').classList.add('hidden');
+  $('#cardSearchBody').innerHTML = '';
+}
+
+/** One row per priced print style per card hit — same shape flattenSetCards produces
+    for a single set, just carrying the card's own setId/setName/setSymbol through too
+    since results here can span several sets. */
+function flattenCardSearchResults(cards) {
+  const rows = [];
+  cards.forEach((card, ci) => {
+    card.variants.forEach((v, vi) => {
+      rows.push({
+        key: `${ci}-${vi}`,
+        name: card.name,
+        number: card.number,
+        image: card.image,
+        artist: card.artist,
+        setId: card.setId,
+        setName: card.setName,
+        setSymbol: card.setSymbol,
+        variant: v.variant,
+        marketPrice: v.marketPrice,
+      });
+    });
+  });
+  return rows;
+}
+
+function cardSearchRow(row, i, edit) {
+  return `<tr data-row-index="${i}">
+    <td>${row.image ? `<img src="${esc(row.image)}" alt="">` : ''}</td>
+    <td>${esc(row.name)}</td>
+    <td class="small muted">${row.setSymbol ? `<img class="set-icon" src="${esc(row.setSymbol)}" alt="">` : ''}${esc(row.setName)}</td>
+    <td class="small muted">${esc(row.number)}</td>
+    <td><select data-field="variant">
+      ${VARIANT_OPTIONS.map((v) => `<option${v === edit.variant ? ' selected' : ''}>${v}</option>`).join('')}
+    </select></td>
+    <td class="small muted">${row.marketPrice != null ? money(row.marketPrice) : '—'}</td>
+    <td><input type="number" min="0" value="${edit.qty}" data-field="qty"></td>
+    <td><select data-field="condition">
+      <option${edit.condition === 'NM' ? ' selected' : ''}>NM</option>
+      <option${edit.condition === 'LP' ? ' selected' : ''}>LP</option>
+      <option${edit.condition === 'MP' ? ' selected' : ''}>MP</option>
+      <option${edit.condition === 'HP' ? ' selected' : ''}>HP</option>
+    </select></td>
+    <td><input type="number" min="0" step="0.01" placeholder="0.00" value="${esc(edit.price)}" data-field="price"></td>
+  </tr>`;
 }
 
 function renderCardSearchResults(cards) {
   if (!cards.length) {
-    $('#cardSearchResults').innerHTML = '';
+    clearCardSearchResults();
     return;
   }
-  $('#cardSearchResults').innerHTML = `
-    <div class="small muted" style="margin-bottom:6px">Matching Cards</div>
-    <div class="set-grid">${cards
-      .map(
-        (c, i) => `<button class="set-card" type="button" data-card-index="${i}">
-          <img src="${esc(c.setSymbol || LOGO)}" alt="">
-          <b>${esc(c.name)}</b>
-          <div class="small muted">${esc(c.setName)}${c.number ? ` &middot; #${esc(c.number)}` : ''}</div>
-        </button>`
-      )
-      .join('')}</div>`;
 
-  $$('#cardSearchResults [data-card-index]').forEach((b) => {
-    b.onclick = () => jumpToCardInSet(cards[Number(b.dataset.cardIndex)]);
+  cardSearchRowsCache = flattenCardSearchResults(cards);
+  cardSearchEdits = cardSearchRowsCache.map((row) => ({
+    qty: 0,
+    condition: 'NM',
+    price: '',
+    variant: row.variant,
+  }));
+
+  $('#cardSearchSection').classList.remove('hidden');
+  $('#cardSearchBody').innerHTML = cardSearchRowsCache
+    .map((row, i) => cardSearchRow(row, i, cardSearchEdits[i]))
+    .join('');
+  updateCardSearchSummary();
+}
+
+function updateCardSearchSummary() {
+  let cardCount = 0;
+  let totalQty = 0;
+  let totalPrice = 0;
+
+  (cardSearchRowsCache || []).forEach((row, i) => {
+    const edit = cardSearchEdits[i];
+    if (!Number.isInteger(edit.qty) || edit.qty <= 0) return;
+    cardCount++;
+    totalQty += edit.qty;
+    totalPrice += edit.qty * (Number(edit.price) || 0);
   });
+
+  $('#cardSearchSummary').innerHTML = cardCount
+    ? `<b>${cardCount}</b> card${cardCount === 1 ? '' : 's'} selected &middot; <b>${totalQty}</b> total qty &middot; est. <b>${money(totalPrice)}</b>`
+    : '<span class="muted">No cards selected yet — set a quantity on the ones you want to add.</span>';
+
+  $('#cardSearchCommit').disabled = !cardCount;
+  $('#cardSearchCommit').textContent = cardCount ? `Add ${cardCount} Card${cardCount === 1 ? '' : 's'}` : 'Add Selected Cards';
 }
 
-async function jumpToCardInSet(cardHit) {
-  const set = setsCache && setsCache.find((s) => s.id === cardHit.setId);
-  if (!set) {
-    toast('Could not open that set.', true);
-    return;
+async function commitCardSearchImport() {
+  const button = $('#cardSearchCommit');
+
+  const cards = [];
+  cardSearchRowsCache.forEach((row, i) => {
+    const edit = cardSearchEdits[i];
+    if (!Number.isInteger(edit.qty) || edit.qty <= 0) return;
+    cards.push({
+      name: row.name,
+      number: row.number,
+      image: row.image,
+      artist: row.artist,
+      setName: row.setName,
+      setSymbol: row.setSymbol,
+      qty: edit.qty,
+      variant: edit.variant,
+      condition: edit.condition,
+      price: edit.price,
+    });
+  });
+  if (!cards.length) return;
+
+  button.disabled = true;
+  button.textContent = 'Adding…';
+  try {
+    const data = await api('/api/admin/products/bulk-cards', {
+      method: 'POST',
+      body: JSON.stringify({ cards }),
+    });
+    closeModals();
+    await Promise.all([loadProducts(), loadStats()]);
+    toast(
+      `Added ${data.imported} card${data.imported === 1 ? '' : 's'}` +
+        (data.merged ? ` (${data.merged} merged into existing listing${data.merged === 1 ? '' : 's'})` : '')
+    );
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    button.disabled = false;
+    updateCardSearchSummary();
   }
-  await openSetCards(set);
-  $('#cardFilter').value = cardHit.name;
-  setPage = 1;
-  renderSetCardsPage();
 }
+
+$('#cardSearchCommit').onclick = commitCardSearchImport;
+
+$('#cardSearchBody').addEventListener('input', (e) => {
+  const field = e.target.dataset.field;
+  const row = e.target.closest('tr[data-row-index]');
+  if (!field || !row) return;
+  const i = Number(row.dataset.rowIndex);
+
+  if (field === 'qty') cardSearchEdits[i].qty = Number.parseInt(e.target.value, 10);
+  else if (field === 'price') cardSearchEdits[i].price = e.target.value;
+  else if (field === 'condition') cardSearchEdits[i].condition = e.target.value;
+  else if (field === 'variant') cardSearchEdits[i].variant = e.target.value;
+
+  clearTimeout(cardSearchSummaryDebounce);
+  cardSearchSummaryDebounce = setTimeout(updateCardSearchSummary, 150);
+});
 
 async function openSetImport() {
   $('#setPickerView').classList.remove('hidden');
   $('#setCardsView').classList.add('hidden');
   $('#setSearch').value = '';
-  $('#cardSearchResults').innerHTML = '';
   lastCardSearchResults = [];
+  clearCardSearchResults();
   openModal('#setModal');
 
   if (setsCache) {

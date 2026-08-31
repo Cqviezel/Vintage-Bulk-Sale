@@ -539,6 +539,34 @@ router.get('/cards/search', async (req, res) => {
 
 const MAX_SET_IMPORT_ROWS = 500;
 
+// Same merge-or-insert rule as the single-card endpoint — a batch import often overlaps
+// with cards already on the shelf (added by hand, by CSV, or from an earlier import),
+// so each row gets checked rather than inserted unconditionally. Shared by bulk-set and
+// bulk-cards below.
+const insertOrMergeRows = db.transaction((rows) => {
+  let merged = 0;
+  for (const row of rows) {
+    const existing = findDuplicate.get(row.name, row.set_name, row.number, row.condition, row.variant);
+    if (existing) {
+      const current = oneProduct.get(existing.id);
+      updateProduct.run({
+        ...current,
+        qty: current.qty + row.qty,
+        price: row.price,
+        status: row.status,
+        image: row.image || current.image,
+        notes: row.notes || current.notes,
+        artist: row.artist || current.artist,
+        set_symbol: row.set_symbol || current.set_symbol,
+      });
+      merged++;
+    } else {
+      insertProduct.run(row);
+    }
+  }
+  return merged;
+});
+
 router.post('/products/bulk-set', (req, res) => {
   const body = req.body || {};
   const setName = String(body.setName || '').trim().slice(0, 160);
@@ -586,37 +614,73 @@ router.post('/products/bulk-set', (req, res) => {
     });
   }
 
-  // Same merge-or-insert rule as the single-card endpoint — a set often overlaps
-  // with cards already on the shelf (added by hand, by CSV, or from another set
-  // import), so each row gets checked rather than inserted unconditionally.
-  const insertMany = db.transaction((list) => {
-    let merged = 0;
-    for (const row of list) {
-      const existing = findDuplicate.get(row.name, row.set_name, row.number, row.condition, row.variant);
-      if (existing) {
-        const current = oneProduct.get(existing.id);
-        updateProduct.run({
-          ...current,
-          qty: current.qty + row.qty,
-          price: row.price,
-          status: row.status,
-          image: row.image || current.image,
-          notes: row.notes || current.notes,
-          artist: row.artist || current.artist,
-          set_symbol: row.set_symbol || current.set_symbol,
-        });
-        merged++;
-      } else {
-        insertProduct.run(row);
-      }
-    }
-    return merged;
-  });
-  const merged = insertMany(rows);
+  const merged = insertOrMergeRows(rows);
 
   res.status(201).json({ imported: rows.length, merged });
 
   telegram.queueRestock(setName, rows);
+});
+
+/**
+ * Same shape as the set-import rows above, but each row carries its own set_name/
+ * set_symbol instead of one shared per request — the Pokemon-name search results can
+ * span several sets, so "Add Selected" from there has no single set to attach to.
+ */
+router.post('/products/bulk-cards', (req, res) => {
+  const body = req.body || {};
+  const cards = Array.isArray(body.cards) ? body.cards : [];
+
+  if (!cards.length) return res.status(400).json({ error: 'No cards were sent.' });
+  if (cards.length > MAX_SET_IMPORT_ROWS) {
+    return res.status(400).json({
+      error: `That is ${cards.length} cards; the limit is ${MAX_SET_IMPORT_ROWS} per import.`,
+    });
+  }
+
+  const rows = [];
+  for (const c of cards) {
+    const name = String((c && c.name) || '').trim().slice(0, 160);
+    const qty = Number.parseInt(c && c.qty, 10);
+    if (!name || !Number.isInteger(qty) || qty <= 0) continue;
+
+    const price = Number(c.price);
+    if (!Number.isFinite(price) || price < 0) continue;
+
+    rows.push({
+      id: 'p' + crypto.randomBytes(8).toString('hex'),
+      name,
+      set_name: String(c.setName || '').trim().slice(0, 160),
+      set_symbol: String(c.setSymbol || '').trim().slice(0, 500),
+      number: String(c.number || '').trim().slice(0, 40),
+      condition: CONDITIONS.has(c.condition) ? c.condition : 'NM',
+      variant: VARIANTS.has(c.variant) ? c.variant : 'Normal',
+      price: Math.round(price * 100) / 100,
+      qty,
+      status: STATUSES.has(c.status) ? c.status : 'draft',
+      image: String(c.image || '').trim().slice(0, 500),
+      notes: '',
+      artist: String(c.artist || '').trim().slice(0, 120),
+    });
+  }
+
+  if (!rows.length) {
+    return res.status(400).json({
+      error: 'Nothing to import — set a quantity of at least 1 on the cards you want to add.',
+    });
+  }
+
+  const merged = insertOrMergeRows(rows);
+
+  res.status(201).json({ imported: rows.length, merged });
+
+  // Rows can span multiple sets here, so restock notifications are grouped per set
+  // rather than the single queueRestock(setName, rows) call bulk-set above can use.
+  const bySet = new Map();
+  for (const row of rows) {
+    if (!bySet.has(row.set_name)) bySet.set(row.set_name, []);
+    bySet.get(row.set_name).push(row);
+  }
+  for (const [setName, setRows] of bySet) telegram.queueRestock(setName, setRows);
 });
 
 /* --------------------------------------------------------------- uploads --- */
