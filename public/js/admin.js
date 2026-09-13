@@ -345,7 +345,7 @@ function renderInventoryList(list, q) {
 
 function invCardHtml(p) {
   return `<article class="product inv-card">
-    <div class="product-image">
+    <div class="product-image${p.variant && p.variant !== 'Normal' ? ' variant' : ''}">
       <img src="${esc(p.image || LOGO)}" alt="" onerror="this.onerror=null;this.src='${LOGO}'">
       <span class="price">${money(p.price)}</span>
     </div>
@@ -836,16 +836,21 @@ let summaryDebounce = null;
 
 function renderSetPicker() {
   const q = ($('#setSearch').value || '').trim().toLowerCase();
+
+  // A card search that's in flight or has already found matches owns this query --
+  // don't also show sets that happen to share a substring (e.g. "Pikachu" coincidentally
+  // matching the "Detective Pikachu" set), which read as "it searched sets instead."
+  if (q.length >= 2 && (cardSearchPending || lastCardSearchResults.length > 0)) {
+    $('#setPickerResult').innerHTML = cardSearchPending ? '<div class="muted small">Searching cards…</div>' : '';
+    return;
+  }
+
   const list = !q
     ? setsCache
     : setsCache.filter((s) => `${s.name} ${s.series}`.toLowerCase().includes(q));
 
-  // A label only earns its keep once there's a second result group (card matches)
-  // to distinguish these from — plain browsing stays exactly as it always has.
-  const heading = q && lastCardSearchResults.length ? '<div class="small muted" style="margin-bottom:6px">Matching Sets</div>' : '';
-
   $('#setPickerResult').innerHTML = list.length
-    ? `${heading}<div class="set-grid">${list
+    ? `<div class="set-grid">${list
         .map(
           (s, i) => `<button class="set-card" type="button" data-set-index="${i}">
             <img src="${esc(s.logo || s.symbol || LOGO)}" alt="">
@@ -867,6 +872,7 @@ function renderSetPicker() {
 
 let cardSearchDebounce = null;
 let cardSearchToken = 0;
+let cardSearchPending = false;
 let lastCardSearchResults = [];
 let cardSearchRowsCache = null; // flattened one row per priced variant, like setRowsCache
 let cardSearchEdits = null; // parallel array: {qty, condition, price, variant} per row
@@ -876,11 +882,12 @@ function scheduleCardSearch() {
   clearTimeout(cardSearchDebounce);
   const q = ($('#setSearch').value || '').trim();
   if (q.length < 2) {
+    cardSearchPending = false;
     lastCardSearchResults = [];
     clearCardSearchResults();
-    renderSetPicker();
-    return;
+    return; // the oninput handler re-renders the set picker right after calling this
   }
+  cardSearchPending = true;
   cardSearchDebounce = setTimeout(() => runCardSearch(q), 350);
 }
 
@@ -889,13 +896,16 @@ async function runCardSearch(q) {
   try {
     const cards = await api(`/api/admin/cards/search?q=${encodeURIComponent(q)}`);
     if (token !== cardSearchToken) return; // a newer keystroke already superseded this
+    cardSearchPending = false;
     lastCardSearchResults = cards;
     renderCardSearchResults(cards);
-    renderSetPicker(); // re-run so the "Matching Sets" heading reflects the card results too
+    renderSetPicker(); // re-run in case results came back empty and sets should show instead
   } catch {
     if (token !== cardSearchToken) return;
+    cardSearchPending = false;
     lastCardSearchResults = [];
     clearCardSearchResults();
+    renderSetPicker();
   }
 }
 
@@ -1057,6 +1067,7 @@ async function openSetImport() {
   $('#setPickerView').classList.remove('hidden');
   $('#setCardsView').classList.add('hidden');
   $('#setSearch').value = '';
+  cardSearchPending = false;
   lastCardSearchResults = [];
   clearCardSearchResults();
   openModal('#setModal');
@@ -1292,8 +1303,10 @@ async function commitSetImport() {
 
 $('#openSetImport').onclick = openSetImport;
 $('#setSearch').oninput = () => {
-  renderSetPicker();
+  // Order matters: scheduleCardSearch() updates cardSearchPending for this keystroke,
+  // and renderSetPicker() needs that up to date or its sets-vs-cards decision lags by one.
   scheduleCardSearch();
+  renderSetPicker();
 };
 $('#backToSetPicker').onclick = () => {
   $('#setCardsView').classList.add('hidden');

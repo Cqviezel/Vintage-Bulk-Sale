@@ -428,7 +428,7 @@ function renderProducts() {
           const cartQty = cart.get(p.id) || 0;
           return `
       <article class="product" data-view="${esc(p.id)}">
-        <div class="product-image" role="button" tabindex="0" aria-label="View details for ${esc(p.name)}">
+        <div class="product-image${p.variant && p.variant !== 'Normal' ? ' variant' : ''}" role="button" tabindex="0" aria-label="View details for ${esc(p.name)}">
           <img src="${esc(p.image || LOGO)}" alt="${esc(p.name)}" loading="lazy"
                onload="this.classList.add('loaded')" onerror="this.onerror=null;this.src='${LOGO}'">
           <span class="price">${money(p.price)}</span>
@@ -517,7 +517,7 @@ function openQuickView(id) {
 
   $('#quickViewBody').innerHTML = `
     <div class="quick-view">
-      <div class="product-image quick-view-image">
+      <div class="product-image quick-view-image${p.variant && p.variant !== 'Normal' ? ' variant' : ''}">
         <img src="${esc(p.image || LOGO)}" alt="${esc(p.name)}" onload="this.classList.add('loaded')" onerror="this.onerror=null;this.src='${LOGO}'">
         <span class="price">${money(p.price)}</span>
       </div>
