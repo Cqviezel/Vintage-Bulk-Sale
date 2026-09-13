@@ -162,12 +162,19 @@ router.post('/products', (req, res) => {
       notes: values.notes || current.notes,
       artist: values.artist || current.artist,
     });
-    return res.status(200).json(toAdminProduct(oneProduct.get(existing.id)));
+    res.status(200).json(toAdminProduct(oneProduct.get(existing.id)));
+    if (values.status === 'live' && current.status !== 'live') {
+      telegram.queueRestock(values.set_name, [{ name: values.name, status: values.status }]);
+    }
+    return;
   }
 
   const id = 'p' + crypto.randomBytes(8).toString('hex');
   insertProduct.run({ id, ...values });
   res.status(201).json(toAdminProduct(oneProduct.get(id)));
+  if (values.status === 'live') {
+    telegram.queueRestock(values.set_name, [{ name: values.name, status: values.status }]);
+  }
 });
 
 router.put('/products/:id', (req, res) => {
@@ -181,6 +188,13 @@ router.put('/products/:id', (req, res) => {
   // the "Add by Set" import below, so a manual edit must not blank it back out.
   updateProduct.run({ id: existing.id, ...values, set_symbol: existing.set_symbol });
   res.json(toAdminProduct(oneProduct.get(existing.id)));
+
+  // Same restock announcement the bulk-import routes trigger, for a card that just went
+  // live one at a time (the "Set Live" quick action, or the edit form) — only on an
+  // actual draft/hidden -> live transition, not a no-op re-save of an already-live row.
+  if (values.status === 'live' && existing.status !== 'live') {
+    telegram.queueRestock(values.set_name, [{ name: values.name, status: values.status }]);
+  }
 });
 
 router.delete('/products/:id', (req, res) => {
