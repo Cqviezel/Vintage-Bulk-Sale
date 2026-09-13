@@ -353,7 +353,7 @@ function invCardHtml(p) {
     <div class="meta">${esc(p.number)}</div>
     <div class="tags">
       <span class="tag">${esc(p.condition)}</span>
-      ${p.variant && p.variant !== 'Normal' ? `<span class="tag">${esc(p.variant)}</span>` : ''}
+      ${p.variant && p.variant !== 'Normal' ? `<span class="tag variant">${esc(p.variant)}</span>` : ''}
       <span class="status status-${esc(p.status)}">${esc(p.status)}</span>
       <span class="tag">qty ${p.qty}</span>
     </div>

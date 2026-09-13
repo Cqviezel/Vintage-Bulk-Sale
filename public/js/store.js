@@ -437,7 +437,7 @@ function renderProducts() {
         <div class="meta">${p.setSymbol ? `<img class="set-icon" src="${esc(p.setSymbol)}" alt="" loading="lazy">` : ''}${esc(p.set)}${p.number ? ' &middot; ' + esc(p.number) : ''}</div>
         <div class="tags">
           <span class="tag">${esc(p.condition)}</span>
-          ${p.variant && p.variant !== 'Normal' ? `<span class="tag">${esc(p.variant)}</span>` : ''}
+          ${p.variant && p.variant !== 'Normal' ? `<span class="tag variant">${esc(p.variant)}</span>` : ''}
           <span class="tag stock${p.qty <= 1 ? ' low' : ''}">${p.qty} left</span>
         </div>
         ${cartQty > 0 ? cartControlHtml(p.id, cartQty, p.qty) : `<button class="add" data-add="${esc(p.id)}">Add to Cart</button>`}
@@ -525,7 +525,7 @@ function openQuickView(id) {
         <div class="meta">${p.setSymbol ? `<img class="set-icon" src="${esc(p.setSymbol)}" alt="" loading="lazy">` : ''}${esc(p.set)}${p.number ? ' &middot; ' + esc(p.number) : ''}</div>
         <div class="tags">
           <span class="tag">${esc(p.condition)}</span>
-          ${p.variant && p.variant !== 'Normal' ? `<span class="tag">${esc(p.variant)}</span>` : ''}
+          ${p.variant && p.variant !== 'Normal' ? `<span class="tag variant">${esc(p.variant)}</span>` : ''}
           <span class="tag stock${p.qty <= 1 ? ' low' : ''}">${p.qty} left</span>
         </div>
         ${p.notes ? `<div class="notice" style="margin-top:12px">${esc(p.notes)}</div>` : ''}

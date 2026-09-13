@@ -103,6 +103,7 @@ img{display:block;max-width:100%;height:auto}
 .set-icon{display:inline-block;width:13px;height:13px;object-fit:contain;vertical-align:-2px;margin-right:4px}
 .tags{display:flex;flex-wrap:wrap;gap:5px;margin:var(--space-2) 0 var(--space-3)}
 .tag{padding:5px 8px;border:1px solid var(--gold-line);border-radius:5px;background:var(--gold-soft);color:#6b5a34;font-size:10.5px;font-weight:750}
+.tag.variant{color:#fff;border-color:transparent;background:linear-gradient(120deg,#f8a978,#f2789a,#a084e8,#6fb3e0,#5fd0c0);text-shadow:0 1px 1px rgba(0,0,0,.25)}
 .tag.stock{color:var(--forest2);border-color:#c3d3c9;background:#eef3ef}
 .tag.stock.low{color:#fff;border-color:var(--danger);background:var(--danger)}
 .add{width:100%;padding:10px;border:1px solid var(--forest);border-radius:8px;background:var(--gold-soft);color:var(--forest);font-size:12px;font-weight:750;transition:transform .15s ease,box-shadow .15s ease,background-color .15s ease,color .15s ease}
