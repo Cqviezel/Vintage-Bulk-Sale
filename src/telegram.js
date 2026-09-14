@@ -3,6 +3,7 @@
 const { db } = require('./db');
 const orders = require('./orders');
 const userbot = require('./telegramUserbot');
+const userbot2 = require('./telegramUserbot2');
 
 const API_ROOT = 'https://api.telegram.org';
 
@@ -444,8 +445,9 @@ function forwardTargets() {
     .map((s) => s.trim())
     .filter(Boolean)
     .map((entry) => {
-      const via = entry.startsWith('userbot:') ? 'userbot' : 'bot';
-      const rest = via === 'userbot' ? entry.slice('userbot:'.length) : entry;
+      const via = entry.startsWith('userbot2:') ? 'userbot2' : entry.startsWith('userbot:') ? 'userbot' : 'bot';
+      const prefix = via === 'userbot2' ? 'userbot2:' : via === 'userbot' ? 'userbot:' : '';
+      const rest = prefix ? entry.slice(prefix.length) : entry;
       const i = rest.lastIndexOf(':');
       if (i === -1) return { chat: rest, threadId: undefined, via };
       const threadId = Number(rest.slice(i + 1));
@@ -540,8 +542,8 @@ async function handleForwardCallback(cq) {
     const targets = forwardTargets();
     for (const target of targets) {
       const result =
-        target.via === 'userbot'
-          ? await userbot.forwardMessage({
+        target.via === 'userbot' || target.via === 'userbot2'
+          ? await (target.via === 'userbot2' ? userbot2 : userbot).forwardMessage({
               fromChat: origin && origin.chat,
               messageId: origin && origin.messageId,
               toChat: target.chat,
