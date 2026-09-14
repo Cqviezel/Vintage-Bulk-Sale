@@ -3,6 +3,7 @@
 const { db } = require('./db');
 const orders = require('./orders');
 const userbot = require('./telegramUserbot');
+const userbot2 = require('./telegramUserbot2');
 
 const API_ROOT = 'https://api.telegram.org';
 
@@ -434,18 +435,21 @@ function isForwardConfigured() {
 }
 
 // Comma-separated so one post can go out to several ad channels at once. Each entry is
-// "chat", "chat:threadId", or prefixed "userbot:chat" / "userbot:chat:threadId" — the
-// userbot prefix routes that one target through the logged-in account (telegramUserbot.js)
-// instead of the shop's own bot, for channels the bot was never made an admin of. The
-// optional ":threadId" suffix targets one topic, same convention as TELEGRAM_RESTOCK_TOPIC.
+// "chat", "chat:threadId", or prefixed "userbot:chat" / "userbot2:chat" (also with an
+// optional ":threadId" suffix) — the userbot prefixes route that one target through a
+// logged-in account (telegramUserbot.js / telegramUserbot2.js) instead of the shop's own
+// bot, for channels the bot was never made an admin of. Two accounts let forwarding keep
+// working (or be load-balanced) if one of them ever gets banned. The optional ":threadId"
+// suffix targets one topic, same convention as TELEGRAM_RESTOCK_TOPIC.
 function forwardTargets() {
   return String(process.env.TELEGRAM_FORWARD_TARGET_CHANNELS || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
     .map((entry) => {
-      const via = entry.startsWith('userbot:') ? 'userbot' : 'bot';
-      const rest = via === 'userbot' ? entry.slice('userbot:'.length) : entry;
+      const via = entry.startsWith('userbot2:') ? 'userbot2' : entry.startsWith('userbot:') ? 'userbot' : 'bot';
+      const prefix = via === 'userbot2' ? 'userbot2:' : via === 'userbot' ? 'userbot:' : '';
+      const rest = prefix ? entry.slice(prefix.length) : entry;
       const i = rest.lastIndexOf(':');
       if (i === -1) return { chat: rest, threadId: undefined, via };
       const threadId = Number(rest.slice(i + 1));
@@ -540,8 +544,8 @@ async function handleForwardCallback(cq) {
     const targets = forwardTargets();
     for (const target of targets) {
       const result =
-        target.via === 'userbot'
-          ? await userbot.forwardMessage({
+        target.via === 'userbot' || target.via === 'userbot2'
+          ? await (target.via === 'userbot2' ? userbot2 : userbot).forwardMessage({
               fromChat: origin && origin.chat,
               messageId: origin && origin.messageId,
               toChat: target.chat,
