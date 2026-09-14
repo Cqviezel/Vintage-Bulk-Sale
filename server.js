@@ -12,6 +12,7 @@ const { db, DATA_DIR } = require('./src/db');
 const auth = require('./src/auth');
 const telegram = require('./src/telegram');
 const telegramUserbot = require('./src/telegramUserbot');
+const telegramUserbot2 = require('./src/telegramUserbot2');
 const publicRoutes = require('./src/routes/public');
 const adminRoutes = require('./src/routes/admin');
 
@@ -168,6 +169,9 @@ const server = app.listen(PORT, HOST, () => {
   if (telegramUserbot.isConfigured()) {
     telegramUserbot.start().catch((err) => console.error('[telegram] userbot login failed:', err.message));
   }
+  if (telegramUserbot2.isConfigured()) {
+    telegramUserbot2.start().catch((err) => console.error('[telegram] userbot2 login failed:', err.message));
+  }
 });
 
 async function shutdown(signal) {
@@ -177,6 +181,7 @@ async function shutdown(signal) {
   setTimeout(() => process.exit(1), 20_000).unref();
   telegram.stopPolling();
   telegramUserbot.stop().catch(() => {});
+  telegramUserbot2.stop().catch(() => {});
   await telegram.flushRestocks().catch((err) => console.error('[telegram] flush on shutdown failed:', err.message));
   server.close(() => {
     try {

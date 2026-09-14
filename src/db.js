@@ -126,6 +126,18 @@ db.exec(`
     access_hash  TEXT,
     cached_at    TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  -- Same as telegram_entity_cache above, but for the second userbot account
+  -- (telegramUserbot2.js). Kept as a fully separate table so the two accounts never
+  -- share cached peer lookups, which are only ever valid for the account that resolved
+  -- them.
+  CREATE TABLE IF NOT EXISTS telegram_entity_cache2 (
+    chat_ref     TEXT PRIMARY KEY,
+    class_name   TEXT NOT NULL,
+    entity_id    TEXT NOT NULL,
+    access_hash  TEXT,
+    cached_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 /** Adds a column to a table that already exists on disk from before this field was added. */
