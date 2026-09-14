@@ -537,8 +537,17 @@ async function handleForwardCallback(cq) {
   forwardLocks.add(adminMsgId);
   try {
     let sent = 0;
+    const banned = []; // targets skipped or newly caught as banned this run
+    const otherFailures = []; // targets that failed for some other (possibly transient) reason
     const targets = forwardTargets();
     for (const target of targets) {
+      const key = `${target.via}:${target.chat}`;
+      if (bannedTargets.has(key)) {
+        // Already caught banned earlier this process's lifetime — don't re-hit Telegram
+        // (and re-log the same failure) on every single tap.
+        banned.push(target.chat);
+        continue;
+      }
       const result =
         target.via === 'userbot'
           ? await userbot.forwardMessage({
@@ -555,19 +564,48 @@ async function handleForwardCallback(cq) {
             });
       if (result.ok) {
         sent++;
+      } else if (isBanReason(result.reason)) {
+        bannedTargets.add(key);
+        banned.push(target.chat);
+        console.error(`[telegram] BANNED from ${target.chat} (${target.via}): ${result.reason} — remove it from TELEGRAM_FORWARD_TARGET_CHANNELS`);
       } else {
+        otherFailures.push(target.chat);
         console.error(`[telegram] forward to ${target.chat} (${target.via}) failed: ${result.reason}`);
       }
     }
-    await answerCallbackQuery(
-      cq.id,
-      sent === targets.length ? `Sent to ${sent} channel${sent === 1 ? '' : 's'}.` : `Sent to ${sent}/${targets.length} — check logs.`,
-      sent !== targets.length
-    );
+    if (banned.length) {
+      console.error(`[telegram] forward skipped ${banned.length} banned channel${banned.length === 1 ? '' : 's'}: ${banned.join(', ')}`);
+    }
+
+    const failed = targets.length - sent;
+    let toastText;
+    if (sent === targets.length) {
+      toastText = `Sent to ${sent} channel${sent === 1 ? '' : 's'}.`;
+    } else {
+      const parts = [`Sent to ${sent}/${targets.length}.`];
+      if (banned.length) parts.push(`${banned.length} banned (skipped).`);
+      if (otherFailures.length) parts.push(`${otherFailures.length} other failure${otherFailures.length === 1 ? '' : 's'} — check logs.`);
+      toastText = parts.join(' ');
+    }
+    await answerCallbackQuery(cq.id, toastText, failed > 0);
+
+    let statusText;
+    if (sent === targets.length) {
+      statusText = `✅ Forwarded to ${sent} channel${sent === 1 ? '' : 's'}.`;
+    } else if (sent > 0) {
+      statusText =
+        `⚠️ Forwarded to ${sent}/${targets.length}.` +
+        (banned.length ? ` ${banned.length} banned (skipped) — remove from env.` : '') +
+        (otherFailures.length ? ` ${otherFailures.length} other failure${otherFailures.length === 1 ? '' : 's'}.` : '');
+    } else if (banned.length && !otherFailures.length) {
+      statusText = `🚫 Banned from all ${banned.length} channel${banned.length === 1 ? '' : 's'} — remove them from TELEGRAM_FORWARD_TARGET_CHANNELS.`;
+    } else {
+      statusText = '❌ Forward failed for all channels.';
+    }
     await post('editMessageText', {
       chat_id: cq.message.chat.id,
       message_id: cq.message.message_id,
-      text: sent ? `✅ Forwarded to ${sent} channel${sent === 1 ? '' : 's'}.` : '❌ Forward failed for all channels.',
+      text: statusText,
       reply_markup: { inline_keyboard: [] },
     });
   } finally {
@@ -674,6 +712,37 @@ const orderLocks = new Set();
 
 // Same double-tap guard as orderLocks, keyed by the forwarded message's ID instead of an order ID.
 const forwardLocks = new Set();
+
+// Substrings seen in failure reasons from both the bot API (post()) and the userbot
+// (telegramUserbot.forwardMessage) that mean the account has been removed/banned from a
+// channel, as opposed to a transient or config error — worth calling out separately since
+// only a manual edit to TELEGRAM_FORWARD_TARGET_CHANNELS fixes it, retrying never will.
+const BAN_REASON_PATTERNS = [
+  /CHAT_WRITE_FORBIDDEN/i,
+  /USER_BANNED_IN_CHANNEL/i,
+  /CHANNEL_PRIVATE/i,
+  /CHAT_ADMIN_REQUIRED/i,
+  /CHAT_SEND_PLAIN_FORBIDDEN/i,
+  /USER_DEACTIVATED/i,
+  /PEER_ID_INVALID/i,
+  /not enough rights/i,
+  /have no rights/i,
+  /bot was kicked/i,
+  /bot is not a member/i,
+  /kicked from/i,
+];
+
+function isBanReason(reason) {
+  const text = String(reason || '');
+  return BAN_REASON_PATTERNS.some((re) => re.test(text));
+}
+
+// In-memory only, cleared on restart: once a target's account (bot or userbot) is caught
+// banned from it during this process's lifetime, skip it on every later forward attempt
+// instead of re-hitting Telegram (and re-logging the same failure) every single tap. This
+// is a stop-gap, not a fix — the channel still needs removing from
+// TELEGRAM_FORWARD_TARGET_CHANNELS, which is what the logged list below is for.
+const bannedTargets = new Set();
 
 /** Routes an `order:<id>:<action>` callback_data. Returns false if `cq` wasn't one of ours. */
 async function handleOrderCallback(cq) {
