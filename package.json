@@ -14,7 +14,8 @@
     "set-password": "node scripts/set-password.js",
     "import-demo": "node scripts/import-demo.js",
     "telegram-userbot-login": "node scripts/telegram-userbot-login.js",
-    "telegram-userbot-login-qr": "node scripts/telegram-userbot-login-qr.js"
+    "telegram-userbot-login-qr": "node scripts/telegram-userbot-login-qr.js",
+    "telegram-userbot2-login": "node scripts/telegram-userbot2-login.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
