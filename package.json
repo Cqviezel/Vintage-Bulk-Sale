@@ -15,6 +15,7 @@
     "import-demo": "node scripts/import-demo.js",
     "telegram-userbot-login": "node scripts/telegram-userbot-login.js",
     "telegram-userbot-login-qr": "node scripts/telegram-userbot-login-qr.js",
+    "telegram-userbot2-login": "node scripts/telegram-userbot2-login.js",
     "telegram-userbot2-login-qr": "node scripts/telegram-userbot2-login-qr.js"
   },
   "dependencies": {
