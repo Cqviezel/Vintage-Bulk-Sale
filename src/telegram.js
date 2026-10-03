@@ -301,7 +301,7 @@ const RESTOCK_MAX_WAIT_MS = 5 * 60_000;
 
 // In-memory only — an in-flight batch lost to a hard crash is an acceptable loss for a
 // marketing post, same tradeoff the rest of this file already makes for Telegram sends.
-let pendingRestocks = null; // Map<setName, { cards: [{name}] }>
+let pendingRestocks = null; // Map<setName, { cards: [{name, price, condition, variant}] }>
 let restockDebounceTimer = null;
 let restockMaxWaitTimer = null;
 
@@ -313,7 +313,9 @@ let restockMaxWaitTimer = null;
  */
 function queueRestock(setName, liveRows) {
   if (!isRestockChannelConfigured()) return;
-  const cards = (liveRows || []).filter((r) => r.status === 'live').map((r) => ({ name: r.name }));
+  const cards = (liveRows || [])
+    .filter((r) => r.status === 'live')
+    .map((r) => ({ name: r.name, price: r.price, condition: r.condition, variant: r.variant }));
   if (!cards.length) return;
 
   if (!pendingRestocks) pendingRestocks = new Map();
@@ -374,7 +376,12 @@ async function sendRestockSummary(sets, totalCount) {
 
   const setBlocks = [];
   for (const s of sets) {
-    const cardLines = s.cards.map((c) => `• ${escapeHtml(c.name)}`);
+    const cardLines = s.cards.map((c) => {
+      const tags = [c.condition, c.variant && c.variant !== 'Normal' ? c.variant : null]
+        .filter(Boolean)
+        .join(' ');
+      return `• ${escapeHtml(c.name)} — ${escapeHtml(tags)} — ${money(c.price)}`;
+    });
     const nameLabel = escapeHtml(s.setName);
     const whole = `<blockquote expandable><b>${nameLabel}</b> (${cardLines.length})\n${cardLines.join('\n')}</blockquote>`;
     if (whole.length <= CONTENT_BUDGET) {

@@ -164,7 +164,7 @@ router.post('/products', (req, res) => {
     });
     res.status(200).json(toAdminProduct(oneProduct.get(existing.id)));
     if (values.status === 'live' && current.status !== 'live') {
-      telegram.queueRestock(values.set_name, [{ name: values.name, status: values.status }]);
+      telegram.queueRestock(values.set_name, [values]);
     }
     return;
   }
@@ -173,7 +173,7 @@ router.post('/products', (req, res) => {
   insertProduct.run({ id, ...values });
   res.status(201).json(toAdminProduct(oneProduct.get(id)));
   if (values.status === 'live') {
-    telegram.queueRestock(values.set_name, [{ name: values.name, status: values.status }]);
+    telegram.queueRestock(values.set_name, [values]);
   }
 });
 
@@ -193,7 +193,7 @@ router.put('/products/:id', (req, res) => {
   // live one at a time (the "Set Live" quick action, or the edit form) — only on an
   // actual draft/hidden -> live transition, not a no-op re-save of an already-live row.
   if (values.status === 'live' && existing.status !== 'live') {
-    telegram.queueRestock(values.set_name, [{ name: values.name, status: values.status }]);
+    telegram.queueRestock(values.set_name, [values]);
   }
 });
 
