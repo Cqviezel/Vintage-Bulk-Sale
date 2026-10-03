@@ -2,6 +2,9 @@
 
 const { db } = require('./db');
 const orders = require('./orders');
+const events = require('./events');
+const referrals = require('./referrals');
+const wishlist = require('./wishlist');
 const userbot = require('./telegramUserbot');
 const userbot2 = require('./telegramUserbot2');
 
@@ -312,6 +315,7 @@ let restockMaxWaitTimer = null;
  * caller already has in scope (draft rows are filtered out here, not the caller's job).
  */
 function queueRestock(setName, liveRows) {
+  alertWishlists(liveRows || []).catch((err) => console.error('[telegram] wishlist alerts failed:', err.message));
   if (!isRestockChannelConfigured()) return;
   const cards = (liveRows || [])
     .filter((r) => r.status === 'live')
@@ -755,6 +759,161 @@ async function handleOrderCallback(cq) {
   return true;
 }
 
+function sendDm(userId, text) {
+  return post('sendMessage', {
+    chat_id: userId,
+    text,
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
+  });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+let botUsername = '';
+
+function getBotUsername() {
+  return botUsername;
+}
+
+async function loadBotIdentity() {
+  const result = await post('getMe', {});
+  if (result.ok) botUsername = result.result.username || '';
+  else console.error(`[telegram] getMe failed: ${result.reason}`);
+}
+
+function productKey(p) {
+  return [p.name, p.set_name, p.number, p.condition, p.variant]
+    .map((v) => String(v || '').trim().toLowerCase())
+    .join('|');
+}
+
+function wishlistMessage(products) {
+  const lines = products.map((p) => {
+    const detail = [p.set_name, p.number].filter(Boolean).join(' ');
+    const tag = p.variant && p.variant !== 'Normal' ? `${p.condition}, ${p.variant}` : p.condition;
+    return `• ${escapeHtml(p.name)}${detail ? ' — ' + escapeHtml(detail) : ''} [${escapeHtml(tag)}] ${money(p.price)}`;
+  });
+  return ['🔔 <b>Now in stock, from your wishlist</b>', '', ...lines, '', STOREFRONT_URL].join('\n');
+}
+
+/**
+ * Called whenever cards move into 'live' (single adds/edits, set and CSV-style imports,
+ * and cancel-restocks). Each call is one live transition, so a card that sells out and
+ * returns alerts its wishlisters again without any extra bookkeeping.
+ */
+async function alertWishlists(rows) {
+  if (!process.env.TELEGRAM_BOT_TOKEN) return;
+  const byKey = new Map();
+  for (const r of rows) {
+    if (r.status !== 'live' || !(Number(r.qty) > 0)) continue;
+    const key = productKey(r);
+    if (!byKey.has(key)) byKey.set(key, r);
+  }
+  if (!byKey.size) return;
+
+  const products = [...byKey.values()];
+  const perUser = new Map();
+  for (const sub of wishlist.allSubscriptions()) {
+    for (const product of products) {
+      if (!wishlist.matchesWish(product, sub.query)) continue;
+      if (!perUser.has(sub.userId)) perUser.set(sub.userId, new Map());
+      perUser.get(sub.userId).set(productKey(product), product);
+    }
+  }
+
+  for (const [userId, matches] of perUser) {
+    const result = await sendDm(userId, wishlistMessage([...matches.values()]));
+    if (!result.ok) console.error(`[telegram] wishlist alert to ${userId} failed: ${result.reason}`);
+    await sleep(100);
+  }
+}
+
+const PRIVATE_HELP = [
+  '<b>Crazed TCG</b>',
+  '/wishlist add &lt;card or set&gt; — DM me when it&#39;s back in stock',
+  '/wishlist list — see your wishlist',
+  '/wishlist remove &lt;number&gt; — remove an item',
+  '/referral — get your referral code',
+].join('\n');
+
+function replyPrivate(msg, text) {
+  return post('sendMessage', {
+    chat_id: msg.chat.id,
+    text,
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
+  });
+}
+
+async function handleWishlistCommand(msg, args) {
+  const userId = msg.from.id;
+  const [sub = '', ...more] = args;
+  const action = sub.toLowerCase();
+
+  if (action === 'add') {
+    const query = more.join(' ').trim().slice(0, 60);
+    if (query.length < 2) return replyPrivate(msg, 'Usage: /wishlist add charizard');
+    const outcome = wishlist.addWish(userId, query);
+    const text =
+      outcome === 'added'
+        ? `Added <b>${escapeHtml(query)}</b>. I'll DM you when it's back in stock.`
+        : outcome === 'exists'
+        ? `"${escapeHtml(query)}" is already on your wishlist.`
+        : `Your wishlist is full (${wishlist.MAX_ITEMS} items). Remove one first.`;
+    return replyPrivate(msg, text);
+  }
+
+  if (action === 'remove') {
+    const position = Number(more[0]);
+    if (!Number.isInteger(position) || position < 1) return replyPrivate(msg, 'Usage: /wishlist remove 1');
+    const removed = wishlist.removeWish(userId, position);
+    return replyPrivate(msg, removed ? 'Removed.' : 'No wishlist item with that number.');
+  }
+
+  const items = wishlist.listWish(userId);
+  if (!items.length) return replyPrivate(msg, 'Your wishlist is empty. Try /wishlist add charizard');
+  return replyPrivate(
+    msg,
+    ['<b>Your wishlist</b>', ...items.map((q, i) => `${i + 1}. ${escapeHtml(q)}`)].join('\n')
+  );
+}
+
+function handleReferralCommand(msg) {
+  const code = referrals.getOrCreateReferralCode(msg.from.id);
+  return replyPrivate(
+    msg,
+    [
+      `<b>Your referral code:</b> <code>${escapeHtml(code)}</code>`,
+      `Friends get ${referrals.REFERRAL_DISCOUNT}% off with it at checkout. Once their order is paid, you get ${referrals.REWARD_DISCOUNT}% off your next order.`,
+      'Both of you log in with Telegram on the storefront to use codes.',
+      STOREFRONT_URL,
+    ].join('\n')
+  );
+}
+
+async function handlePrivateMessage(msg) {
+  const text = typeof msg.text === 'string' ? msg.text.trim() : '';
+  const [head = '', ...rest] = text.split(/\s+/);
+  const command = head.split('@')[0].toLowerCase();
+
+  if (command === '/start' || command === '/help') return replyPrivate(msg, PRIVATE_HELP);
+  if (command === '/wishlist') return handleWishlistCommand(msg, rest);
+  if (command === '/referral') return handleReferralCommand(msg);
+}
+
+events.on('referralRewarded', async ({ ownerId, code, value }) => {
+  const result = await sendDm(
+    ownerId,
+    `🎉 Your friend's order is paid.\nYour thank-you code: <code>${escapeHtml(code)}</code> for ${value}% off your next order. Log in with Telegram on the storefront to use it.`
+  );
+  if (!result.ok) console.error(`[telegram] referral reward DM to ${ownerId} failed: ${result.reason}`);
+});
+
+events.on('productsLive', (rows) => {
+  alertWishlists(rows).catch((err) => console.error('[telegram] wishlist alerts failed:', err.message));
+});
+
 async function handleUpdate(update) {
   const cq = update.callback_query;
   if (cq) {
@@ -771,6 +930,10 @@ async function handleUpdate(update) {
   const msg = update.message;
   if (msg && isFromAdminChat(msg.chat.id) && isForwardedMessage(msg)) {
     await promptForward(msg);
+    return;
+  }
+  if (msg && msg.chat.type === 'private') {
+    await handlePrivateMessage(msg);
     return;
   }
 
@@ -834,11 +997,20 @@ async function startPolling() {
   // Defensive: getUpdates 409s if a webhook is set. This app has never called
   // setWebhook, but clearing it is cheap insurance against a stale one from elsewhere.
   await post('deleteWebhook', {}).catch(() => {});
+  await loadBotIdentity().catch(() => {});
   await post('setMyCommands', {
     commands: [
       { command: 'stock', description: 'Current out-of-stock report' },
       { command: 'orders', description: 'List open orders' },
       { command: 'order', description: 'Look up one order by ID' },
+    ],
+  }).catch(() => {});
+  await post('setMyCommands', {
+    scope: { type: 'all_private_chats' },
+    commands: [
+      { command: 'wishlist', description: 'Restock alerts for cards you want' },
+      { command: 'referral', description: 'Get your referral code' },
+      { command: 'help', description: 'How this bot works' },
     ],
   }).catch(() => {});
 
@@ -885,6 +1057,7 @@ module.exports = {
   sendTest,
   isConfigured,
   buildMessage,
+  getBotUsername,
   startPolling,
   stopPolling,
 };

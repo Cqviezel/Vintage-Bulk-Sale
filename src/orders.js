@@ -1,11 +1,16 @@
 'use strict';
 
 const { db } = require('./db');
+const events = require('./events');
+const referrals = require('./referrals');
 
 const ORDER_FLOW = ['awaiting payment', 'paid', 'packed', 'mailed', 'completed'];
 const ORDER_STATUSES = new Set([...ORDER_FLOW, 'cancelled']);
 
 const allOrders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 500');
+const ordersForCustomer = db.prepare(
+  'SELECT * FROM orders WHERE telegram_user_id = ? ORDER BY created_at DESC LIMIT 50'
+);
 const openOrders = db.prepare(
   `SELECT * FROM orders WHERE status NOT IN ('completed', 'cancelled')
    ORDER BY created_at ASC LIMIT ?`
@@ -28,15 +33,21 @@ const markSoldOut = db.transaction((orderId) => {
   }
 });
 
-/** Cancelling returns each card to the shelf. */
+const selectProduct = db.prepare('SELECT * FROM products WHERE id = ?');
+const restockOne = db.prepare(
+  "UPDATE products SET qty = qty + 1, status = 'live', updated_at = datetime('now') WHERE id = ?"
+);
+
+/** Cancelling returns each card to the shelf. Returns the cards that were not live before. */
 const restock = db.transaction((orderId) => {
-  const items = itemsForOrder.all(orderId);
-  for (const item of items) {
+  const revived = [];
+  for (const item of itemsForOrder.all(orderId)) {
     if (!item.product_id) continue;
-    db.prepare(
-      "UPDATE products SET qty = qty + 1, status = 'live', updated_at = datetime('now') WHERE id = ?"
-    ).run(item.product_id);
+    const before = selectProduct.get(item.product_id);
+    restockOne.run(item.product_id);
+    if (before && before.status !== 'live') revived.push(selectProduct.get(item.product_id));
   }
+  return revived;
 });
 
 function findOrder(id) {
@@ -53,6 +64,10 @@ function listAllOrders() {
 
 function listOpenOrders(limit = 25) {
   return openOrders.all(limit);
+}
+
+function listOrdersForCustomer(telegramId) {
+  return ordersForCustomer.all(telegramId);
 }
 
 /**
@@ -82,10 +97,21 @@ function advanceOrderStatus(id, explicitStatus) {
     return { ok: false, httpStatus: 409, error: 'A cancelled order cannot be reopened.' };
   }
 
-  if (next === 'cancelled' && row.status !== 'cancelled') restock(row.id);
-  if (next === 'paid' && row.status !== 'paid') markSoldOut(row.id);
+  let revived = [];
+  let reward = null;
+  if (next === 'cancelled' && row.status !== 'cancelled') {
+    revived = restock(row.id);
+    referrals.revokeRewardForOrder(row.id);
+  }
+  if (next === 'paid' && row.status !== 'paid') {
+    markSoldOut(row.id);
+    reward = referrals.rewardForPaidOrder(row);
+  }
 
   setOrderStatus.run(next, row.id);
+
+  if (revived.length) events.emit('productsLive', revived);
+  if (reward) events.emit('referralRewarded', reward);
 
   return { ok: true, order: oneOrder.get(row.id), items: itemsForOrder.all(row.id) };
 }
@@ -97,5 +123,6 @@ module.exports = {
   getOrderItems,
   listAllOrders,
   listOpenOrders,
+  listOrdersForCustomer,
   advanceOrderStatus,
 };

@@ -14,6 +14,7 @@ const telegram = require('./src/telegram');
 const telegramUserbot = require('./src/telegramUserbot');
 const telegramUserbot2 = require('./src/telegramUserbot2');
 const publicRoutes = require('./src/routes/public');
+const { router: customerRoutes } = require('./src/routes/customer');
 const adminRoutes = require('./src/routes/admin');
 
 const app = express();
@@ -59,6 +60,7 @@ app.use(
 
 /* ----------------------------------------------------------------- API --- */
 
+app.use('/api/customer', customerRoutes);
 app.use('/api', publicRoutes);
 app.use('/api/admin', adminRoutes);
 

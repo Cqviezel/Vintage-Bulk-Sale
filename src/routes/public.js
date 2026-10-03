@@ -6,8 +6,14 @@ const rateLimit = require('express-rate-limit');
 
 const { db, getSettings } = require('../db');
 const telegram = require('../telegram');
+const referrals = require('../referrals');
 
 const router = express.Router();
+
+/** Telegram user ID of the logged-in buyer, or 0 for a guest. */
+function customerTelegramId(req) {
+  return req.session && req.session.customer ? req.session.customer.id : 0;
+}
 
 const DELIVERY = new Set(['Tracked Mailing', 'Self-Pickup']);
 
@@ -155,8 +161,8 @@ const decrementProduct = db.prepare(
     "updated_at = datetime('now') WHERE id = ? AND qty > 0 AND status = 'live'"
 );
 const insertOrder = db.prepare(
-  `INSERT INTO orders (id, buyer, telegram, email, phone, address, delivery, subtotal, discount, promo_code, fee, total, status, notify_state)
-   VALUES (@id, @buyer, @telegram, @email, @phone, @address, @delivery, @subtotal, @discount, @promo_code, @fee, @total, 'awaiting payment', 'pending')`
+  `INSERT INTO orders (id, buyer, telegram, telegram_user_id, email, phone, address, delivery, subtotal, discount, promo_code, fee, total, status, notify_state)
+   VALUES (@id, @buyer, @telegram, @telegram_user_id, @email, @phone, @address, @delivery, @subtotal, @discount, @promo_code, @fee, @total, 'awaiting payment', 'pending')`
 );
 const insertOrderItem = db.prepare(
   `INSERT INTO order_items (order_id, product_id, name, set_name, number, condition, variant, price, image)
@@ -178,8 +184,10 @@ const claimPromoUse = db.prepare(
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
 /** Whether `row` (a promo_codes row, possibly null) can be applied to a cart of `subtotal`. */
-function checkPromoEligibility(row, subtotal) {
+function checkPromoEligibility(row, subtotal, customerId) {
   if (!row) return { ok: false, error: 'Invalid promo code.' };
+  const accessError = referrals.promoAccessError(row, customerId);
+  if (accessError) return { ok: false, error: accessError };
   if (!row.active) return { ok: false, error: 'This code is no longer active.' };
   if (row.expires_at && row.expires_at < todayStr()) return { ok: false, error: 'This code has expired.' };
   if (row.max_uses != null && row.used_count >= row.max_uses) {
@@ -228,7 +236,7 @@ router.post('/promo/validate', (req, res) => {
   const items = normalizeCartItems(req.body && req.body.items);
   const subtotal = subtotalForItems(items);
 
-  const result = checkPromoEligibility(findPromoCode.get(code), subtotal);
+  const result = checkPromoEligibility(findPromoCode.get(code), subtotal, customerTelegramId(req));
   if (!result.ok) return res.status(400).json({ error: result.error });
 
   res.json({ code, discount: result.discount });
@@ -284,7 +292,7 @@ const placeOrder = db.transaction((input) => {
   let discount = 0;
   let promoCode = '';
   if (input.promoCode) {
-    const result = checkPromoEligibility(findPromoCode.get(input.promoCode), subtotal);
+    const result = checkPromoEligibility(findPromoCode.get(input.promoCode), subtotal, input.telegramUserId);
     if (!result.ok) throw Object.assign(new Error(result.error), { status: 400 });
 
     const claimed = claimPromoUse.run({ code: input.promoCode, today: todayStr() }).changes;
@@ -302,6 +310,7 @@ const placeOrder = db.transaction((input) => {
     id,
     buyer: input.buyer,
     telegram: input.telegram,
+    telegram_user_id: input.telegramUserId,
     email: input.email,
     phone: input.phone,
     address: input.address,
@@ -336,13 +345,17 @@ router.post('/orders', orderLimiter, async (req, res, next) => {
     const body = req.body || {};
 
     const buyer = String(body.buyer || '').trim().slice(0, 120);
-    const telegramHandle = String(body.telegram || '').trim().slice(0, 80);
+    let telegramHandle = String(body.telegram || '').trim().slice(0, 80);
     const email = String(body.email || '').trim().slice(0, 160);
     const phone = String(body.phone || '').trim().slice(0, 30);
     const address = String(body.address || '').trim().slice(0, 1000);
     const delivery = String(body.delivery || '').trim();
     const promoCode = String(body.promoCode || '').trim().toUpperCase().slice(0, 24);
     const rawItems = Array.isArray(body.items) ? body.items : [];
+    const telegramUserId = customerTelegramId(req);
+    if (!telegramHandle && telegramUserId && req.session.customer.username) {
+      telegramHandle = '@' + req.session.customer.username;
+    }
 
     if (!buyer) return res.status(400).json({ error: 'Please enter your name.' });
     if (!DELIVERY.has(delivery)) {
@@ -387,6 +400,7 @@ router.post('/orders', orderLimiter, async (req, res, next) => {
       items: cartItems,
       buyer,
       telegram: telegramHandle,
+      telegramUserId,
       email,
       phone,
       address,

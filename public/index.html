@@ -33,6 +33,7 @@
         <a href="#catalogue" id="latestDrop">Latest Drop</a>
       </div>
       <div class="store-nav-right">
+        <button class="cart hidden" id="accountOpen">Log in</button>
         <div class="nav-dropdown mobile-nav-dropdown">
           <button id="mobileNav" aria-haspopup="true" aria-expanded="false" aria-controls="mobileNavMenu" aria-label="Menu">&#9776;</button>
           <div class="nav-dropdown-menu hidden" id="mobileNavMenu" role="menu">
@@ -224,6 +225,19 @@
       <button class="checkout" id="trackSubmit" style="margin-top:16px">Look Up Order</button>
       <div id="trackResult" style="margin-top:16px"></div>
     </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="accountModal">
+  <div class="modal" style="width:min(560px,100%)">
+    <div class="panel-head">
+      <div>
+        <h2>Your Account</h2>
+        <div class="small muted">Log in with Telegram to use referral codes and see your orders.</div>
+      </div>
+      <button class="close modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="panel-body" id="accountBody"></div>
   </div>
 </div>
 

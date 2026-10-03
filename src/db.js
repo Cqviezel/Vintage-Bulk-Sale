@@ -138,6 +138,22 @@ db.exec(`
     access_hash  TEXT,
     cached_at    TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS wishlists (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    query       TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_wishlists_user_query ON wishlists(user_id, lower(query));
+
+  CREATE TABLE IF NOT EXISTS referrals (
+    referred_order_id    TEXT PRIMARY KEY REFERENCES orders(id) ON DELETE CASCADE,
+    referrer_code        TEXT NOT NULL,
+    referee_telegram_id  INTEGER NOT NULL,
+    reward_code          TEXT NOT NULL
+  );
 `);
 
 /** Adds a column to a table that already exists on disk from before this field was added. */
@@ -155,6 +171,13 @@ ensureColumn('products', 'artist', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('orders', 'promo_code', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('orders', 'discount', "REAL NOT NULL DEFAULT 0");
 ensureColumn('products', 'set_symbol', "TEXT NOT NULL DEFAULT ''");
+// Telegram user ID of the logged-in buyer who placed the order (0 = guest checkout).
+ensureColumn('orders', 'telegram_user_id', 'INTEGER NOT NULL DEFAULT 0');
+db.exec('CREATE INDEX IF NOT EXISTS idx_orders_telegram_user ON orders(telegram_user_id)');
+// 'manual' = seller-made codes. 'referral' = a member's shareable code (owner gets rewarded).
+// 'reward' = single-use thank-you code, usable only by its owner.
+ensureColumn('promo_codes', 'kind', "TEXT NOT NULL DEFAULT 'manual'");
+ensureColumn('promo_codes', 'owner_telegram_id', 'INTEGER NOT NULL DEFAULT 0');
 
 /**
  * "Add by Set" used to save the Pokémon TCG API's low-res thumbnail instead of the

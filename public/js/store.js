@@ -1142,6 +1142,9 @@ $('#buyerDelivery').addEventListener('change', updateCheckoutTotals);
 
 $('#checkoutOpen').onclick = () => {
   closeCart();
+  if (customer && customer.username && !$('#buyerTelegram').value.trim()) {
+    $('#buyerTelegram').value = '@' + customer.username;
+  }
   updateCheckoutTotals();
   $('#checkoutError').classList.add('hidden');
   openModal('#checkoutModal');
@@ -1242,23 +1245,7 @@ async function lookupOrder() {
       `/api/orders/lookup?id=${encodeURIComponent(id)}&contact=${encodeURIComponent(contact)}`,
       { method: 'GET' }
     );
-    $('#trackResult').innerHTML = `
-      <div class="order-items">
-        <div class="summary"><span><b>${esc(o.id)}</b></span><span class="status order-${slug(o.status)}">${esc(o.status)}</span></div>
-        ${o.items
-          .map(
-            (i) =>
-              `<div class="summary"><span>${esc(i.name)} &middot; ${esc(i.condition)}</span><span>${money(i.price)}</span></div>`
-          )
-          .join('')}
-        ${
-          o.discount
-            ? `<div class="summary"><span>Discount (${esc(o.promoCode)})</span><span>−${money(o.discount)}</span></div>`
-            : ''
-        }
-        <div class="summary"><span>${esc(o.delivery)}</span><span>${money(o.fee)}</span></div>
-        <div class="summary total"><span>Total</span><span>${money(o.total)}</span></div>
-      </div>`;
+    $('#trackResult').innerHTML = orderCardHtml(o);
   } catch (err) {
     errorBox.textContent = err.message;
     errorBox.classList.remove('hidden');
@@ -1270,4 +1257,117 @@ async function lookupOrder() {
 
 $('#trackSubmit').onclick = lookupOrder;
 
+function orderCardHtml(o) {
+  return `
+    <div class="order-items">
+      <div class="summary"><span><b>${esc(o.id)}</b></span><span class="status order-${slug(o.status)}">${esc(o.status)}</span></div>
+      ${o.items
+        .map(
+          (i) =>
+            `<div class="summary"><span>${esc(i.name)} &middot; ${esc(i.condition)}</span><span>${money(i.price)}</span></div>`
+        )
+        .join('')}
+      ${
+        o.discount
+          ? `<div class="summary"><span>Discount (${esc(o.promoCode)})</span><span>−${money(o.discount)}</span></div>`
+          : ''
+      }
+      <div class="summary"><span>${esc(o.delivery)}</span><span>${money(o.fee)}</span></div>
+      <div class="summary total"><span>Total</span><span>${money(o.total)}</span></div>
+    </div>`;
+}
+
+/* ------------------------------------------------------------- account --- */
+
+let customer = null;
+let telegramBotUsername = '';
+
+// Global on purpose: the Telegram Login Widget calls it by name via data-onauth.
+window.onTelegramAuth = async (user) => {
+  try {
+    const res = await api('/api/customer/login', { method: 'POST', body: JSON.stringify(user) });
+    customer = res.customer;
+    renderAccountButton();
+    renderAccountBody();
+    toast(`Logged in as ${customerLabel()}.`);
+  } catch (err) {
+    toast(err.message, true);
+  }
+};
+
+function customerLabel() {
+  return customer.username ? '@' + customer.username : customer.firstName || 'Telegram user';
+}
+
+function renderAccountButton() {
+  const button = $('#accountOpen');
+  button.classList.toggle('hidden', !telegramBotUsername && !customer);
+  button.textContent = customer ? customerLabel() : 'Log in';
+}
+
+function renderAccountBody() {
+  const body = $('#accountBody');
+  if (customer) {
+    body.innerHTML = `
+      <div class="summary"><span>Logged in as <b>${esc(customerLabel())}</b></span></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
+        <button class="checkout" id="myOrdersBtn" style="flex:1 1 180px">My orders</button>
+        <button class="checkout" id="logoutBtn" style="flex:1 1 140px">Log out</button>
+      </div>
+      <div id="myOrdersList" style="margin-top:16px"></div>`;
+    $('#myOrdersBtn').onclick = loadMyOrders;
+    $('#logoutBtn').onclick = logout;
+    return;
+  }
+
+  body.innerHTML = `
+    <div id="telegramLoginSlot"></div>
+    <div class="small muted" style="margin-top:12px">Your Telegram ID is only used to link your referral code and orders to you.</div>`;
+  const script = document.createElement('script');
+  script.async = true;
+  script.src = 'https://telegram.org/js/telegram-widget.js?22';
+  script.setAttribute('data-telegram-login', telegramBotUsername);
+  script.setAttribute('data-size', 'large');
+  script.setAttribute('data-onauth', 'onTelegramAuth(user)');
+  $('#telegramLoginSlot').appendChild(script);
+}
+
+async function loadMyOrders() {
+  const list = $('#myOrdersList');
+  list.innerHTML = '<div class="small muted">Loading your orders…</div>';
+  try {
+    const rows = await api('/api/customer/orders', { method: 'GET' });
+    list.innerHTML = rows.length
+      ? rows.map((o) => `<div style="margin-bottom:14px">${orderCardHtml(o)}</div>`).join('')
+      : '<div class="notice">No orders yet. Orders placed while logged in show up here.</div>';
+  } catch (err) {
+    list.innerHTML = '';
+    toast(err.message, true);
+  }
+}
+
+async function logout() {
+  await api('/api/customer/logout', { method: 'POST', body: '{}' }).catch(() => {});
+  customer = null;
+  renderAccountButton();
+  renderAccountBody();
+}
+
+async function loadCustomer() {
+  try {
+    const me = await api('/api/customer/me', { method: 'GET' });
+    telegramBotUsername = me.botUsername || '';
+    customer = me.customer;
+  } catch {
+    // Account state is optional — guest shopping keeps working without it.
+  }
+  renderAccountButton();
+}
+
+$('#accountOpen').onclick = () => {
+  renderAccountBody();
+  openModal('#accountModal');
+};
+
 load();
+loadCustomer();

@@ -133,8 +133,8 @@ announcement there — separate from the private admin chat everything else in t
 goes to, since this one is meant for customers to see. The bot needs to already be a
 member of that chat with permission to send messages. Cards left as **draft** (to price or
 review before going live) don't count and won't trigger an announcement — only what
-actually became purchasable. Nothing else (single Add Product, Bulk Import CSV) triggers
-this; if you want it to, ask.
+actually became purchasable. Single-card adds and edits that set a card to live, Add by
+Set, and Add Selected from the card search all trigger this. Bulk Import CSV does not.
 
 Importing several sets back-to-back doesn't post one message per set — they batch into a
 single announcement instead, sent ~75 seconds after the last import (or after 5 minutes of
@@ -143,6 +143,28 @@ update rather than a burst of separate posts. The announcement lists every set a
 heading, with every card that went live from it underneath (name + price). A batch still
 in progress when the app shuts down (e.g. a Railway redeploy) is sent immediately rather
 than dropped.
+
+### Buyer DMs: wishlists and referrals
+
+Buyers and members talk to the shop bot in a private chat:
+
+- `/wishlist add <card or set>` — the bot DMs them when a matching card goes live
+  (matches name, set, or artist). `/wishlist list` and `/wishlist remove <n>` manage it.
+  Wishlist alerts fire on every transition to live, including cancel-restocks. CSV import
+  does not trigger them.
+- `/referral` — a 10% referral code for the member. A friend who uses it at checkout gets
+  10% off. Once that friend's order is marked **paid**, the member is DMed a single-use
+  10% code for their next order.
+
+Both codes require the buyer to log in with Telegram on the storefront. Each referral
+code belongs to one Telegram account, the owner can't use their own code, and each
+referee is rewarded once. Cancelling a paid referral order revokes its reward.
+
+**Setting up website login:** in BotFather run `/setdomain` for your bot and enter the
+storefront's domain (e.g. `crazedtcg.com`). The Telegram Login Widget won't load on
+`localhost` or on domains that aren't registered. Logged-in buyers see their orders via the
+account button in the nav, then **My orders**. Only orders placed while logged in appear there; the existing
+order-ID lookup still works for everything else.
 
 ### Forwarding to advertising channels
 
@@ -335,5 +357,5 @@ Only products with status **live** *and* quantity above zero appear on the store
   a payment provider (Stripe, HitPay) or a dynamic SGQR generated per order.
 - **Automatic reservation expiry.** The `reservation` setting is displayed but nothing
   releases a stale unpaid order yet. Cancel it manually to restock.
-- **Customer accounts and order-status emails.** Buyers get an order reference on
-  screen and are contacted via Telegram.
+- **Passwords and order-status emails.** Customers have no password accounts. Optional
+  login is through Telegram only, and order updates go out over Telegram.
