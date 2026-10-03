@@ -56,6 +56,7 @@ function publicCustomer(c) {
 
 router.get('/me', (req, res) => {
   res.json({
+    botId: telegram.getBotId(),
     botUsername: telegram.getBotUsername(),
     customer: req.session && req.session.customer ? publicCustomer(req.session.customer) : null,
   });

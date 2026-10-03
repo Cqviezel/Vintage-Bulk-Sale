@@ -161,8 +161,8 @@ code belongs to one Telegram account, the owner can't use their own code, and ea
 referee is rewarded once. Cancelling a paid referral order revokes its reward.
 
 **Setting up website login:** in BotFather run `/setdomain` for your bot and enter the
-storefront's domain (e.g. `crazedtcg.com`). The Telegram Login Widget won't load on
-`localhost` or on domains that aren't registered. Logged-in buyers see their orders via the
+storefront's domain (e.g. `crazedtcg.com`). Telegram login won't work on `localhost` or on
+domains that aren't registered. Logged-in buyers see their orders via the
 account button in the nav, then **My orders**. Only orders placed while logged in appear there; the existing
 order-ID lookup still works for everything else.
 

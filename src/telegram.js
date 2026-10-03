@@ -771,15 +771,24 @@ function sendDm(userId, text) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let botUsername = '';
+let botId = 0;
 
 function getBotUsername() {
   return botUsername;
 }
 
+function getBotId() {
+  return botId;
+}
+
 async function loadBotIdentity() {
   const result = await post('getMe', {});
-  if (result.ok) botUsername = result.result.username || '';
-  else console.error(`[telegram] getMe failed: ${result.reason}`);
+  if (result.ok) {
+    botUsername = result.result.username || '';
+    botId = result.result.id || 0;
+  } else {
+    console.error(`[telegram] getMe failed: ${result.reason}`);
+  }
 }
 
 function productKey(p) {
@@ -1058,6 +1067,7 @@ module.exports = {
   isConfigured,
   buildMessage,
   getBotUsername,
+  getBotId,
   startPolling,
   stopPolling,
 };

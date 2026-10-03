@@ -1280,6 +1280,7 @@ function orderCardHtml(o) {
 /* ------------------------------------------------------------- account --- */
 
 let customer = null;
+let telegramBotId = 0;
 let telegramBotUsername = '';
 
 // Global on purpose: the Telegram Login Widget calls it by name via data-onauth.
@@ -1320,20 +1321,35 @@ function renderAccountBody() {
     return;
   }
 
+  const authUrl =
+    'https://oauth.telegram.org/auth' +
+    `?bot_id=${encodeURIComponent(telegramBotId)}` +
+    `&origin=${encodeURIComponent(location.origin)}` +
+    '&request_access=write' +
+    `&return_to=${encodeURIComponent(location.origin + '/')}`;
   body.innerHTML = `
     <div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:16px 0;text-align:center">
-      <div id="telegramLoginSlot"></div>
+      <a href="${esc(authUrl)}" style="display:inline-flex;align-items:center;gap:10px;padding:12px 24px;border-radius:10px;background:var(--forest);color:#fff;font-weight:600;text-decoration:none">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M21.94 4.11c.29-1.2-.44-1.72-1.24-1.42L2.6 9.86c-1.17.46-1.16 1.12-.2 1.42l4.72 1.47 1.83 5.6c.22.6.38.84.78.84.35 0 .52-.16.73-.36l1.9-1.85 4.02 2.97c.74.41 1.27.2 1.46-.68l2.9-13.66zM8.4 13.1l9.4-5.94c.47-.28.9-.13.55.18l-8.02 7.24-.32 3.4-1.6-4.88z"/></svg>
+        Log in with Telegram
+      </a>
       <p class="small muted" style="margin:0;max-width:360px">Used only to link your referral code and orders to your Telegram account.</p>
     </div>`;
-  const script = document.createElement('script');
-  script.async = true;
-  script.src = 'https://telegram.org/js/telegram-widget.js?22';
-  script.setAttribute('data-telegram-login', telegramBotUsername);
-  script.setAttribute('data-size', 'large');
-  script.setAttribute('data-radius', '12');
-  script.setAttribute('data-userpic', 'false');
-  script.setAttribute('data-onauth', 'onTelegramAuth(user)');
-  $('#telegramLoginSlot').appendChild(script);
+}
+
+/** Telegram sends the buyer back with the signed login data in the URL fragment. */
+async function completeTelegramRedirect() {
+  const match = /tgAuthResult=([A-Za-z0-9+/=_-]+)/.exec(location.hash);
+  if (!match) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  try {
+    const b64 = match[1].replace(/-/g, '+').replace(/_/g, '/');
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const data = JSON.parse(new TextDecoder().decode(bytes));
+    await window.onTelegramAuth(data);
+  } catch {
+    toast('Telegram login could not be completed. Please try again.', true);
+  }
 }
 
 async function loadMyOrders() {
@@ -1360,12 +1376,14 @@ async function logout() {
 async function loadCustomer() {
   try {
     const me = await api('/api/customer/me', { method: 'GET' });
+    telegramBotId = me.botId || 0;
     telegramBotUsername = me.botUsername || '';
     customer = me.customer;
   } catch {
     // Account state is optional — guest shopping keeps working without it.
   }
   renderAccountButton();
+  await completeTelegramRedirect();
 }
 
 $('#accountOpen').onclick = () => {
