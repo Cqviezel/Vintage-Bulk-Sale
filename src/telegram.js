@@ -825,7 +825,7 @@ async function alertWishlists(rows) {
   const perUser = new Map();
   for (const sub of wishlist.allSubscriptions()) {
     for (const product of products) {
-      if (!wishlist.matchesWish(product, sub.query)) continue;
+      if (!wishlist.matchesWish(product, sub)) continue;
       if (!perUser.has(sub.userId)) perUser.set(sub.userId, new Map());
       perUser.get(sub.userId).set(productKey(product), product);
     }
@@ -840,52 +840,173 @@ async function alertWishlists(rows) {
 
 const PRIVATE_HELP = [
   '<b>Crazed TCG</b>',
-  '/wishlist add &lt;card or set&gt; — DM me when it&#39;s back in stock',
-  '/wishlist list — see your wishlist',
-  '/wishlist remove &lt;number&gt; — remove an item',
+  'Use /wishlist to get a message when a card is back in stock.',
+  '/wishlist — see and edit your wishlist',
   '/referral — get your referral code',
 ].join('\n');
 
-function replyPrivate(msg, text) {
+// Between typing a card name and tapping its set. In memory only: a restart just means
+// the user taps Add a card again.
+const WISH_PICK_TTL_MS = 15 * 60_000;
+const pendingWishPicks = new Map(); // userId -> { name, sets, expiresAt }
+
+const setsForCardName = db.prepare(
+  `SELECT DISTINCT set_name FROM products
+   WHERE instr(lower(name), lower(@name)) > 0 AND set_name <> ''
+   ORDER BY set_name COLLATE NOCASE LIMIT 12`
+);
+
+function replyPrivate(msg, text, extra = {}) {
   return post('sendMessage', {
     chat_id: msg.chat.id,
     text,
     parse_mode: 'HTML',
     disable_web_page_preview: true,
+    ...extra,
   });
 }
 
-async function handleWishlistCommand(msg, args) {
-  const userId = msg.from.id;
-  const [sub = '', ...more] = args;
-  const action = sub.toLowerCase();
+function removeButton(id) {
+  return { inline_keyboard: [[{ text: '❌ Remove', callback_data: `wish:del:${id}` }]] };
+}
 
-  if (action === 'add') {
-    const query = more.join(' ').trim().slice(0, 60);
-    if (query.length < 2) return replyPrivate(msg, 'Usage: /wishlist add charizard');
-    const outcome = wishlist.addWish(userId, query);
-    const text =
-      outcome === 'added'
-        ? `Added <b>${escapeHtml(query)}</b>. I'll DM you when it's back in stock.`
-        : outcome === 'exists'
-        ? `"${escapeHtml(query)}" is already on your wishlist.`
-        : `Your wishlist is full (${wishlist.MAX_ITEMS} items). Remove one first.`;
-    return replyPrivate(msg, text);
-  }
+const WISH_ADD_BUTTON = { text: '➕ Add a card', callback_data: 'wish:new' };
 
-  if (action === 'remove') {
-    const position = Number(more[0]);
-    if (!Number.isInteger(position) || position < 1) return replyPrivate(msg, 'Usage: /wishlist remove 1');
-    const removed = wishlist.removeWish(userId, position);
-    return replyPrivate(msg, removed ? 'Removed.' : 'No wishlist item with that number.');
-  }
+function wishLabel(item) {
+  return item.set_name ? `${item.query} · ${item.set_name}` : item.query;
+}
 
+function wishlistView(userId) {
   const items = wishlist.listWish(userId);
-  if (!items.length) return replyPrivate(msg, 'Your wishlist is empty. Try /wishlist add charizard');
-  return replyPrivate(
-    msg,
-    ['<b>Your wishlist</b>', ...items.map((q, i) => `${i + 1}. ${escapeHtml(q)}`)].join('\n')
+  const addRow = [WISH_ADD_BUTTON];
+  if (!items.length) {
+    return {
+      text: 'Your wishlist is empty.\nTap <b>Add a card</b>, then type the Pokémon\'s name and pick its set.',
+      reply_markup: { inline_keyboard: [addRow] },
+    };
+  }
+  return {
+    text: '<b>Your wishlist</b>\nTap an item to remove it.',
+    reply_markup: {
+      inline_keyboard: [
+        ...items.map((i) => [{ text: `❌ ${wishLabel(i)}`, callback_data: `wish:del:${i.id}` }]),
+        addRow,
+      ],
+    },
+  };
+}
+
+/** Step 1: a typed Pokémon name. Step 2 (below) is a tap on the set it appears in. */
+async function startWishPick(msg, rawName) {
+  const name = rawName.slice(0, 40);
+  if (name.length < 2) return replyPrivate(msg, 'Type a Pokémon name, like <b>charizard</b>.');
+
+  const sets = setsForCardName.all({ name }).map((r) => r.set_name);
+  if (!sets.length) {
+    return replyPrivate(
+      msg,
+      `I couldn't find any <b>${escapeHtml(name)}</b> cards yet. Check the spelling, or type just the Pokémon's name.`
+    );
+  }
+
+  pendingWishPicks.set(msg.from.id, { name, sets, expiresAt: Date.now() + WISH_PICK_TTL_MS });
+  const rows = [];
+  sets.forEach((set, i) => {
+    if (i % 2 === 0) rows.push([]);
+    rows[rows.length - 1].push({ text: set, callback_data: `wish:set:${i}` });
+  });
+  rows.push([{ text: '✖ Cancel', callback_data: 'wish:cancel' }]);
+  return replyPrivate(msg, `Which set is <b>${escapeHtml(name)}</b> from?`, {
+    reply_markup: { inline_keyboard: rows },
+  });
+}
+
+async function handleWishCallback(cq) {
+  const data = cq.data || '';
+  const del = /^wish:del:(\d+)$/.exec(data);
+  const set = /^wish:set:(\d+)$/.exec(data);
+  const isWish = del || set || data === 'wish:new' || data === 'wish:cancel';
+  if (!isWish) return false;
+
+  const chat = cq.message.chat;
+  if (chat.type !== 'private') {
+    await answerCallbackQuery(cq.id);
+    return true;
+  }
+  const userId = cq.from.id;
+
+  if (data === 'wish:new') {
+    await answerCallbackQuery(cq.id);
+    await post('sendMessage', {
+      chat_id: chat.id,
+      text: 'Type the Pokémon\'s name, like <b>charizard</b>.',
+      parse_mode: 'HTML',
+    });
+    return true;
+  }
+
+  if (data === 'wish:cancel') {
+    pendingWishPicks.delete(userId);
+    await answerCallbackQuery(cq.id);
+    await editPrivateMessage(cq, 'Cancelled.', { inline_keyboard: [] });
+    return true;
+  }
+
+  if (del) {
+    const removed = wishlist.removeWishById(userId, Number(del[1]));
+    await answerCallbackQuery(cq.id, removed ? 'Removed' : 'Already removed');
+    const view = wishlistView(userId);
+    await editPrivateMessage(cq, view.text, view.reply_markup);
+    return true;
+  }
+
+  const pick = pendingWishPicks.get(userId);
+  if (!pick || pick.expiresAt < Date.now()) {
+    pendingWishPicks.delete(userId);
+    await answerCallbackQuery(cq.id, 'That prompt expired. Tap Add a card again.', true);
+    await editPrivateMessage(cq, 'That prompt expired.', { inline_keyboard: [] });
+    return true;
+  }
+  const chosen = pick.sets[Number(set[1])];
+  if (!chosen) {
+    await answerCallbackQuery(cq.id);
+    return true;
+  }
+  pendingWishPicks.delete(userId);
+
+  const result = wishlist.addWish(userId, pick.name, chosen);
+  if (result.status === 'full') {
+    await answerCallbackQuery(cq.id, `Your wishlist is full (${wishlist.MAX_ITEMS}).`, true);
+    return true;
+  }
+  const label = `${pick.name} · ${chosen}`;
+  const text =
+    result.status === 'exists'
+      ? `<b>${escapeHtml(label)}</b> is already on your wishlist.`
+      : `✅ Added <b>${escapeHtml(label)}</b>. I'll message you when it's back in stock.`;
+  await answerCallbackQuery(cq.id);
+  await editPrivateMessage(
+    cq,
+    text,
+    result.status === 'added' ? removeButton(result.id) : { inline_keyboard: [] }
   );
+  return true;
+}
+
+function editPrivateMessage(cq, text, replyMarkup) {
+  return post('editMessageText', {
+    chat_id: cq.message.chat.id,
+    message_id: cq.message.message_id,
+    text,
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
+    reply_markup: replyMarkup,
+  });
+}
+
+async function handleWishlistCommand(msg) {
+  const view = wishlistView(msg.from.id);
+  return replyPrivate(msg, view.text, { reply_markup: view.reply_markup });
 }
 
 function handleReferralCommand(msg) {
@@ -903,12 +1024,14 @@ function handleReferralCommand(msg) {
 
 async function handlePrivateMessage(msg) {
   const text = typeof msg.text === 'string' ? msg.text.trim() : '';
-  const [head = '', ...rest] = text.split(/\s+/);
+  if (!text) return;
+  const [head = ''] = text.split(/\s+/);
   const command = head.split('@')[0].toLowerCase();
 
   if (command === '/start' || command === '/help') return replyPrivate(msg, PRIVATE_HELP);
-  if (command === '/wishlist') return handleWishlistCommand(msg, rest);
+  if (command === '/wishlist') return handleWishlistCommand(msg);
   if (command === '/referral') return handleReferralCommand(msg);
+  if (!text.startsWith('/')) return startWishPick(msg, text);
 }
 
 events.on('referralRewarded', async ({ ownerId, code, value }) => {
@@ -926,6 +1049,7 @@ events.on('productsLive', (rows) => {
 async function handleUpdate(update) {
   const cq = update.callback_query;
   if (cq) {
+    if (await handleWishCallback(cq)) return;
     if (await handleOrderCallback(cq)) return;
     if (await handleForwardCallback(cq)) return;
     if (cq.data === 'stock_report') {

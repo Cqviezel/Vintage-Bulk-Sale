@@ -146,8 +146,6 @@ db.exec(`
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_wishlists_user_query ON wishlists(user_id, lower(query));
-
   CREATE TABLE IF NOT EXISTS referrals (
     referred_order_id    TEXT PRIMARY KEY REFERENCES orders(id) ON DELETE CASCADE,
     referrer_code        TEXT NOT NULL,
@@ -178,6 +176,12 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_orders_telegram_user ON orders(telegram_
 // 'reward' = single-use thank-you code, usable only by its owner.
 ensureColumn('promo_codes', 'kind', "TEXT NOT NULL DEFAULT 'manual'");
 ensureColumn('promo_codes', 'owner_telegram_id', 'INTEGER NOT NULL DEFAULT 0');
+// Wishlists are now "card + set". Earlier rows have no set and keep matching by text.
+ensureColumn('wishlists', 'set_name', "TEXT NOT NULL DEFAULT ''");
+db.exec('DROP INDEX IF EXISTS idx_wishlists_user_query');
+db.exec(
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_wishlists_user_query_set ON wishlists(user_id, lower(query), lower(set_name))'
+);
 
 /**
  * "Add by Set" used to save the Pokémon TCG API's low-res thumbnail instead of the

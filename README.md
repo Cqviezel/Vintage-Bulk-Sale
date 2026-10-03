@@ -148,10 +148,11 @@ than dropped.
 
 Buyers and members talk to the shop bot in a private chat:
 
-- `/wishlist add <card or set>` — the bot DMs them when a matching card goes live
-  (matches name, set, or artist). `/wishlist list` and `/wishlist remove <n>` manage it.
-  Wishlist alerts fire on every transition to live, including cancel-restocks. CSV import
-  does not trigger them.
+- `/wishlist` — shows their wishlist. Tap **Add a card**, type a Pokémon name (e.g.
+  `charizard`), then tap the set it's from. The bot DMs them when that card, in that set,
+  goes live. Tap an item to remove it. Typing a name without `/wishlist` starts the same
+  flow. Wishlist alerts fire on every transition to live, including cancel-restocks. CSV
+  import does not trigger them.
 - `/referral` — a 10% referral code for the member. A friend who uses it at checkout gets
   10% off. Once that friend's order is marked **paid**, the member is DMed a single-use
   10% code for their next order.
