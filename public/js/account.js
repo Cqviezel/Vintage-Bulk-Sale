@@ -31,6 +31,7 @@ const ICONS = {
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
   external: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
   package: '<path d="M21 8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4a2 2 0 0 0 1-1.7z"/><path d="M3.3 7 12 12l8.7-5"/><path d="M12 22V12"/>',
+  lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
   image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>',
 };
 const icon = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
@@ -492,26 +493,74 @@ function gateHtml(botId) {
   return `
     <div class="gate">
       <section class="gate-brand">
-        <div class="logo-row"><img src="${esc(window.CTCG_LOGO)}" alt="">Crazed TCG</div>
-        <div>
-          <h2>Shop the store.<br>Track your claims.</h2>
+        <a class="logo-row" href="/"><img src="${esc(window.CTCG_LOGO)}" alt="">Crazed TCG</a>
+        <div class="gate-hero">
+          <div class="fan" id="fan" aria-hidden="true"></div>
+          <div class="stock" id="stock" hidden></div>
+          <h2>Shop the store.<br><em>Track your claims.</em></h2>
           <p class="lede">Your Crazed TCG account is home to our online store and every card you claim on Telegram.</p>
           <ul class="ticks">${ticks.map((t) => `<li>${icon('checkCircle')}${t}</li>`).join('')}</ul>
         </div>
-        <div class="gate-foot">Vintage Pokémon singles · PayNow · Tracked Mailing</div>
+        <div class="gate-foot">
+          <span>${icon('layers')}Vintage Pokémon singles</span>
+          <span>${icon('wallet')}PayNow</span>
+          <span>${icon('truck')}Tracked Mailing</span>
+        </div>
       </section>
       <section class="gate-form">
-        <div class="gate-card">
-          <img class="mobile-logo" src="${esc(window.CTCG_LOGO)}" alt="Crazed TCG">
-          <h1>Welcome to Crazed TCG</h1>
-          <p class="sub">Log in with the Telegram account you use for claims, and we'll show all your cards and orders here.</p>
-          <a class="btn btn-lg btn-block btn-tg" id="gateLogin" href="${botId ? esc(loginUrl(botId)) : '#'}">${icon('send')}Log in with Telegram</a>
-          <div class="divider">Or</div>
-          <a class="btn btn-lg btn-block btn-secondary" href="/">${icon('bag', 'i-sm')}Just browsing? Shop the store</a>
-          <p class="fine">We never share your Telegram details.</p>
+        <div class="gate-col">
+          <div class="gate-card">
+            <div class="eyebrow">${icon('user')}My account</div>
+            <h1>Welcome to Crazed TCG</h1>
+            <p class="sub">Log in with the Telegram account you use for claims, and we'll show all your cards and orders here.</p>
+            <a class="btn btn-lg btn-block btn-tg" id="gateLogin" href="${botId ? esc(loginUrl(botId)) : '#'}">${icon('send')}Log in with Telegram</a>
+            <div class="divider">Or</div>
+            <a class="btn btn-lg btn-block btn-secondary" href="/">${icon('bag', 'i-sm')}Just browsing? Shop the store</a>
+            <p class="fine">${icon('lock')}We never share your Telegram details.</p>
+          </div>
+          <p class="gate-help" id="gateHelp" hidden></p>
         </div>
       </section>
     </div>`;
+}
+
+/** Fills the sign-in page with real store photos and the live stock count. Purely
+    decorative, so any failure just leaves the page as it is. */
+async function loadGateExtras() {
+  const [products, settings] = await Promise.all([
+    api('/api/products').catch(() => []),
+    api('/api/settings').catch(() => ({})),
+  ]);
+
+  const count = products.reduce((n, p) => n + (Number(p.qty) || 0), 0);
+  if (count) {
+    const stock = $('#stock');
+    stock.textContent = `${count.toLocaleString()} cards in stock now`;
+    stock.hidden = false;
+  }
+
+  // Pricier cards make the best showcase. Put the top one in the middle of the fan.
+  const picks = products
+    .filter((p) => p.image)
+    .sort((a, b) => b.price - a.price)
+    .slice(0, 5);
+  const order = [3, 1, 0, 2, 4].filter((i) => i < picks.length);
+  const mid = (order.length - 1) / 2;
+  $('#fan').innerHTML = order
+    .map((idx, pos) => {
+      const off = pos - mid;
+      return `<img src="${esc(picks[idx].image)}" alt="" style="--r:${off * 8}deg;--y:${Math.abs(off) * 10}px;--d:${pos * 70}ms;z-index:${10 - Math.abs(off)}">`;
+    })
+    .join('');
+  if (!picks.length) $('#fan').hidden = true;
+
+  const contact = String(settings.contactTelegram || '').trim();
+  if (contact) {
+    const user = contact.replace(/^@/, '');
+    const help = $('#gateHelp');
+    help.innerHTML = `Need help? Message <a href="https://t.me/${esc(encodeURIComponent(user))}" target="_blank" rel="noopener">@${esc(user)}</a> on Telegram.`;
+    help.hidden = false;
+  }
 }
 
 function render() {
@@ -611,6 +660,7 @@ async function boot() {
 
   if (!state.customer) {
     $('#app').innerHTML = gateHtml(me.botId);
+    loadGateExtras();
     if (!me.botId) {
       $('#gateLogin').addEventListener('click', (e) => {
         e.preventDefault();

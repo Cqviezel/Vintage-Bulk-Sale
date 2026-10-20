@@ -64,31 +64,57 @@ img{display:block;max-width:100%}
 .chip{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:5px;background:var(--hover);border:1px solid var(--border);font-size:11px;font-weight:600;color:var(--text-2)}
 
 /* ---------- sign-in gate ---------- */
-.gate{min-height:100vh;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr)}
-.gate-brand{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;padding:48px 56px;color:#e8efe9;background:
+.gate{min-height:100vh;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)}
+.gate-brand{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;gap:40px;padding:clamp(32px,4vw,64px) clamp(28px,5.5vw,96px);color:#e8efe9;background:
   radial-gradient(700px 380px at 110% -10%,rgba(184,145,63,.28),transparent 60%),
   radial-gradient(600px 400px at -20% 120%,rgba(255,255,255,.06),transparent 60%),
   linear-gradient(160deg,#16291f,#1f3a2e 60%,#24453a)}
 .gate-brand::after{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:44px 44px;mask-image:linear-gradient(180deg,#000,transparent 80%);pointer-events:none}
 .gate-brand>*{position:relative;z-index:1}
-.logo-row{display:flex;align-items:center;gap:12px;font-weight:700;font-size:16px;color:#fff}
-.logo-row img{width:36px;height:36px;border-radius:9px}
-.gate-brand h2{font-size:38px;line-height:1.12;font-weight:650;letter-spacing:-.025em;color:#fff;max-width:440px}
-.gate-brand .lede{margin-top:16px;font-size:15.5px;line-height:1.6;color:#b4c4b9;max-width:420px}
-.ticks{list-style:none;padding:0;margin:32px 0 0;display:grid;gap:14px}
-.ticks li{display:flex;gap:12px;align-items:flex-start;font-size:14.5px;color:#d5e0d8}
-.ticks .i{color:#d9bb78;margin-top:1px}
-.gate-foot{font-size:12.5px;color:#88a092}
-.gate-form{display:grid;place-items:center;padding:40px 24px;background:var(--surface)}
-.gate-card{width:100%;max-width:380px}
+.logo-row{display:flex;align-items:center;gap:12px;font-weight:700;font-size:clamp(16px,1.2vw,19px);color:#fff}
+.logo-row img{width:clamp(36px,2.6vw,44px);height:clamp(36px,2.6vw,44px);border-radius:10px}
+.gate-hero{max-width:620px}
+.gate-brand h2{font-size:clamp(34px,min(3.4vw,6.2vh),58px);line-height:1.06;font-weight:700;letter-spacing:-.03em;color:#fff}
+.gate-brand h2 em{font-style:normal;color:#e2c47f}
+.gate-brand .lede{margin-top:18px;font-size:clamp(15.5px,1.15vw,19px);line-height:1.6;color:#b9c8be;max-width:520px}
+.ticks{list-style:none;padding:0;margin:30px 0 0;display:grid;gap:14px}
+.ticks li{display:flex;gap:12px;align-items:center;font-size:clamp(14.5px,1.05vw,17px);color:#dbe5de}
+.ticks .i{color:#e2c47f;width:20px;height:20px}
+.gate-foot{display:flex;flex-wrap:wrap;gap:8px 22px;font-size:13px;color:#8fa699}
+.gate-foot span{display:inline-flex;align-items:center;gap:7px}
+.gate-foot .i{width:15px;height:15px;color:#b69a5c}
+
+/* fanned card stack built from live store photos */
+.fan{display:flex;align-items:flex-end;height:clamp(140px,min(15vw,25vh),250px);margin:0 0 clamp(40px,min(3.6vw,5.5vh),60px) 22px}
+.fan img{width:clamp(84px,min(8vw,13.5vh),140px);aspect-ratio:5/7;object-fit:cover;border-radius:clamp(6px,.6vw,10px);background:#2b4a3c;
+  box-shadow:0 18px 40px -12px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.12);
+  transform:translateY(var(--y)) rotate(var(--r));transform-origin:50% 100%;
+  opacity:0;animation:fan-in .6s cubic-bezier(.2,.8,.2,1) forwards;animation-delay:var(--d);transition:transform .25s ease}
+.fan img+img{margin-left:calc(clamp(84px,min(8vw,13.5vh),140px) * -.38)}
+.fan img:hover{transform:translateY(calc(var(--y) - 14px)) rotate(var(--r))}
+@keyframes fan-in{from{opacity:0;transform:translateY(calc(var(--y) + 30px)) rotate(0deg)}to{opacity:1;transform:translateY(var(--y)) rotate(var(--r))}}
+.stock{display:inline-flex;align-items:center;gap:9px;margin-bottom:20px;padding:7px 14px 7px 12px;border-radius:99px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);font-size:13px;font-weight:600;color:#e3ebe5}
+.stock::before{content:"";width:8px;height:8px;border-radius:50%;background:#5fd08a;box-shadow:0 0 0 4px rgba(95,208,138,.2)}
+
+.gate-form{display:grid;place-items:center;padding:40px 24px;background:
+  radial-gradient(600px 300px at 50% 0%,rgba(31,58,46,.05),transparent 70%),var(--bg)}
+.gate-col{width:100%;max-width:480px}
+.gate-card{padding:clamp(28px,2.8vw,44px);background:var(--surface);border:1px solid var(--border);border-radius:20px;box-shadow:0 1px 2px rgba(20,24,22,.04),0 24px 60px -24px rgba(20,24,22,.22)}
 .gate-card .mobile-logo{display:none}
-.gate-card h1{font-size:26px;font-weight:650;letter-spacing:-.02em}
-.gate-card .sub{margin-top:8px;color:var(--text-2);font-size:14.5px;line-height:1.55}
-.gate-card .btn-tg{margin-top:28px;background:#229ED9;color:#fff}
+.gate-card .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--brand-ink)}
+.gate-card .eyebrow .i{width:15px;height:15px}
+.gate-card h1{margin-top:12px;font-size:clamp(26px,1.75vw,31px);font-weight:700;letter-spacing:-.025em;line-height:1.15}
+.gate-card .sub{margin-top:10px;color:var(--text-2);font-size:clamp(14.5px,1.05vw,16.5px);line-height:1.6}
+.gate-card .btn-lg{height:52px;font-size:15px;border-radius:11px}
+.gate-card .btn-tg{margin-top:28px;background:#229ED9;color:#fff;box-shadow:0 8px 20px -8px rgba(34,158,217,.6)}
 .gate-card .btn-tg:hover{background:#1c8cc2}
-.divider{display:flex;align-items:center;gap:12px;margin:24px 0;color:var(--text-3);font-size:12px}
+.divider{display:flex;align-items:center;gap:12px;margin:20px 0;color:var(--text-3);font-size:12.5px}
 .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--border)}
-.gate-card .fine{margin-top:20px;font-size:12.5px;color:var(--text-3);line-height:1.55}
+.gate-card .fine{display:flex;align-items:center;justify-content:center;gap:7px;margin-top:22px;font-size:13px;color:var(--text-3)}
+.gate-card .fine .i{width:15px;height:15px}
+.gate-help{margin-top:20px;text-align:center;font-size:13.5px;color:var(--text-2)}
+.gate-help a{font-weight:600;color:var(--brand-ink)}
+.gate-help a:hover{text-decoration:underline;text-underline-offset:3px}
 
 /* ---------- app shell ---------- */
 .shell{display:grid;grid-template-columns:var(--side) minmax(0,1fr);min-height:100vh}
@@ -299,9 +325,15 @@ img{display:block;max-width:100%}
   .detail{grid-template-columns:minmax(0,1fr)}
 }
 @media (max-width:900px){
-  .gate{grid-template-columns:minmax(0,1fr)}
-  .gate-brand{display:none}
-  .gate-card .mobile-logo{display:block;width:48px;height:48px;border-radius:12px;margin-bottom:22px}
+  .gate{grid-template-columns:minmax(0,1fr);min-height:0}
+  .gate-brand{gap:22px;padding:24px 20px 30px}
+  .gate-brand h2{font-size:30px}
+  .gate-brand .lede{font-size:15px;margin-top:12px}
+  .ticks,.gate-foot{display:none}
+  .fan{height:130px;margin:0 0 36px;justify-content:center}
+  .fan img{width:76px}
+  .fan img+img{margin-left:-28px}
+  .gate-form{padding:24px 16px 40px;align-items:start}
   .shell{display:block}
   .side{position:fixed;inset:0 auto 0 0;width:280px;z-index:60;transform:translateX(-100%);transition:transform .22s ease;box-shadow:var(--shadow-md)}
   .side.open{transform:none}
