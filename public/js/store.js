@@ -231,8 +231,7 @@ async function load() {
 
 /* ------------------------------------------------------------ rendering --- */
 
-/** Live stock count and a fan of the priciest cards in the hero. Needs at least three
-    photographed cards to look right, so the logo card stays until then. */
+/** Live stock count in the hero. */
 function renderHero() {
   const count = products.reduce((n, p) => n + (Number(p.qty) || 0), 0);
   const chip = $('#heroStock');
@@ -240,30 +239,6 @@ function renderHero() {
     chip.textContent = `${count.toLocaleString()} cards in stock now`;
     chip.hidden = false;
   }
-
-  const fan = $('#heroFan');
-  const picks = products
-    .filter((p) => p.image)
-    .sort((a, b) => b.price - a.price)
-    .slice(0, 5);
-  if (!fan || picks.length < 3) return;
-
-  // Most expensive card in the middle, the rest fanning out to either side.
-  const order = [3, 1, 0, 2, 4].filter((i) => i < picks.length);
-  const mid = (order.length - 1) / 2;
-  fan.innerHTML = order
-    .map((idx, pos) => {
-      const p = picks[idx];
-      const off = pos - mid;
-      return `<button class="fan-card" type="button" data-hero-view="${esc(p.id)}" aria-label="View ${esc(p.name)}"
-        style="--r:${off * 7}deg;--y:${Math.abs(off) * 9}px;--d:${pos * 70}ms;z-index:${10 - Math.abs(off)}">
-        <img src="${esc(p.image)}" alt="" onerror="this.closest('.fan-card').remove()">
-      </button>`;
-    })
-    .join('');
-  fan.querySelectorAll('[data-hero-view]').forEach((b) => {
-    b.onclick = () => openQuickView(b.dataset.heroView);
-  });
 }
 
 // Cached so the search box below can re-filter without recomputing groups from
