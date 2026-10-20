@@ -495,7 +495,6 @@ function gateHtml(botId) {
       <section class="gate-brand">
         <a class="logo-row" href="/"><img src="${esc(window.CTCG_LOGO)}" alt="">Crazed TCG</a>
         <div class="gate-hero">
-          <div class="fan" id="fan" aria-hidden="true"></div>
           <div class="stock" id="stock" hidden></div>
           <h2>Shop the store.<br><em>Track your claims.</em></h2>
           <p class="lede">Your Crazed TCG account is home to our online store and every card you claim on Telegram.</p>
@@ -524,7 +523,7 @@ function gateHtml(botId) {
     </div>`;
 }
 
-/** Fills the sign-in page with real store photos and the live stock count. Purely
+/** Adds the live stock count and help link to the sign-in page. Purely
     decorative, so any failure just leaves the page as it is. */
 async function loadGateExtras() {
   const [products, settings] = await Promise.all([
@@ -538,21 +537,6 @@ async function loadGateExtras() {
     stock.textContent = `${count.toLocaleString()} cards in stock now`;
     stock.hidden = false;
   }
-
-  // Pricier cards make the best showcase. Put the top one in the middle of the fan.
-  const picks = products
-    .filter((p) => p.image)
-    .sort((a, b) => b.price - a.price)
-    .slice(0, 5);
-  const order = [3, 1, 0, 2, 4].filter((i) => i < picks.length);
-  const mid = (order.length - 1) / 2;
-  $('#fan').innerHTML = order
-    .map((idx, pos) => {
-      const off = pos - mid;
-      return `<img src="${esc(picks[idx].image)}" alt="" style="--r:${off * 7}deg;--y:${Math.abs(off) * 7}px;--d:${pos * 70}ms;z-index:${10 - Math.abs(off)}">`;
-    })
-    .join('');
-  if (!picks.length) $('#fan').hidden = true;
 
   const contact = String(settings.contactTelegram || '').trim();
   if (contact) {

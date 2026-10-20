@@ -65,12 +65,13 @@ img{display:block;max-width:100%}
 
 /* ---------- sign-in gate ---------- */
 .gate{min-height:100vh;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)}
-.gate-brand{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;gap:40px;padding:clamp(32px,4vw,64px) clamp(28px,5.5vw,96px);color:#e8efe9;background:
+.gate-brand{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:center;padding:clamp(32px,4vw,64px) clamp(28px,5.5vw,96px);color:#e8efe9;background:
   radial-gradient(700px 380px at 110% -10%,rgba(184,145,63,.28),transparent 60%),
   radial-gradient(600px 400px at -20% 120%,rgba(255,255,255,.06),transparent 60%),
   linear-gradient(160deg,#16291f,#1f3a2e 60%,#24453a)}
 .gate-brand::after{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:44px 44px;mask-image:linear-gradient(180deg,#000,transparent 80%);pointer-events:none}
 .gate-brand>*{position:relative;z-index:1}
+.gate-brand .logo-row{position:absolute;top:clamp(32px,4vw,64px);left:clamp(28px,5.5vw,96px)}
 .logo-row{display:flex;align-items:center;gap:12px;font-weight:700;font-size:clamp(16px,1.2vw,19px);color:#fff}
 .logo-row img{width:clamp(36px,2.6vw,44px);height:clamp(36px,2.6vw,44px);border-radius:10px}
 .gate-hero{max-width:620px}
@@ -80,19 +81,11 @@ img{display:block;max-width:100%}
 .ticks{list-style:none;padding:0;margin:30px 0 0;display:grid;gap:14px}
 .ticks li{display:flex;gap:12px;align-items:center;font-size:clamp(14.5px,1.05vw,17px);color:#dbe5de}
 .ticks .i{color:#e2c47f;width:20px;height:20px}
+.gate-brand .gate-foot{position:absolute;bottom:clamp(32px,4vw,64px);left:clamp(28px,5.5vw,96px);right:24px}
 .gate-foot{display:flex;flex-wrap:wrap;gap:8px 22px;font-size:13px;color:#8fa699}
 .gate-foot span{display:inline-flex;align-items:center;gap:7px}
 .gate-foot .i{width:15px;height:15px;color:#b69a5c}
 
-/* fanned card stack built from live store photos */
-.fan{display:flex;align-items:flex-end;height:clamp(110px,min(10vw,17vh),175px);margin:0 0 clamp(26px,min(2.4vw,4vh),40px) 14px}
-.fan img{width:clamp(66px,min(5.6vw,9.5vh),100px);aspect-ratio:5/7;object-fit:cover;border-radius:clamp(6px,.6vw,10px);background:#2b4a3c;
-  box-shadow:0 18px 40px -12px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.12);
-  transform:translateY(var(--y)) rotate(var(--r));transform-origin:50% 100%;
-  opacity:0;animation:fan-in .6s cubic-bezier(.2,.8,.2,1) forwards;animation-delay:var(--d);transition:transform .25s ease}
-.fan img+img{margin-left:calc(clamp(66px,min(5.6vw,9.5vh),100px) * -.38)}
-.fan img:hover{transform:translateY(calc(var(--y) - 14px)) rotate(var(--r))}
-@keyframes fan-in{from{opacity:0;transform:translateY(calc(var(--y) + 30px)) rotate(0deg)}to{opacity:1;transform:translateY(var(--y)) rotate(var(--r))}}
 .stock{display:inline-flex;align-items:center;gap:9px;margin-bottom:20px;padding:7px 14px 7px 12px;border-radius:99px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);font-size:13px;font-weight:600;color:#e3ebe5}
 .stock::before{content:"";width:8px;height:8px;border-radius:50%;background:#5fd08a;box-shadow:0 0 0 4px rgba(95,208,138,.2)}
 
@@ -327,12 +320,10 @@ img{display:block;max-width:100%}
 @media (max-width:900px){
   .gate{grid-template-columns:minmax(0,1fr);min-height:0}
   .gate-brand{gap:22px;padding:24px 20px 30px}
+  .gate-brand .logo-row{position:static}
   .gate-brand h2{font-size:30px}
   .gate-brand .lede{font-size:15px;margin-top:12px}
   .ticks,.gate-foot{display:none}
-  .fan{height:130px;margin:0 0 36px;justify-content:center}
-  .fan img{width:76px}
-  .fan img+img{margin-left:-28px}
   .gate-form{padding:24px 16px 40px;align-items:start}
   .shell{display:block}
   .side{position:fixed;inset:0 auto 0 0;width:280px;z-index:60;transform:translateX(-100%);transition:transform .22s ease;box-shadow:var(--shadow-md)}
