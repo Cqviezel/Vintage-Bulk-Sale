@@ -84,7 +84,7 @@ router.get('/orders', (req, res) => {
   if (!req.session || !req.session.customer) {
     return res.status(401).json({ error: 'Log in with Telegram to see your orders.' });
   }
-  const rows = orders.listOrdersForCustomer(req.session.customer.id);
+  const rows = orders.listOrdersForCustomer(req.session.customer.id, req.session.customer.username);
   res.json(
     rows.map((order) => ({
       id: order.id,

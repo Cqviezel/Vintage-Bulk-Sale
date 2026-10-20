@@ -1312,6 +1312,7 @@ function renderAccountBody() {
     body.innerHTML = `
       <div class="summary"><span>Logged in as <b>${esc(customerLabel())}</b></span></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">
+        <a class="checkout" href="/account" style="flex:1 1 180px;text-align:center;text-decoration:none">My account &amp; claims</a>
         <button class="checkout" id="myOrdersBtn" style="flex:1 1 180px">My orders</button>
         <button class="checkout" id="logoutBtn" style="flex:1 1 140px">Log out</button>
       </div>

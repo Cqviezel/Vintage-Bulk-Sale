@@ -8,8 +8,12 @@ const ORDER_FLOW = ['awaiting payment', 'paid', 'packed', 'mailed', 'completed']
 const ORDER_STATUSES = new Set([...ORDER_FLOW, 'cancelled']);
 
 const allOrders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 500');
+// Orders the seller logged by hand (claim sales) only know the buyer's @handle, so match
+// on that too. The username comes from Telegram's signed login payload, so it is verified.
 const ordersForCustomer = db.prepare(
-  'SELECT * FROM orders WHERE telegram_user_id = ? ORDER BY created_at DESC LIMIT 50'
+  `SELECT * FROM orders
+   WHERE telegram_user_id = @id OR (@handle <> '' AND lower(telegram) = lower(@handle))
+   ORDER BY created_at DESC LIMIT 50`
 );
 const openOrders = db.prepare(
   `SELECT * FROM orders WHERE status NOT IN ('completed', 'cancelled')
@@ -66,8 +70,8 @@ function listOpenOrders(limit = 25) {
   return openOrders.all(limit);
 }
 
-function listOrdersForCustomer(telegramId) {
-  return ordersForCustomer.all(telegramId);
+function listOrdersForCustomer(telegramId, username = '') {
+  return ordersForCustomer.all({ id: telegramId, handle: username ? '@' + username : '' });
 }
 
 /**
