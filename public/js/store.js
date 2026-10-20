@@ -214,6 +214,7 @@ async function load() {
     renderSetOptions();
     renderProducts();
     renderCart();
+    renderHero();
   } catch (err) {
     $('#productGrid').innerHTML =
       `<div class="empty">Could not load the catalogue.<br><span class="small">${esc(err.message)}</span></div>`;
@@ -229,6 +230,41 @@ async function load() {
 }
 
 /* ------------------------------------------------------------ rendering --- */
+
+/** Live stock count and a fan of the priciest cards in the hero. Needs at least three
+    photographed cards to look right, so the logo card stays until then. */
+function renderHero() {
+  const count = products.reduce((n, p) => n + (Number(p.qty) || 0), 0);
+  const chip = $('#heroStock');
+  if (chip && count) {
+    chip.textContent = `${count.toLocaleString()} cards in stock now`;
+    chip.hidden = false;
+  }
+
+  const fan = $('#heroFan');
+  const picks = products
+    .filter((p) => p.image)
+    .sort((a, b) => b.price - a.price)
+    .slice(0, 5);
+  if (!fan || picks.length < 3) return;
+
+  // Most expensive card in the middle, the rest fanning out to either side.
+  const order = [3, 1, 0, 2, 4].filter((i) => i < picks.length);
+  const mid = (order.length - 1) / 2;
+  fan.innerHTML = order
+    .map((idx, pos) => {
+      const p = picks[idx];
+      const off = pos - mid;
+      return `<button class="fan-card" type="button" data-hero-view="${esc(p.id)}" aria-label="View ${esc(p.name)}"
+        style="--r:${off * 7}deg;--y:${Math.abs(off) * 9}px;--d:${pos * 70}ms;z-index:${10 - Math.abs(off)}">
+        <img src="${esc(p.image)}" alt="" onerror="this.closest('.fan-card').remove()">
+      </button>`;
+    })
+    .join('');
+  fan.querySelectorAll('[data-hero-view]').forEach((b) => {
+    b.onclick = () => openQuickView(b.dataset.heroView);
+  });
+}
 
 // Cached so the search box below can re-filter without recomputing groups from
 // `products` on every keystroke — refreshed each time renderSetOptions() runs.
@@ -431,16 +467,20 @@ function renderProducts() {
         <div class="product-image${p.variant && p.variant !== 'Normal' ? ' variant' : ''}" role="button" tabindex="0" aria-label="View details for ${esc(p.name)}">
           <img src="${esc(p.image || LOGO)}" alt="${esc(p.name)}" loading="lazy"
                onload="this.classList.add('loaded')" onerror="this.onerror=null;this.src='${LOGO}'">
-          <span class="price">${money(p.price)}</span>
         </div>
-        <h3>${esc(p.name)}</h3>
-        <div class="meta">${p.setSymbol ? `<img class="set-icon" src="${esc(p.setSymbol)}" alt="" loading="lazy">` : ''}${esc(p.set)}${p.number ? ' &middot; ' + esc(p.number) : ''}</div>
-        <div class="tags">
-          <span class="tag">${esc(p.condition)}</span>
-          ${p.variant && p.variant !== 'Normal' ? `<span class="tag variant">${esc(p.variant)}</span>` : ''}
-          <span class="tag stock${p.qty <= 1 ? ' low' : ''}">${p.qty} left</span>
+        <div class="product-body">
+          <div class="meta">${p.setSymbol ? `<img class="set-icon" src="${esc(p.setSymbol)}" alt="" loading="lazy">` : ''}${esc(p.set)}${p.number ? ' &middot; ' + esc(p.number) : ''}</div>
+          <h3>${esc(p.name)}</h3>
+          <div class="tags">
+            <span class="tag">${esc(p.condition)}</span>
+            ${p.variant && p.variant !== 'Normal' ? `<span class="tag variant">${esc(p.variant)}</span>` : ''}
+          </div>
+          <div class="product-buy">
+            <span class="price">${money(p.price)}</span>
+            <span class="stock-note${p.qty <= 1 ? ' low' : ''}">${p.qty <= 1 ? 'Last one' : `${p.qty} in stock`}</span>
+          </div>
+          ${cartQty > 0 ? cartControlHtml(p.id, cartQty, p.qty) : `<button class="add" data-add="${esc(p.id)}">Add to cart</button>`}
         </div>
-        ${cartQty > 0 ? cartControlHtml(p.id, cartQty, p.qty) : `<button class="add" data-add="${esc(p.id)}">Add to Cart</button>`}
       </article>`;
         })
         .join('')
@@ -530,7 +570,7 @@ function openQuickView(id) {
         </div>
         ${p.notes ? `<div class="notice" style="margin-top:12px">${esc(p.notes)}</div>` : ''}
         <div id="quickViewAddWrap" style="margin-top:16px">
-          ${cartQty > 0 ? cartControlHtml(p.id, cartQty, p.qty) : `<button class="add" id="quickViewAdd">Add to Cart</button>`}
+          ${cartQty > 0 ? cartControlHtml(p.id, cartQty, p.qty) : `<button class="add" id="quickViewAdd">Add to cart</button>`}
         </div>
       </div>
     </div>

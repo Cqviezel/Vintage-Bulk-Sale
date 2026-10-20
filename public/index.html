@@ -3,128 +3,205 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Crazed TCG — Vintage Bulk Cards</title>
-<meta name="description" content="Curated vintage trading card singles. PayNow checkout, tracked mailing, cards from $2.">
+<title>Crazed TCG — Vintage Pokémon Singles</title>
+<meta name="description" content="Vintage Pokémon singles from $2. PayNow checkout, Tracked Mailing and live claim sales on Telegram.">
 <link rel="icon" href="/img/favicon.png" sizes="64x64">
 <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
-<meta property="og:title" content="Crazed TCG — Vintage Bulk Cards">
-<meta property="og:description" content="Curated vintage trading card singles. PayNow checkout, tracked mailing, cards from $2.">
+<meta property="og:title" content="Crazed TCG — Vintage Pokémon Singles">
+<meta property="og:description" content="Vintage Pokémon singles from $2. PayNow checkout, Tracked Mailing and live claim sales on Telegram.">
 <meta property="og:image" content="/img/logo.jpg">
 <meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/css/styles.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/store.css">
 </head>
 <body>
 
-<div id="storeView" class="app">
-  <div class="store-shell">
-    <header class="store-nav">
-      <div class="store-nav-left">
-        <div class="nav-dropdown">
-          <button id="browseSets" aria-haspopup="true" aria-expanded="false" aria-controls="browseSetsMenu">Browse Sets &#9662;</button>
-          <div class="nav-dropdown-menu hidden" id="browseSetsMenu" role="menu">
-            <input type="text" id="browseSetsSearch" class="menu-search" placeholder="Search sets…" aria-label="Search sets">
-            <div class="menu-list" id="browseSetsList"></div>
-          </div>
-        </div>
-        <a href="#catalogue" data-nav="all-cards">All Cards</a>
-        <a href="#catalogue" id="latestDrop">Latest Drop</a>
-      </div>
-      <div class="store-nav-right">
-        <button class="cart hidden" id="accountOpen">Log in</button>
-        <div class="nav-dropdown mobile-nav-dropdown">
-          <button id="mobileNav" aria-haspopup="true" aria-expanded="false" aria-controls="mobileNavMenu" aria-label="Menu">&#9776;</button>
-          <div class="nav-dropdown-menu hidden" id="mobileNavMenu" role="menu">
-            <a role="menuitem" href="#catalogue" id="mobileAllCards">All Cards</a>
-            <a role="menuitem" href="#catalogue" id="mobileLatestDrop">Latest Drop</a>
-          </div>
-        </div>
-        <button class="cart" id="cartOpen"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M7 4h-2l-.94 2h-2.06a1 1 0 0 0 0 2h1.32l2.24 8.72a2 2 0 0 0 1.94 1.5h8.9a2 2 0 0 0 1.94-1.5l1.7-6.6a1 1 0 0 0-.97-1.25h-11.6l-.42-1.6a1 1 0 0 0-.97-.75l-1.08-.02zm3 15.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm8 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/></svg>Cart <span class="count" id="cartCount">0</span></button>
-      </div>
-    </header>
+<header class="topnav">
+  <div class="topnav-inner">
+    <a class="brand" href="/" aria-label="Crazed TCG home">
+      <img src="/img/logo-460.jpg" alt="" width="34" height="34">
+      <span>Crazed TCG</span>
+    </a>
 
-    <section class="hero">
-      <div class="hero-copy">
-        <div class="eyebrow">Curated Vintage Singles</div>
-        <h1>Crazed TCG</h1>
-        <div class="hero-title">Vintage Bulk Cards</div>
-        <div class="hero-actions">
-          <a class="hero-primary" href="#catalogue" data-nav="all-cards">Browse Cards</a>
-          <a class="hero-secondary" href="#" id="joinTelegram"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M21.94 4.11c.29-1.2-.44-1.72-1.24-1.42L2.6 9.86c-1.17.46-1.16 1.12-.2 1.42l4.72 1.47 1.83 5.6c.22.6.38.84.78.84.35 0 .52-.16.73-.36l1.9-1.85 4.02 2.97c.74.41 1.27.2 1.46-.68l2.9-13.66zM8.4 13.1l9.4-5.94c.47-.28.9-.13.55.18l-8.02 7.24-.32 3.4-1.6-4.88z"/></svg>Join Telegram</a>
+    <nav class="store-nav-left" aria-label="Shop">
+      <div class="nav-dropdown">
+        <button id="browseSets" aria-haspopup="true" aria-expanded="false" aria-controls="browseSetsMenu">
+          Browse sets
+          <svg class="i i-xs" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="nav-dropdown-menu hidden" id="browseSetsMenu" role="menu">
+          <input type="text" id="browseSetsSearch" class="menu-search" placeholder="Search sets" aria-label="Search sets">
+          <div class="menu-list" id="browseSetsList"></div>
         </div>
       </div>
-      <div class="hero-art">
-        <div class="hero-card"><img src="/img/logo-460.jpg" alt="Crazed TCG logo" width="230" height="230"></div>
-      </div>
-      <div class="hero-benefits">
-        <span>Cards from $2</span><span class="dot"></span>
-        <span>PayNow Checkout</span><span class="dot"></span>
-        <span>Tracked Mailing</span>
-      </div>
-    </section>
+      <a href="#catalogue" data-nav="all-cards">All cards</a>
+      <a href="#catalogue" id="latestDrop">Latest drop</a>
+    </nav>
 
-    <section class="shows hidden" id="showsSection">
-      <div class="shows-head">
-        <h2><span class="pin">&#128205;</span>Find Us In Person</h2>
-      </div>
-      <div class="shows-row" id="showsRow"></div>
-    </section>
-
-    <main class="catalogue" id="catalogue">
-      <div class="catalogue-head">
-        <div>
-          <h2>Available Singles</h2>
-          <p>Reference images shown. Actual condition is stated on each listing.</p>
+    <div class="store-nav-right">
+      <a class="nav-link-quiet" href="/account">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 9 5-9 5-9-5 9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg>
+        My claims
+      </a>
+      <button class="nav-btn hidden" id="accountOpen">Log in</button>
+      <button class="cart" id="cartOpen" aria-label="Open cart">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+        <span class="cart-label">Cart</span>
+        <span class="count" id="cartCount">0</span>
+      </button>
+      <div class="nav-dropdown mobile-nav-dropdown">
+        <button id="mobileNav" class="icon-btn" aria-haspopup="true" aria-expanded="false" aria-controls="mobileNavMenu" aria-label="Menu">
+          <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <div class="nav-dropdown-menu hidden" id="mobileNavMenu" role="menu">
+          <a role="menuitem" href="#catalogue" id="mobileAllCards">All cards</a>
+          <a role="menuitem" href="#catalogue" id="mobileLatestDrop">Latest drop</a>
+          <a role="menuitem" href="/account">My claims &amp; orders</a>
         </div>
-        <span class="small muted" id="resultCount"></span>
       </div>
-      <div class="filters">
-        <input id="storeSearch" placeholder="Search cards" aria-label="Search cards">
-        <select id="storeSet" aria-label="Filter by set"><option value="">All sets</option></select>
-        <select id="storePrice" aria-label="Sort by">
-          <option value="">Sort: Default</option>
-          <option value="new">Newest First</option>
-          <option value="asc">Price: Low to High</option>
-          <option value="desc">Price: High to Low</option>
-        </select>
-        <select id="storeCondition" aria-label="Filter by condition">
-          <option value="">All conditions</option>
-          <option>NM</option><option>LP</option><option>MP</option><option>HP</option>
-        </select>
-        <select id="storeVariant" aria-label="Filter by variant">
-          <option value="">All variants</option>
-          <option>Normal</option><option>Holo</option><option>Reverse Holo</option><option>1st Edition</option>
-        </select>
-      </div>
-      <div class="small muted" style="margin:-10px 0 18px">Tip: you can also search by artist name.</div>
-      <div class="grid" id="productGrid"></div>
-      <div class="pagination" id="pagination"></div>
-    </main>
-
-    <footer class="footer">
-      <div>
-        <strong>Crazed TCG</strong>
-        <span>Vintage cards made easy to browse.</span>
-      </div>
-      <nav>
-        <a href="#catalogue" data-nav="all-cards">All Cards</a>
-        <a href="#" id="conditionGuide">Condition Guide</a>
-        <a href="#" id="shippingInfo">Shipping &amp; Pickup</a>
-        <a href="#" id="trackOrder">Track Order</a>
-        <a href="/admin/login">Seller Login</a>
-      </nav>
-    </footer>
+    </div>
   </div>
+</header>
+
+<div class="page">
+
+  <section class="hero">
+    <div class="hero-copy">
+      <div class="hero-chip" id="heroStock" hidden></div>
+      <h1>Vintage Pokémon singles,<br><em>ready to ship.</em></h1>
+      <p>Hand-picked cards from every era, from $2. Check out with PayNow and get your cards by Tracked Mailing.</p>
+      <div class="hero-actions">
+        <a class="btn-hero primary" href="#catalogue" data-nav="all-cards">
+          Browse cards
+          <svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+        <a class="btn-hero ghost" href="#" id="joinTelegram">
+          <svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>
+          Join our Telegram
+        </a>
+      </div>
+    </div>
+    <div class="hero-art" aria-hidden="true">
+      <div class="hero-fan" id="heroFan">
+        <div class="hero-logo"><img src="/img/logo-460.jpg" alt="" width="200" height="200"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="features" aria-label="Why shop with us">
+    <div class="feature">
+      <span class="f-ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg></span>
+      <div><b>Cards from $2</b><span>Singles for every binder and budget</span></div>
+    </div>
+    <div class="feature">
+      <span class="f-ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M16 15h2"/></svg></span>
+      <div><b>PayNow checkout</b><span>Scan, pay and you're done</span></div>
+    </div>
+    <div class="feature">
+      <span class="f-ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M1 4h14v12H1z"/><path d="M15 8h4l4 4v4h-8z"/><circle cx="5.5" cy="18.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/></svg></span>
+      <div><b>Tracked Mailing</b><span>Every order is tracked and insured</span></div>
+    </div>
+    <div class="feature">
+      <span class="f-ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg></span>
+      <div><b>Telegram claim sales</b><span>Claim cards live in our channel</span></div>
+    </div>
+  </section>
+
+  <section class="shows hidden" id="showsSection">
+    <div class="section-head">
+      <h2>Find us in person</h2>
+      <p>Come say hi and shop the binders at these upcoming events.</p>
+    </div>
+    <div class="shows-row" id="showsRow"></div>
+  </section>
+
+  <main class="catalogue" id="catalogue">
+    <div class="section-head with-count">
+      <div>
+        <h2>Available singles</h2>
+        <p>Reference images shown. Each listing states the card's actual condition.</p>
+      </div>
+      <span class="result-count" id="resultCount"></span>
+    </div>
+
+    <div class="filters">
+      <label class="search">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="storeSearch" type="search" placeholder="Search by card, set or artist" aria-label="Search cards">
+      </label>
+      <select id="storeSet" aria-label="Filter by set"><option value="">All sets</option></select>
+      <select id="storeCondition" aria-label="Filter by condition">
+        <option value="">All conditions</option>
+        <option>NM</option><option>LP</option><option>MP</option><option>HP</option>
+      </select>
+      <select id="storeVariant" aria-label="Filter by variant">
+        <option value="">All variants</option>
+        <option>Normal</option><option>Holo</option><option>Reverse Holo</option><option>1st Edition</option>
+      </select>
+      <select id="storePrice" aria-label="Sort by">
+        <option value="">Sort: Featured</option>
+        <option value="new">Newest first</option>
+        <option value="asc">Price: Low to high</option>
+        <option value="desc">Price: High to low</option>
+      </select>
+    </div>
+
+    <div class="grid" id="productGrid">
+      <div class="empty"><span class="spinner"></span></div>
+    </div>
+    <div class="pagination" id="pagination"></div>
+  </main>
+
+  <section class="claims-cta">
+    <div class="cc-ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 9 5-9 5-9-5 9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg></div>
+    <div class="cc-text">
+      <h3>Claimed a card on Telegram?</h3>
+      <p>Log in with Telegram to see everything you've claimed, what you owe and where your order is.</p>
+    </div>
+    <a class="btn-solid" href="/account">
+      Track my claims
+      <svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </a>
+  </section>
+
 </div>
+
+<footer class="footer">
+  <div class="footer-inner">
+    <div class="footer-brand">
+      <a class="brand" href="/"><img src="/img/logo-460.jpg" alt="" width="34" height="34"><span>Crazed TCG</span></a>
+      <p>Vintage Pokémon singles, PayNow checkout and Tracked Mailing.</p>
+    </div>
+    <nav class="footer-col" aria-label="Shop">
+      <h4>Shop</h4>
+      <a href="#catalogue" data-nav="all-cards">All cards</a>
+      <a href="/account">My claims &amp; orders</a>
+    </nav>
+    <nav class="footer-col" aria-label="Help">
+      <h4>Help</h4>
+      <a href="#" id="conditionGuide">Condition guide</a>
+      <a href="#" id="shippingInfo">Shipping &amp; pickup</a>
+      <a href="#" id="trackOrder">Track an order</a>
+    </nav>
+    <nav class="footer-col" aria-label="Seller">
+      <h4>Seller</h4>
+      <a href="/admin/login">Seller login</a>
+    </nav>
+  </div>
+  <div class="footer-base">
+    <span>&copy; Crazed TCG</span>
+    <span>Pokémon and all related names are trademarks of their respective owners.</span>
+  </div>
+</footer>
 
 <div class="overlay" id="overlay"></div>
 
 <aside class="drawer" id="cartDrawer" aria-label="Shopping cart">
   <div class="panel-head">
-    <h3>Your Cart</h3>
-    <div style="display:flex;align-items:center;gap:14px">
+    <h3>Your cart</h3>
+    <div class="panel-head-actions">
       <button id="cartClearAll" class="remove hidden">Clear cart</button>
       <button class="close" id="cartClose" aria-label="Close cart">&times;</button>
     </div>
@@ -134,8 +211,8 @@
     <div class="summary"><span>Cards</span><span id="cartSubtotal">$0.00</span></div>
     <div class="summary"><span>Tracked Mailing</span><span id="cartMailing">$0.00</span></div>
     <div class="summary total"><span>Total</span><span id="cartTotal">$0.00</span></div>
-    <div class="small muted" id="cartHint" style="margin-top:8px"></div>
-    <button class="checkout" id="checkoutOpen">Continue to Checkout</button>
+    <div class="small muted" id="cartHint"></div>
+    <button class="checkout" id="checkoutOpen">Continue to checkout</button>
   </div>
 </aside>
 
@@ -151,16 +228,16 @@
     <div class="panel-body">
       <div class="form-grid">
         <div><label for="buyerName">Name</label><input id="buyerName" placeholder="Your name" autocomplete="name"></div>
-        <div><label for="buyerTelegram">Telegram Username</label><input id="buyerTelegram" placeholder="@username"></div>
+        <div><label for="buyerTelegram">Telegram username</label><input id="buyerTelegram" placeholder="@username"></div>
         <div><label for="buyerEmail">Email (optional)</label><input id="buyerEmail" type="email" placeholder="you@example.com" autocomplete="email"></div>
-        <div><label for="buyerPhone">Phone Number</label><input id="buyerPhone" type="tel" placeholder="For courier tracking" autocomplete="tel"></div>
+        <div><label for="buyerPhone">Phone number</label><input id="buyerPhone" type="tel" placeholder="For courier tracking" autocomplete="tel"></div>
         <div>
           <label for="buyerDelivery">Delivery</label>
           <select id="buyerDelivery"><option>Tracked Mailing</option><option>Self-Pickup</option></select>
         </div>
-        <div><label for="buyerPayment">Payment Method</label><select id="buyerPayment"><option>PayNow</option></select></div>
+        <div><label for="buyerPayment">Payment method</label><select id="buyerPayment"><option>PayNow</option></select></div>
         <div class="full">
-          <label for="buyerAddress">Mailing Address / Pickup Note</label>
+          <label for="buyerAddress">Mailing address or pickup note</label>
           <textarea id="buyerAddress" autocomplete="street-address"></textarea>
         </div>
         <div class="full notice warn hidden" id="selfPickupHint"></div>
@@ -173,19 +250,19 @@
       </div>
       <div class="small" id="promoMessage"></div>
       <div class="summary" id="promoDiscountRow" style="display:none"><span>Discount</span><span id="checkoutDiscount">$0.00</span></div>
-      <div class="summary total"><span>Order Total</span><span id="checkoutTotal">$0.00</span></div>
+      <div class="summary total"><span>Order total</span><span id="checkoutTotal">$0.00</span></div>
       <div id="checkoutError" class="notice error hidden" style="margin-top:12px"></div>
-      <button class="checkout" id="submitOrder">Place Order</button>
+      <button class="checkout" id="submitOrder">Place order</button>
       <div class="trust-badges">
-        <span><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4zm-1 13l5-5-1.4-1.4L11 12.2 8.9 10.1 7.5 11.5 11 15z"/></svg>Secure PayNow Checkout</span>
-        <span><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 2 3 6.5v11L12 22l9-4.5v-11L12 2zm0 2.2 6.3 3.2L12 10.6 5.7 7.4 12 4.2zM5 9.3l6 3v7.4l-6-3V9.3zm8 10.4v-7.4l6-3v7.4l-6 3z"/></svg>Tracked &amp; Insured Mailing</span>
+        <span><svg class="i i-xs" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Secure PayNow checkout</span>
+        <span><svg class="i i-xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M1 4h14v12H1z"/><path d="M15 8h4l4 4v4h-8z"/><circle cx="5.5" cy="18.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/></svg>Tracked &amp; Insured Mailing</span>
       </div>
     </div>
   </div>
 </div>
 
 <div class="modal-bg" id="quickViewModal">
-  <div class="modal" style="width:min(720px,100%)">
+  <div class="modal" style="width:min(760px,100%)">
     <div class="panel-head">
       <h2 id="quickViewTitle"></h2>
       <button class="close modal-close" aria-label="Close">&times;</button>
@@ -198,7 +275,7 @@
   <div class="modal" style="width:min(620px,100%)">
     <div class="panel-head">
       <div>
-        <h2>Order Confirmed</h2>
+        <h2>Order confirmed</h2>
         <div class="small muted">Your cards are reserved.</div>
       </div>
       <button class="close modal-close" aria-label="Close">&times;</button>
@@ -211,18 +288,18 @@
   <div class="modal" style="width:min(560px,100%)">
     <div class="panel-head">
       <div>
-        <h2>Track Your Order</h2>
-        <div class="small muted">Enter your order ID and the Telegram handle or email you checked out with.</div>
+        <h2>Track your order</h2>
+        <div class="small muted">Enter your order ID and the Telegram username or email you checked out with.</div>
       </div>
       <button class="close modal-close" aria-label="Close">&times;</button>
     </div>
     <div class="panel-body">
       <div class="form-grid">
         <div><label for="trackId">Order ID</label><input id="trackId" placeholder="CTCG-1234"></div>
-        <div><label for="trackContact">Telegram or Email</label><input id="trackContact" placeholder="@username or you@example.com"></div>
+        <div><label for="trackContact">Telegram or email</label><input id="trackContact" placeholder="@username or you@example.com"></div>
       </div>
       <div id="trackError" class="notice error hidden" style="margin-top:12px"></div>
-      <button class="checkout" id="trackSubmit" style="margin-top:16px">Look Up Order</button>
+      <button class="checkout" id="trackSubmit">Look up order</button>
       <div id="trackResult" style="margin-top:16px"></div>
     </div>
   </div>
@@ -232,8 +309,8 @@
   <div class="modal" style="width:min(560px,100%)">
     <div class="panel-head">
       <div>
-        <h2>Your Account</h2>
-        <div class="small muted">Log in with Telegram to use referral codes and see your orders.</div>
+        <h2>Your account</h2>
+        <div class="small muted">Log in with Telegram to see your claims and orders, and use referral codes.</div>
       </div>
       <button class="close modal-close" aria-label="Close">&times;</button>
     </div>
@@ -251,7 +328,9 @@
   </div>
 </div>
 
-<button class="back-to-top" id="backToTop" aria-label="Back to top">&uarr;</button>
+<button class="back-to-top" id="backToTop" aria-label="Back to top">
+  <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+</button>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
