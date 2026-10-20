@@ -18,6 +18,14 @@
 </head>
 <body>
 
+<div class="announce">
+  <div class="announce-inner">
+    <span class="announce-dot"></span>
+    <span>Live claim sales on Telegram</span>
+    <a href="#" id="announceTelegram">Join the channel &rarr;</a>
+  </div>
+</div>
+
 <header class="topnav">
   <div class="topnav-inner">
     <a class="brand" href="/" aria-label="Crazed TCG home">
@@ -120,39 +128,79 @@
   <main class="catalogue" id="catalogue">
     <div class="section-head with-count">
       <div>
-        <h2>Available singles</h2>
+        <h2>Shop singles</h2>
         <p>Reference images shown. Each listing states the card's actual condition.</p>
       </div>
       <span class="result-count" id="resultCount"></span>
     </div>
 
-    <div class="filters">
-      <label class="search">
-        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input id="storeSearch" type="search" placeholder="Search by card, set or artist" aria-label="Search cards">
-      </label>
-      <select id="storeSet" aria-label="Filter by set"><option value="">All sets</option></select>
-      <select id="storeCondition" aria-label="Filter by condition">
+    <!-- The selects below stay the source of truth for store.js filtering; the sidebar
+         buttons just set their values. They're hidden, not removed. -->
+    <div class="hidden" aria-hidden="true">
+      <select id="storeSet" tabindex="-1"><option value="">All sets</option></select>
+      <select id="storeCondition" tabindex="-1">
         <option value="">All conditions</option>
         <option>NM</option><option>LP</option><option>MP</option><option>HP</option>
       </select>
-      <select id="storeVariant" aria-label="Filter by variant">
+      <select id="storeVariant" tabindex="-1">
         <option value="">All variants</option>
         <option>Normal</option><option>Holo</option><option>Reverse Holo</option><option>1st Edition</option>
       </select>
-      <select id="storePrice" aria-label="Sort by">
-        <option value="">Sort: Featured</option>
-        <option value="new">Newest first</option>
-        <option value="asc">Price: Low to high</option>
-        <option value="desc">Price: High to low</option>
-      </select>
     </div>
 
-    <div class="grid" id="productGrid">
-      <div class="empty"><span class="spinner"></span></div>
+    <div class="shop-layout">
+      <aside class="facets" id="facets" aria-label="Filters">
+        <div class="facets-head">
+          <h3>Filters</h3>
+          <button class="close" id="facetsClose" aria-label="Close filters">&times;</button>
+        </div>
+        <div class="facets-body">
+          <section class="facet">
+            <h4>Condition</h4>
+            <div class="chip-group" id="facetCondition"></div>
+          </section>
+          <section class="facet">
+            <h4>Variant</h4>
+            <div class="chip-group" id="facetVariant"></div>
+          </section>
+          <section class="facet">
+            <h4>Set</h4>
+            <div class="facet-list" id="facetSets"></div>
+          </section>
+        </div>
+        <div class="facets-foot">
+          <button class="btn" id="facetsClear" type="button">Clear all</button>
+          <button class="checkout" id="facetsDone" type="button">Show cards</button>
+        </div>
+      </aside>
+
+      <div class="shop-main">
+        <div class="toolbar">
+          <label class="search">
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input id="storeSearch" type="search" placeholder="Search by card, set or artist" aria-label="Search cards">
+          </label>
+          <button class="btn filters-btn" id="facetsOpen" type="button">
+            <svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
+            Filters<span class="filters-n" id="facetsCount" hidden></span>
+          </button>
+          <select id="storePrice" class="sort" aria-label="Sort by">
+            <option value="">Sort: Featured</option>
+            <option value="new">Newest first</option>
+            <option value="asc">Price: Low to high</option>
+            <option value="desc">Price: High to low</option>
+          </select>
+        </div>
+        <div class="active-filters" id="activeFilters" hidden></div>
+
+        <div class="grid" id="productGrid">
+          <div class="empty"><span class="spinner"></span></div>
+        </div>
+        <div class="pagination" id="pagination"></div>
+      </div>
     </div>
-    <div class="pagination" id="pagination"></div>
   </main>
+  <div class="facets-scrim" id="facetsScrim"></div>
 
   <section class="claims-cta">
     <div class="cc-ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 9 5-9 5-9-5 9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg></div>

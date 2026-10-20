@@ -474,12 +474,18 @@ function renderProducts() {
           <div class="tags">
             <span class="tag">${esc(p.condition)}</span>
             ${p.variant && p.variant !== 'Normal' ? `<span class="tag variant">${esc(p.variant)}</span>` : ''}
+            <span class="stock-note${p.qty <= 1 ? ' low' : ''}">${p.qty <= 1 ? 'Last one' : `${p.qty} in stock`}</span>
           </div>
           <div class="product-buy">
             <span class="price">${money(p.price)}</span>
-            <span class="stock-note${p.qty <= 1 ? ' low' : ''}">${p.qty <= 1 ? 'Last one' : `${p.qty} in stock`}</span>
+            ${
+              cartQty > 0
+                ? cartControlHtml(p.id, cartQty, p.qty)
+                : `<button class="add" data-add="${esc(p.id)}" aria-label="Add ${esc(p.name)} to cart">
+                     <svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add
+                   </button>`
+            }
           </div>
-          ${cartQty > 0 ? cartControlHtml(p.id, cartQty, p.qty) : `<button class="add" data-add="${esc(p.id)}">Add to cart</button>`}
         </div>
       </article>`;
         })
@@ -522,6 +528,119 @@ function renderProducts() {
   });
 
   renderPagination(totalPages);
+  renderFacets();
+}
+
+/* --------------------------------------------------------------- facets --- */
+
+// The sidebar is only a nicer face on the hidden #storeSet/#storeCondition/#storeVariant
+// selects: a click sets the select and fires the same 'input' event the old dropdowns
+// did, so filtering itself stays in renderProducts().
+const FACET_OPTIONS = {
+  storeCondition: ['NM', 'LP', 'MP', 'HP'],
+  storeVariant: ['Normal', 'Holo', 'Reverse Holo', '1st Edition'],
+};
+const SETS_COLLAPSED = 10;
+let showAllSets = false;
+
+function setFilter(id, value) {
+  const el = $('#' + id);
+  el.value = value;
+  el.dispatchEvent(new Event('input'));
+}
+
+function countBy(key) {
+  const m = new Map();
+  for (const p of products) m.set(p[key], (m.get(p[key]) || 0) + 1);
+  return m;
+}
+
+function renderFacets() {
+  if (!$('#facets')) return;
+
+  const chipGroup = (id, counts) => {
+    const current = $('#' + id).value;
+    return FACET_OPTIONS[id]
+      .map((v) => {
+        const n = counts.get(v) || 0;
+        const on = current === v;
+        return `<button type="button" class="chip${on ? ' on' : ''}" data-facet="${id}" data-value="${esc(v)}"
+          aria-pressed="${on}"${n || on ? '' : ' disabled'}>${esc(v)}<span>${n}</span></button>`;
+      })
+      .join('');
+  };
+  $('#facetCondition').innerHTML = chipGroup('storeCondition', countBy('condition'));
+  $('#facetVariant').innerHTML = chipGroup('storeVariant', countBy('variant'));
+
+  const setCounts = countBy('set');
+  const currentSet = $('#storeSet').value;
+  const sets = browseSetGroups.flatMap((g) => g.sets);
+  let shown = showAllSets ? sets : sets.slice(0, SETS_COLLAPSED);
+  if (currentSet && !shown.includes(currentSet)) shown = [...shown, currentSet];
+  const setRow = (value, label, n) => {
+    const symbol = value && setSymbolByName.get(value);
+    return `<button type="button" class="facet-row${currentSet === value ? ' on' : ''}" data-facet="storeSet" data-value="${esc(value)}">
+      ${symbol ? `<img class="set-icon" src="${esc(symbol)}" alt="" loading="lazy">` : ''}<span class="fr-name">${esc(label)}</span><span class="fr-n">${n}</span>
+    </button>`;
+  };
+  $('#facetSets').innerHTML =
+    setRow('', 'All sets', products.length) +
+    shown.map((s) => setRow(s, s, setCounts.get(s) || 0)).join('') +
+    (sets.length > SETS_COLLAPSED
+      ? `<button type="button" class="facet-more" id="facetMore">${showAllSets ? 'Show fewer' : `Show all ${sets.length} sets`}</button>`
+      : '');
+
+  $$('#facets [data-facet]').forEach((b) => {
+    b.onclick = () => {
+      const { facet, value } = b.dataset;
+      // Tapping the active chip again turns it off; set rows always select.
+      setFilter(facet, facet !== 'storeSet' && $('#' + facet).value === value ? '' : value);
+    };
+  });
+  const more = $('#facetMore');
+  if (more) {
+    more.onclick = () => {
+      showAllSets = !showAllSets;
+      renderFacets();
+    };
+  }
+
+  // Removable pills for whatever is narrowing the grid right now.
+  const active = [
+    ['storeSearch', $('#storeSearch').value.trim() && `“${$('#storeSearch').value.trim()}”`],
+    ['storeSet', currentSet],
+    ['storeCondition', $('#storeCondition').value],
+    ['storeVariant', $('#storeVariant').value],
+  ].filter(([, label]) => label);
+  const bar = $('#activeFilters');
+  bar.hidden = !active.length;
+  bar.innerHTML =
+    active
+      .map(([id, label]) => `<button type="button" class="pill" data-clear="${id}">${esc(label)}<span aria-hidden="true">&times;</span></button>`)
+      .join('') + (active.length > 1 ? '<button type="button" class="pill-clear" data-clear="all">Clear all</button>' : '');
+  $$('#activeFilters [data-clear]').forEach((b) => {
+    b.onclick = () => (b.dataset.clear === 'all' ? clearAllFilters() : setFilter(b.dataset.clear, ''));
+  });
+
+  const filterCount = active.filter(([id]) => id !== 'storeSearch').length;
+  $('#facetsCount').textContent = filterCount;
+  $('#facetsCount').hidden = !filterCount;
+  $('#facetsDone').textContent = 'Show ' + $('#resultCount').textContent;
+}
+
+function clearAllFilters() {
+  const sort = $('#storePrice').value;
+  resetFilters();
+  $('#storePrice').value = sort; // clearing filters shouldn't throw away the chosen sort
+  currentPage = 1;
+  renderProducts();
+}
+
+// On phones the sidebar becomes a slide-up panel.
+function setFacetsOpen(open) {
+  $('#facets').classList.toggle('open', open);
+  $('#facetsScrim').classList.toggle('show', open);
+  document.body.classList.toggle('no-scroll', open);
 }
 
 function renderPagination(totalPages) {
@@ -1212,15 +1331,24 @@ document.addEventListener('keydown', (e) => {
     closeCart();
     closeBrowseSetsMenu();
     closeMobileNavMenu();
+    setFacetsOpen(false);
   }
 });
 
-$('#joinTelegram').onclick = (e) => {
+function openTelegramChannel(e) {
   e.preventDefault();
   const handle = String(settings.telegram || '').replace(/^@/, '');
   if (!handle) return toast('No Telegram channel is configured yet.', true);
   window.open(`https://t.me/${encodeURIComponent(handle)}`, '_blank', 'noopener');
-};
+}
+$('#joinTelegram').onclick = openTelegramChannel;
+$('#announceTelegram').onclick = openTelegramChannel;
+
+$('#facetsOpen').onclick = () => setFacetsOpen(true);
+$('#facetsClose').onclick = () => setFacetsOpen(false);
+$('#facetsDone').onclick = () => setFacetsOpen(false);
+$('#facetsScrim').onclick = () => setFacetsOpen(false);
+$('#facetsClear').onclick = clearAllFilters;
 
 $('#conditionGuide').onclick = (e) => {
   e.preventDefault();
