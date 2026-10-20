@@ -1095,6 +1095,7 @@ router.put('/settings', (req, res) => {
 
   if (body.storeName !== undefined) patch.storeName = String(body.storeName).trim().slice(0, 80);
   if (body.telegram !== undefined) patch.telegram = String(body.telegram).trim().slice(0, 80);
+  if (body.claimTelegram !== undefined) patch.claimTelegram = String(body.claimTelegram).trim().slice(0, 80);
   if (body.paynow !== undefined) patch.paynow = String(body.paynow).trim().slice(0, 2000);
   if (body.paynowQr !== undefined) patch.paynowQr = String(body.paynowQr).trim().slice(0, 500);
   if (body.paynowPayee !== undefined) {

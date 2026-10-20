@@ -22,7 +22,7 @@
   <div class="announce-inner">
     <span class="announce-dot"></span>
     <span>Live claim sales on Telegram</span>
-    <a href="#" id="announceTelegram">Join the channel &rarr;</a>
+    <a href="#" data-claim-link>Join the channel &rarr;</a>
   </div>
 </div>
 
@@ -106,10 +106,10 @@
       <span class="f-ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M1 4h14v12H1z"/><path d="M15 8h4l4 4v4h-8z"/><circle cx="5.5" cy="18.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/></svg></span>
       <div><b>Tracked Mailing</b><span>Every order is tracked and insured</span></div>
     </div>
-    <div class="feature">
+    <a class="feature feature-link" href="#" data-claim-link>
       <span class="f-ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg></span>
       <div><b>Telegram claim sales</b><span>Claim cards live in our channel</span></div>
-    </div>
+    </a>
   </section>
 
   <section class="shows hidden" id="showsSection">
@@ -188,8 +188,9 @@
         </div>
         <div class="active-filters" id="activeFilters" hidden></div>
 
-        <div class="grid" id="productGrid">
-          <div class="empty"><span class="spinner"></span></div>
+        <div class="grid" id="productGrid" aria-busy="true">
+          <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
+          <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
         </div>
         <div class="pagination" id="pagination"></div>
       </div>
@@ -209,6 +210,40 @@
     </a>
   </section>
 
+  <section class="faq" id="faq">
+    <div class="faq-intro">
+      <h2>Questions, answered</h2>
+      <p>Everything you need to know about paying, mailing and claim sales.</p>
+      <p class="faq-more">Still stuck? <a href="#" id="faqContact">Message us on Telegram</a>.</p>
+    </div>
+    <div class="faq-list">
+      <details>
+        <summary>How do I pay?</summary>
+        <p>We take PayNow. After you place an order, you'll see a PayNow QR code and your order ID. Pay the total, then send your payment screenshot and order ID to us on Telegram.</p>
+      </details>
+      <details>
+        <summary>How much is mailing?</summary>
+        <p>Tracked Mailing is a flat <b data-setting="mailing">fee</b> per order, no matter how many cards you buy. Self-pickup is free at a listed trade show, or for orders of $50 or more.</p>
+      </details>
+      <details>
+        <summary>How do Telegram claim sales work?</summary>
+        <p>We post cards in our <a href="#" data-claim-link>claim sale channel</a>. Reply "claim" on a card to buy it at the listed price. We send your invoice on Telegram, and everything you've claimed shows up in <a href="/account">your account</a>.</p>
+      </details>
+      <details>
+        <summary>What do the condition grades mean?</summary>
+        <p><b>NM</b> (Near Mint) is pack fresh with no visible wear. <b>LP</b> (Lightly Played) has minor edge or surface wear. <b>MP</b> (Moderately Played) has noticeable whitening or scuffs. <b>HP</b> (Heavily Played) has heavy wear, and creasing is possible. Photos are reference images, and each listing states the card's actual condition.</p>
+      </details>
+      <details>
+        <summary>How do I track my order?</summary>
+        <p>Log in with Telegram on <a href="/account">My claims</a> to see every order and its status. You can also look up a single order with its order ID using <a href="#" data-track-link>Track an order</a>.</p>
+      </details>
+      <details>
+        <summary>Can I see more photos of a card?</summary>
+        <p>Yes. Message us on Telegram with the card name before you order, and we'll send extra photos.</p>
+      </details>
+    </div>
+  </section>
+
 </div>
 
 <footer class="footer">
@@ -221,20 +256,27 @@
       <h4>Shop</h4>
       <a href="#catalogue" data-nav="all-cards">All cards</a>
       <a href="/account">My claims &amp; orders</a>
+      <a href="#" data-claim-link>Claim sale channel</a>
+      <a href="#" data-main-link>Main Telegram channel</a>
     </nav>
     <nav class="footer-col" aria-label="Help">
       <h4>Help</h4>
+      <a href="#faq">FAQ</a>
       <a href="#" id="conditionGuide">Condition guide</a>
       <a href="#" id="shippingInfo">Shipping &amp; pickup</a>
       <a href="#" id="trackOrder">Track an order</a>
     </nav>
-    <nav class="footer-col" aria-label="Seller">
-      <h4>Seller</h4>
+    <nav class="footer-col" aria-label="Policies">
+      <h4>Policies</h4>
+      <a href="/policies#shipping">Shipping policy</a>
+      <a href="/policies#returns">Returns &amp; refunds</a>
+      <a href="/policies#terms">Terms of sale</a>
       <a href="/admin/login">Seller login</a>
     </nav>
   </div>
   <div class="footer-base">
-    <span>&copy; Crazed TCG</span>
+    <span>&copy; <span id="year">2026</span> Crazed TCG. All rights reserved.</span>
+    <span class="pay-badges"><span class="pay-badge">PayNow</span><span class="pay-badge">Tracked Mailing</span></span>
     <span>Pokémon and all related names are trademarks of their respective owners.</span>
   </div>
 </footer>

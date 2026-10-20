@@ -1835,6 +1835,7 @@ async function loadSettings() {
     const s = await api('/api/admin/settings');
     $('#settingStoreName').value = s.storeName;
     $('#settingTelegram').value = s.telegram;
+    $('#settingClaimTelegram').value = s.claimTelegram || '';
     $('#settingMailing').value = s.mailing;
     $('#settingMinimum').value = s.minimum;
     $('#settingReservation').value = s.reservation;
@@ -1884,6 +1885,7 @@ $('#saveSettings').onclick = async () => {
       body: JSON.stringify({
         storeName: $('#settingStoreName').value,
         telegram: $('#settingTelegram').value,
+        claimTelegram: $('#settingClaimTelegram').value,
         mailing: $('#settingMailing').value,
         minimum: $('#settingMinimum').value,
         reservation: $('#settingReservation').value,

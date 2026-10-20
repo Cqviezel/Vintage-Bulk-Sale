@@ -16,6 +16,8 @@ let tradeShows = [];
 let cart = new Map(loadCart()); // id -> quantity
 let appliedPromo = null; // { code, discount } — cleared whenever the cart contents change
 
+const CONDITION_NAMES = { NM: 'Near Mint', LP: 'Lightly Played', MP: 'Moderately Played', HP: 'Heavily Played' };
+
 const PAGE_SIZE = 24;
 let currentPage = 1;
 
@@ -215,6 +217,7 @@ async function load() {
     renderProducts();
     renderCart();
     renderHero();
+    wireTelegramLinks();
   } catch (err) {
     $('#productGrid').innerHTML =
       `<div class="empty">Could not load the catalogue.<br><span class="small">${esc(err.message)}</span></div>`;
@@ -433,6 +436,7 @@ function renderProducts() {
   if (currentPage > totalPages) currentPage = totalPages;
   const pageItems = list.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
+  $('#productGrid').removeAttribute('aria-busy');
   $('#productGrid').innerHTML = pageItems.length
     ? pageItems
         .map((p) => {
@@ -653,18 +657,29 @@ function openQuickView(id) {
     <div class="quick-view">
       <div class="product-image quick-view-image${p.variant && p.variant !== 'Normal' ? ' variant' : ''}">
         <img src="${esc(p.image || LOGO)}" alt="${esc(p.name)}" onload="this.classList.add('loaded')" onerror="this.onerror=null;this.src='${LOGO}'">
-        <span class="price">${money(p.price)}</span>
       </div>
       <div class="quick-view-info">
         <div class="meta">${p.setSymbol ? `<img class="set-icon" src="${esc(p.setSymbol)}" alt="" loading="lazy">` : ''}${esc(p.set)}${p.number ? ' &middot; ' + esc(p.number) : ''}</div>
+        <div class="qv-price">${money(p.price)}</div>
         <div class="tags">
           <span class="tag">${esc(p.condition)}</span>
           ${p.variant && p.variant !== 'Normal' ? `<span class="tag variant">${esc(p.variant)}</span>` : ''}
-          <span class="tag stock${p.qty <= 1 ? ' low' : ''}">${p.qty} left</span>
+          <span class="tag stock${p.qty <= 1 ? ' low' : ''}">${p.qty <= 1 ? 'Last one' : `${p.qty} in stock`}</span>
         </div>
-        ${p.notes ? `<div class="notice" style="margin-top:12px">${esc(p.notes)}</div>` : ''}
+        <dl class="qv-details">
+          <div><dt>Set</dt><dd>${esc(p.set || '—')}</dd></div>
+          ${p.number ? `<div><dt>Number</dt><dd>${esc(p.number)}</dd></div>` : ''}
+          <div><dt>Condition</dt><dd>${esc(CONDITION_NAMES[p.condition] || p.condition)}</dd></div>
+          ${p.variant ? `<div><dt>Variant</dt><dd>${esc(p.variant)}</dd></div>` : ''}
+          ${p.artist ? `<div><dt>Artist</dt><dd>${esc(p.artist)}</dd></div>` : ''}
+        </dl>
+        ${p.notes ? `<div class="notice" style="margin-top:14px">${esc(p.notes)}</div>` : ''}
         <div id="quickViewAddWrap" style="margin-top:16px">
           ${cartQty > 0 ? cartControlHtml(p.id, cartQty, p.qty) : `<button class="add" id="quickViewAdd">Add to cart</button>`}
+        </div>
+        <div class="qv-assure">
+          <span><svg class="i i-xs" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>PayNow checkout</span>
+          <span><svg class="i i-xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M1 4h14v12H1z"/><path d="M15 8h4l4 4v4h-8z"/><circle cx="5.5" cy="18.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/></svg>Tracked Mailing ${money(settings.mailing)}</span>
         </div>
       </div>
     </div>
@@ -1310,14 +1325,43 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-function openTelegramChannel(e) {
-  e.preventDefault();
-  const handle = String(settings.telegram || '').replace(/^@/, '');
-  if (!handle) return toast('No Telegram channel is configured yet.', true);
-  window.open(`https://t.me/${encodeURIComponent(handle)}`, '_blank', 'noopener');
+/** Settings hold either "@handle" or a full link; both become a t.me URL. */
+function telegramUrl(value) {
+  const v = String(value || '').trim();
+  if (!v) return '';
+  if (/^https?:\/\//i.test(v)) return v;
+  return `https://t.me/${encodeURIComponent(v.replace(/^@/, ''))}`;
 }
-$('#joinTelegram').onclick = openTelegramChannel;
-$('#announceTelegram').onclick = openTelegramChannel;
+
+/** Points every Telegram link at the right channel once settings arrive: the main
+    channel for "Join our Telegram", the claim sale channel for anything about claims,
+    and the order contact for "message us". Missing ones toast instead of 404ing. */
+function wireTelegramLinks() {
+  const bind = (el, url, missing) => {
+    if (url) {
+      el.href = url;
+      el.target = '_blank';
+      el.rel = 'noopener';
+      el.onclick = null;
+    } else {
+      el.onclick = (e) => {
+        e.preventDefault();
+        toast(missing, true);
+      };
+    }
+  };
+  const main = telegramUrl(settings.telegram);
+  const claim = telegramUrl(settings.claimTelegram) || main;
+  bind($('#joinTelegram'), main, 'No Telegram channel is configured yet.');
+  $$('[data-main-link]').forEach((a) => bind(a, main, 'No Telegram channel is configured yet.'));
+  $$('[data-claim-link]').forEach((a) => bind(a, claim, 'No claim sale channel is configured yet.'));
+  bind($('#faqContact'), telegramUrl(settings.contactTelegram) || main, 'No Telegram contact is configured yet.');
+
+  $$('[data-setting="mailing"]').forEach((el) => (el.textContent = money(settings.mailing)));
+}
+wireTelegramLinks();
+$('#year').textContent = new Date().getFullYear();
+$$('[data-track-link]').forEach((a) => (a.onclick = (e) => $('#trackOrder').onclick(e)));
 
 $('#facetsOpen').onclick = () => setFacetsOpen(true);
 $('#facetsClose').onclick = () => setFacetsOpen(false);

@@ -69,6 +69,7 @@ router.get('/settings', (req, res) => {
   res.json({
     storeName: s.storeName,
     telegram: s.telegram,
+    claimTelegram: s.claimTelegram,
     mailing: s.mailing,
     minimum: s.minimum,
     paynow: s.paynow,

@@ -235,6 +235,8 @@ db.prepare(
 const DEFAULT_SETTINGS = {
   storeName: 'Crazed TCG',
   telegram: '@crazedtcg',
+  // Separate channel where the live claim sales happen.
+  claimTelegram: '@crazedsale',
   mailing: '3.50',
   minimum: '0',
   reservation: '30',

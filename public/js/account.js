@@ -86,7 +86,14 @@ function toast(msg) {
 const handle = (c) => (c.username ? '@' + c.username : 'No username');
 const displayName = (c) => c.firstName || (c.username ? '@' + c.username : 'Telegram user');
 const initials = (c) => (c.firstName || c.username || '?').trim().charAt(0);
-const telegramUrl = () => (/^https?:\/\//.test(String(state.settings.telegram || '')) ? state.settings.telegram : '');
+/** The claim sale channel (falling back to the main one) as a t.me link. Settings may
+    hold "@handle" or a full URL. */
+function telegramUrl() {
+  const v = String(state.settings.claimTelegram || state.settings.telegram || '').trim();
+  if (!v) return '';
+  if (/^https?:\/\//i.test(v)) return v;
+  return `https://t.me/${encodeURIComponent(v.replace(/^@/, ''))}`;
+}
 
 /* ---------------------------------------------------------- derived data --- */
 
@@ -147,7 +154,7 @@ function emptyState(ico, title, text, withActions = true) {
         withActions
           ? `<div class="actions">
               <a class="btn btn-primary" href="/">${icon('bag', 'i-sm')}Shop the store</a>
-              ${tg ? `<a class="btn btn-secondary" href="${esc(tg)}" target="_blank" rel="noopener">${icon('send', 'i-sm')}Telegram channel</a>` : ''}
+              ${tg ? `<a class="btn btn-secondary" href="${esc(tg)}" target="_blank" rel="noopener">${icon('send', 'i-sm')}Claim sale channel</a>` : ''}
             </div>`
           : ''
       }
@@ -226,7 +233,7 @@ function viewOverview() {
         <p>Track your Telegram claims and store orders, or shop new cards any time.</p>
       </div>
       <div class="actions">
-        ${tg ? `<a class="btn btn-secondary" href="${esc(tg)}" target="_blank" rel="noopener">${icon('send', 'i-sm')}Telegram channel</a>` : ''}
+        ${tg ? `<a class="btn btn-secondary" href="${esc(tg)}" target="_blank" rel="noopener">${icon('send', 'i-sm')}Claim sale channel</a>` : ''}
         <a class="btn btn-primary" href="/">${icon('bag', 'i-sm')}Shop the store</a>
       </div>
     </div>
@@ -462,7 +469,7 @@ function shellHtml() {
           <div class="nav-group">
             <div class="nav-label">Shop</div>
             <a href="/">${icon('bag')}Online store<span class="live-dot">Open</span></a>
-            ${tg ? `<a href="${esc(tg)}" target="_blank" rel="noopener">${icon('send')}Telegram channel<span class="ext">${icon('external', 'i-sm')}</span></a>` : ''}
+            ${tg ? `<a href="${esc(tg)}" target="_blank" rel="noopener">${icon('send')}Claim sale channel<span class="ext">${icon('external', 'i-sm')}</span></a>` : ''}
           </div>
         </nav>
         <div class="side-foot">
