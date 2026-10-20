@@ -549,7 +549,7 @@ async function loadGateExtras() {
   $('#fan').innerHTML = order
     .map((idx, pos) => {
       const off = pos - mid;
-      return `<img src="${esc(picks[idx].image)}" alt="" style="--r:${off * 8}deg;--y:${Math.abs(off) * 10}px;--d:${pos * 70}ms;z-index:${10 - Math.abs(off)}">`;
+      return `<img src="${esc(picks[idx].image)}" alt="" style="--r:${off * 7}deg;--y:${Math.abs(off) * 7}px;--d:${pos * 70}ms;z-index:${10 - Math.abs(off)}">`;
     })
     .join('');
   if (!picks.length) $('#fan').hidden = true;
