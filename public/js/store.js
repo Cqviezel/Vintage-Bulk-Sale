@@ -252,7 +252,6 @@ function renderHero() {
   if (chip && count) {
     chip.textContent = `${count.toLocaleString()} cards in stock now`;
     chip.hidden = false;
-    $('#heroSearch').placeholder = `Search ${count.toLocaleString()} cards`;
   }
 
   // Busiest sets first, so the rail leads with where most of the stock is.
