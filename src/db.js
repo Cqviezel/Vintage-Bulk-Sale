@@ -237,7 +237,7 @@ const DEFAULT_SETTINGS = {
   telegram: '@crazedtcg',
   // Separate channel where the live claim sales happen.
   claimTelegram: '@crazedsale',
-  mailing: '3.50',
+  mailing: '2.50',
   minimum: '0',
   reservation: '30',
   paynow: '',
