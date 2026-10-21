@@ -1334,8 +1334,8 @@ function telegramUrl(value) {
 }
 
 /** Points every Telegram link at the right channel once settings arrive: the main
-    channel for "Join our Telegram", the claim sale channel for anything about claims,
-    and the order contact for "message us". Missing ones toast instead of 404ing. */
+    channel for "Join our Telegram" and the claim sale channel for anything about
+    claims. Missing ones toast instead of 404ing. */
 function wireTelegramLinks() {
   const bind = (el, url, missing) => {
     if (url) {
@@ -1355,13 +1355,9 @@ function wireTelegramLinks() {
   bind($('#joinTelegram'), main, 'No Telegram channel is configured yet.');
   $$('[data-main-link]').forEach((a) => bind(a, main, 'No Telegram channel is configured yet.'));
   $$('[data-claim-link]').forEach((a) => bind(a, claim, 'No claim sale channel is configured yet.'));
-  bind($('#faqContact'), telegramUrl(settings.contactTelegram) || main, 'No Telegram contact is configured yet.');
-
-  $$('[data-setting="mailing"]').forEach((el) => (el.textContent = money(settings.mailing)));
 }
 wireTelegramLinks();
 $('#year').textContent = new Date().getFullYear();
-$$('[data-track-link]').forEach((a) => (a.onclick = (e) => $('#trackOrder').onclick(e)));
 
 $('#facetsOpen').onclick = () => setFacetsOpen(true);
 $('#facetsClose').onclick = () => setFacetsOpen(false);
