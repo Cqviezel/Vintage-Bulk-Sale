@@ -656,7 +656,7 @@ function renderFacets() {
   bar.innerHTML =
     active
       .map(([id, label]) => `<button type="button" class="pill" data-clear="${id}">${esc(label)}<span aria-hidden="true">&times;</span></button>`)
-      .join('') + (active.length > 1 ? '<button type="button" class="pill-clear" data-clear="all">Clear all</button>' : '');
+      .join('') + (active.length > 1 ? '<button type="button" class="pill-clear" data-clear="all">Clear All</button>' : '');
   $$('#activeFilters [data-clear]').forEach((b) => {
     b.onclick = () => (b.dataset.clear === 'all' ? clearAllFilters() : setFilter(b.dataset.clear, ''));
   });
@@ -664,7 +664,7 @@ function renderFacets() {
   const filterCount = active.filter(([id]) => id !== 'storeSearch').length;
   $('#facetsCount').textContent = filterCount;
   $('#facetsCount').hidden = !filterCount;
-  $('#facetsDone').textContent = 'Show ' + $('#resultCount').textContent;
+  $('#facetsDone').textContent = 'Show ' + $('#resultCount').textContent.replace('card', 'Card');
 }
 
 function clearAllFilters() {
@@ -748,7 +748,7 @@ function openQuickView(id) {
         </dl>
         ${p.notes ? `<div class="notice" style="margin-top:14px">${esc(p.notes)}</div>` : ''}
         <div id="quickViewAddWrap" style="margin-top:16px">
-          ${cartQty > 0 ? cartControlHtml(p.id, cartQty, p.qty) : `<button class="add" id="quickViewAdd">Add to cart</button>`}
+          ${cartQty > 0 ? cartControlHtml(p.id, cartQty, p.qty) : `<button class="add" id="quickViewAdd">Add To Cart</button>`}
         </div>
         <div class="qv-assure">
           <span><svg class="i i-xs" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>PayNow checkout</span>
@@ -759,7 +759,7 @@ function openQuickView(id) {
     ${
       related.length
         ? `<div class="quick-view-related">
-             <h3>More from ${esc(p.set)}</h3>
+             <h3>More From ${esc(p.set)}</h3>
              <div class="related-wrap">
                <button class="related-scroll prev" type="button" aria-label="Scroll left">&#8249;</button>
                <div class="related-row" id="relatedRow">
@@ -877,12 +877,12 @@ function showAddedNotice(id) {
   box.innerHTML = `
     <img src="${esc(p.image || LOGO)}" alt="" onerror="this.onerror=null;this.src='${LOGO}'">
     <div class="added-info">
-      <span class="added-title"><svg class="i i-xs" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5L20 7"/></svg>Added to cart</span>
+      <span class="added-title"><svg class="i i-xs" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5L20 7"/></svg>Added To Cart</span>
       <b>${esc(p.name)}</b>
       <span>${money(p.price)} · ${n} card${n === 1 ? '' : 's'} in cart</span>
     </div>
     <div class="added-actions">
-      <button type="button" class="btn" data-added="cart">View cart</button>
+      <button type="button" class="btn" data-added="cart">View Cart</button>
       <button type="button" class="checkout" data-added="checkout">Checkout</button>
     </div>
     <button type="button" class="added-close" data-added="close" aria-label="Dismiss">&times;</button>`;
@@ -1338,6 +1338,7 @@ $$('[data-nav="all-cards"]').forEach((a) => (a.onclick = goToAllCards));
 $('#latestDrop').onclick = goToLatestDrop;
 $('#heroLatest').onclick = goToLatestDrop;
 $('#newSeeAll').onclick = goToLatestDrop;
+$$('[data-latest]').forEach((a) => (a.onclick = goToLatestDrop));
 
 $('#heroSearchForm').onsubmit = (e) => {
   e.preventDefault();
@@ -1625,7 +1626,7 @@ function customerLabel() {
 function renderAccountButton() {
   const button = $('#accountOpen');
   button.classList.toggle('hidden', !telegramBotUsername && !customer);
-  button.textContent = customer ? customerLabel() : 'Log in';
+  button.textContent = customer ? customerLabel() : 'Log In';
 }
 
 function renderAccountBody() {
