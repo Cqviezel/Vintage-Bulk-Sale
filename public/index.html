@@ -80,15 +80,17 @@
       <div class="hero-chip" id="heroStock" hidden></div>
       <h1>Vintage Pokémon singles,<br><em>ready to ship.</em></h1>
       <p>Hand-picked cards from every era, from $2. Check out with PayNow and get your cards by Tracked Mailing.</p>
-      <div class="hero-actions">
-        <a class="btn-hero primary" href="#catalogue" data-nav="all-cards">
-          Browse cards
-          <svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-        </a>
-        <a class="btn-hero ghost" href="#" id="joinTelegram">
-          <svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>
-          Join our Telegram
-        </a>
+      <form class="hero-search" id="heroSearchForm" role="search">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="heroSearch" type="search" placeholder="Search for a card, set or artist" aria-label="Search cards" autocomplete="off">
+        <button type="submit">Search</button>
+      </form>
+      <div class="hero-links">
+        <a href="#catalogue" data-nav="all-cards">Browse all cards</a>
+        <span aria-hidden="true">&middot;</span>
+        <a href="#catalogue" id="heroLatest">See what's new</a>
+        <span aria-hidden="true">&middot;</span>
+        <a href="#" id="joinTelegram">Join our Telegram</a>
       </div>
     </div>
   </section>
@@ -112,6 +114,22 @@
     </a>
   </section>
 
+  <section class="rail-section hidden" id="setsSection">
+    <div class="rail-head">
+      <h2>Shop by set</h2>
+      <a href="#catalogue" data-nav="all-cards">All cards &rarr;</a>
+    </div>
+    <div class="set-rail" id="setRail"></div>
+  </section>
+
+  <section class="rail-section hidden" id="newSection">
+    <div class="rail-head">
+      <h2>Just added</h2>
+      <a href="#catalogue" id="newSeeAll">See all new cards &rarr;</a>
+    </div>
+    <div class="new-rail" id="newRail"></div>
+  </section>
+
   <section class="shows hidden" id="showsSection">
     <div class="section-head">
       <h2>Find us in person</h2>
@@ -121,12 +139,9 @@
   </section>
 
   <main class="catalogue" id="catalogue">
-    <div class="section-head with-count">
-      <div>
-        <h2>Shop singles</h2>
-        <p>Reference images shown. Each listing states the card's actual condition.</p>
-      </div>
-      <span class="result-count" id="resultCount"></span>
+    <div class="section-head">
+      <h2>Shop singles</h2>
+      <p>Reference images shown. Each listing states the card's actual condition.</p>
     </div>
 
     <!-- The selects below stay the source of truth for store.js filtering; the sidebar
@@ -136,6 +151,11 @@
       <select id="storeCondition" tabindex="-1">
         <option value="">All conditions</option>
         <option>NM</option><option>LP</option><option>MP</option><option>HP</option>
+      </select>
+      <select id="storePriceRange" tabindex="-1">
+        <option value="">Any price</option>
+        <option value="u5">Under $5</option><option value="5-20">$5 to $20</option>
+        <option value="20-50">$20 to $50</option><option value="50+">$50 and up</option>
       </select>
       <select id="storeVariant" tabindex="-1">
         <option value="">All variants</option>
@@ -150,6 +170,10 @@
           <button class="close" id="facetsClose" aria-label="Close filters">&times;</button>
         </div>
         <div class="facets-body">
+          <section class="facet">
+            <h4>Price</h4>
+            <div class="chip-group" id="facetPrice"></div>
+          </section>
           <section class="facet">
             <h4>Condition</h4>
             <div class="chip-group" id="facetCondition"></div>
@@ -179,6 +203,7 @@
             <svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
             Filters<span class="filters-n" id="facetsCount" hidden></span>
           </button>
+          <span class="result-count" id="resultCount"></span>
           <select id="storePrice" class="sort" aria-label="Sort by">
             <option value="">Sort: Featured</option>
             <option value="new">Newest first</option>
@@ -379,6 +404,13 @@
 <button class="back-to-top" id="backToTop" aria-label="Back to top">
   <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
 </button>
+
+<div class="added-pop" id="addedNotice" role="status" aria-live="polite" hidden></div>
+
+<div class="cart-bar" id="cartBar" hidden>
+  <div class="cart-bar-info"><b id="cartBarCount">0 cards</b><span id="cartBarTotal">$0.00</span></div>
+  <button class="cart-bar-btn" id="cartBarOpen" type="button">View cart</button>
+</div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 

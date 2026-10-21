@@ -18,6 +18,17 @@ let appliedPromo = null; // { code, discount } — cleared whenever the cart con
 
 const CONDITION_NAMES = { NM: 'Near Mint', LP: 'Lightly Played', MP: 'Moderately Played', HP: 'Heavily Played' };
 
+const PRICE_RANGES = [
+  { value: 'u5', label: 'Under $5', min: 0, max: 5 },
+  { value: '5-20', label: '$5 to $20', min: 5, max: 20 },
+  { value: '20-50', label: '$20 to $50', min: 20, max: 50 },
+  { value: '50+', label: '$50 and up', min: 50, max: Infinity },
+];
+const inPriceRange = (price, value) => {
+  const r = PRICE_RANGES.find((x) => x.value === value);
+  return !r || (price >= r.min && price < r.max);
+};
+
 const PAGE_SIZE = 24;
 let currentPage = 1;
 
@@ -234,14 +245,54 @@ async function load() {
 
 /* ------------------------------------------------------------ rendering --- */
 
-/** Live stock count in the hero. */
+/** Live stock count in the hero, plus the "Shop by set" and "Just added" rails. */
 function renderHero() {
   const count = products.reduce((n, p) => n + (Number(p.qty) || 0), 0);
   const chip = $('#heroStock');
   if (chip && count) {
     chip.textContent = `${count.toLocaleString()} cards in stock now`;
     chip.hidden = false;
+    $('#heroSearch').placeholder = `Search ${count.toLocaleString()} cards`;
   }
+
+  // Busiest sets first, so the rail leads with where most of the stock is.
+  const setCounts = countBy('set');
+  const topSets = [...setCounts].filter(([set]) => set).sort((a, b) => b[1] - a[1]).slice(0, 12);
+  $('#setsSection').classList.toggle('hidden', topSets.length < 2);
+  $('#setRail').innerHTML = topSets
+    .map(([set, n]) => {
+      const symbol = setSymbolByName.get(set);
+      return `<button type="button" class="set-tile" data-rail-set="${esc(set)}">
+        <span class="set-tile-ico">${symbol ? `<img src="${esc(symbol)}" alt="" loading="lazy">` : esc(set.charAt(0))}</span>
+        <span class="set-tile-name">${esc(set)}</span>
+        <span class="set-tile-n">${n} card${n === 1 ? '' : 's'}</span>
+      </button>`;
+    })
+    .join('');
+  $$('#setRail [data-rail-set]').forEach((b) => {
+    b.onclick = () => {
+      resetFilters();
+      setFilter('storeSet', b.dataset.railSet);
+      $('#catalogue').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  });
+
+  const fresh = products
+    .filter((p) => p.image)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .slice(0, 12);
+  $('#newSection').classList.toggle('hidden', fresh.length < 4);
+  $('#newRail').innerHTML = fresh
+    .map(
+      (p) => `<button type="button" class="new-card" data-rail-view="${esc(p.id)}">
+        <span class="new-card-img"><img src="${esc(p.image)}" alt="" loading="lazy" onload="this.classList.add('loaded')" onerror="this.onerror=null;this.src='${LOGO}'"></span>
+        <span class="new-card-name">${esc(p.name)}</span>
+        <span class="new-card-meta">${esc(p.set)}${p.condition ? ' · ' + esc(p.condition) : ''}</span>
+        <span class="new-card-price">${money(p.price)}</span>
+      </button>`
+    )
+    .join('');
+  $$('#newRail [data-rail-view]').forEach((b) => (b.onclick = () => openQuickView(b.dataset.railView)));
 }
 
 // Cached so the search box below can re-filter without recomputing groups from
@@ -417,20 +468,22 @@ function renderProducts() {
   const sort = $('#storePrice').value;
   const condition = $('#storeCondition').value;
   const variant = $('#storeVariant').value;
+  const priceRange = $('#storePriceRange').value;
 
   const list = products.filter(
     (p) =>
       (!q || `${p.name} ${p.set} ${p.number} ${p.artist || ''}`.toLowerCase().includes(q)) &&
       (!set || p.set === set) &&
       (!condition || p.condition === condition) &&
-      (!variant || p.variant === variant)
+      (!variant || p.variant === variant) &&
+      inPriceRange(Number(p.price), priceRange)
   );
 
   if (sort === 'asc') list.sort((a, b) => a.price - b.price);
   if (sort === 'desc') list.sort((a, b) => b.price - a.price);
   if (sort === 'new') list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-  $('#resultCount').textContent = `${list.length} card${list.length === 1 ? '' : 's'}`;
+  $('#resultCount').textContent = `${list.length.toLocaleString()} card${list.length === 1 ? '' : 's'}`;
 
   const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
   if (currentPage > totalPages) currentPage = totalPages;
@@ -453,7 +506,7 @@ function renderProducts() {
           <div class="tags">
             <span class="tag">${esc(p.condition)}</span>
             ${p.variant && p.variant !== 'Normal' ? `<span class="tag variant">${esc(p.variant)}</span>` : ''}
-            <span class="stock-note${p.qty <= 1 ? ' low' : ''}">${p.qty <= 1 ? 'Last one' : `${p.qty} in stock`}</span>
+            ${p.qty > 1 ? `<span class="stock-note">${p.qty} in stock</span>` : ''}
           </div>
           <div class="product-buy">
             <span class="price">${money(p.price)}</span>
@@ -544,10 +597,17 @@ function renderFacets() {
         const n = counts.get(v) || 0;
         const on = current === v;
         return `<button type="button" class="chip${on ? ' on' : ''}" data-facet="${id}" data-value="${esc(v)}"
-          aria-pressed="${on}"${n || on ? '' : ' disabled'}>${esc(v)}<span>${n}</span></button>`;
+          aria-pressed="${on}"${n || on ? '' : ' hidden'}>${esc(v)}<span>${n}</span></button>`;
       })
       .join('');
   };
+  const currentRange = $('#storePriceRange').value;
+  $('#facetPrice').innerHTML = PRICE_RANGES.map((r) => {
+    const n = products.filter((p) => inPriceRange(Number(p.price), r.value)).length;
+    const on = currentRange === r.value;
+    return `<button type="button" class="chip${on ? ' on' : ''}" data-facet="storePriceRange" data-value="${r.value}"
+      aria-pressed="${on}"${n || on ? '' : ' hidden'}>${esc(r.label)}<span>${n}</span></button>`;
+  }).join('');
   $('#facetCondition').innerHTML = chipGroup('storeCondition', countBy('condition'));
   $('#facetVariant').innerHTML = chipGroup('storeVariant', countBy('variant'));
 
@@ -590,6 +650,7 @@ function renderFacets() {
     ['storeSet', currentSet],
     ['storeCondition', $('#storeCondition').value],
     ['storeVariant', $('#storeVariant').value],
+    ['storePriceRange', (PRICE_RANGES.find((r) => r.value === currentRange) || {}).label],
   ].filter(([, label]) => label);
   const bar = $('#activeFilters');
   bar.hidden = !active.length;
@@ -629,10 +690,22 @@ function renderPagination(totalPages) {
     return;
   }
 
+  // First, last, and two either side of the current page, with gaps shown as "…".
+  const pages = [];
+  for (let n = 1; n <= totalPages; n++) {
+    if (n === 1 || n === totalPages || Math.abs(n - currentPage) <= 2) pages.push(n);
+    else if (pages[pages.length - 1] !== '…') pages.push('…');
+  }
   el.innerHTML = `
-    <button id="pagePrev" ${currentPage === 1 ? 'disabled' : ''}>&larr; Prev</button>
-    <span class="small muted">Page ${currentPage} of ${totalPages}</span>
-    <button id="pageNext" ${currentPage === totalPages ? 'disabled' : ''}>Next &rarr;</button>`;
+    <button id="pagePrev" aria-label="Previous page" ${currentPage === 1 ? 'disabled' : ''}>&larr;</button>
+    ${pages
+      .map((n) =>
+        n === '…'
+          ? '<span class="page-gap">…</span>'
+          : `<button class="page-num${n === currentPage ? ' on' : ''}" data-page="${n}"${n === currentPage ? ' aria-current="page"' : ''}>${n}</button>`
+      )
+      .join('')}
+    <button id="pageNext" aria-label="Next page" ${currentPage === totalPages ? 'disabled' : ''}>&rarr;</button>`;
 
   const goTo = (page) => {
     currentPage = page;
@@ -641,6 +714,7 @@ function renderPagination(totalPages) {
   };
   if (currentPage > 1) $('#pagePrev').onclick = () => goTo(currentPage - 1);
   if (currentPage < totalPages) $('#pageNext').onclick = () => goTo(currentPage + 1);
+  el.querySelectorAll('[data-page]').forEach((b) => (b.onclick = () => goTo(Number(b.dataset.page))));
 }
 
 /** Bigger photo + full condition notes, plus a few other cards from the same set. */
@@ -664,7 +738,7 @@ function openQuickView(id) {
         <div class="tags">
           <span class="tag">${esc(p.condition)}</span>
           ${p.variant && p.variant !== 'Normal' ? `<span class="tag variant">${esc(p.variant)}</span>` : ''}
-          <span class="tag stock${p.qty <= 1 ? ' low' : ''}">${p.qty <= 1 ? 'Last one' : `${p.qty} in stock`}</span>
+          <span class="tag stock">${p.qty} available</span>
         </div>
         <dl class="qv-details">
           <div><dt>Set</dt><dd>${esc(p.set || '—')}</dd></div>
@@ -792,6 +866,52 @@ function addToCart(id) {
   if (!cart.has(id)) cart.set(id, 1);
   commitCartChange();
   pulseCartCount();
+  showAddedNotice(id);
+}
+
+/** A small confirmation with the card and a way straight to the cart or checkout. */
+function showAddedNotice(id) {
+  const p = products.find((x) => x.id === id);
+  const box = $('#addedNotice');
+  if (!p || !box) return;
+  const n = cartItems().reduce((sum, x) => sum + x.cartQty, 0);
+  box.innerHTML = `
+    <img src="${esc(p.image || LOGO)}" alt="" onerror="this.onerror=null;this.src='${LOGO}'">
+    <div class="added-info">
+      <span class="added-title"><svg class="i i-xs" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5L20 7"/></svg>Added to cart</span>
+      <b>${esc(p.name)}</b>
+      <span>${money(p.price)} · ${n} card${n === 1 ? '' : 's'} in cart</span>
+    </div>
+    <div class="added-actions">
+      <button type="button" class="btn" data-added="cart">View cart</button>
+      <button type="button" class="checkout" data-added="checkout">Checkout</button>
+    </div>
+    <button type="button" class="added-close" data-added="close" aria-label="Dismiss">&times;</button>`;
+  box.hidden = false;
+  box.classList.remove('show');
+  void box.offsetWidth;
+  box.classList.add('show');
+  clearTimeout(showAddedNotice.timer);
+  showAddedNotice.timer = setTimeout(hideAddedNotice, 4500);
+  box.querySelectorAll('[data-added]').forEach((b) => {
+    b.onclick = () => {
+      hideAddedNotice();
+      if (b.dataset.added === 'cart') $('#cartOpen').click();
+      if (b.dataset.added === 'checkout') {
+        $('#cartOpen').click();
+        if (!$('#checkoutOpen').disabled) $('#checkoutOpen').click();
+      }
+    };
+  });
+}
+
+function hideAddedNotice() {
+  const box = $('#addedNotice');
+  box.classList.remove('show');
+  clearTimeout(showAddedNotice.timer);
+  setTimeout(() => {
+    if (!box.classList.contains('show')) box.hidden = true;
+  }, 200);
 }
 
 /** Restarts the cart-count pulse animation (removing then re-adding the class so it
@@ -827,7 +947,14 @@ function removeFromCart(id) {
 
 function renderCart() {
   const items = cartItems();
-  $('#cartCount').textContent = items.reduce((n, p) => n + p.cartQty, 0);
+  const cardCount = items.reduce((n, p) => n + p.cartQty, 0);
+  $('#cartCount').textContent = cardCount;
+
+  // Phone-only bar so the cart is always one tap away while browsing.
+  $('#cartBar').hidden = !cardCount;
+  document.body.classList.toggle('has-cartbar', cardCount > 0);
+  $('#cartBarCount').textContent = `${cardCount} card${cardCount === 1 ? '' : 's'}`;
+  $('#cartBarTotal').textContent = money(items.reduce((sum, p) => sum + Number(p.price) * p.cartQty, 0));
   $('#cartClearAll').classList.toggle('hidden', !items.length);
 
   $('#cartItems').innerHTML = items.length
@@ -1172,7 +1299,7 @@ if (backToTopBtn) {
   backToTopBtn.onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-['storeSearch', 'storeSet', 'storePrice', 'storeCondition', 'storeVariant'].forEach((id) => {
+['storeSearch', 'storeSet', 'storePrice', 'storeCondition', 'storeVariant', 'storePriceRange'].forEach((id) => {
   $('#' + id).addEventListener('input', () => {
     currentPage = 1;
     renderProducts();
@@ -1188,6 +1315,7 @@ function resetFilters() {
   $('#storePrice').value = '';
   $('#storeCondition').value = '';
   $('#storeVariant').value = '';
+  $('#storePriceRange').value = '';
 }
 
 function goToAllCards(e) {
@@ -1209,6 +1337,18 @@ function goToLatestDrop(e) {
 
 $$('[data-nav="all-cards"]').forEach((a) => (a.onclick = goToAllCards));
 $('#latestDrop').onclick = goToLatestDrop;
+$('#heroLatest').onclick = goToLatestDrop;
+$('#newSeeAll').onclick = goToLatestDrop;
+
+$('#heroSearchForm').onsubmit = (e) => {
+  e.preventDefault();
+  resetFilters();
+  $('#storeSearch').value = $('#heroSearch').value.trim();
+  $('#storeSearch').dispatchEvent(new Event('input'));
+  $('#catalogue').scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+$('#cartBarOpen').onclick = () => $('#cartOpen').click();
 
 function closeMobileNavMenu() {
   $('#mobileNavMenu').classList.add('hidden');
