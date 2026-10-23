@@ -6,13 +6,30 @@ const { TelegramClient, Api } = require('teleproto');
 const { StringSession } = require('teleproto/sessions');
 const { db } = require('./db');
 
+// Access hashes are per Telegram account, so each cached row records which account
+// resolved it. After logging in as a different account the old rows are ignored
+// (they'd fail with CHANNEL_INVALID) and the chat is resolved again once.
+if (!db.prepare('PRAGMA table_info(telegram_entity_cache)').all().some((c) => c.name === 'owner_id')) {
+  db.exec("ALTER TABLE telegram_entity_cache ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''");
+}
 const getCachedEntity = db.prepare(
-  'SELECT class_name, entity_id, access_hash FROM telegram_entity_cache WHERE chat_ref = ?'
+  "SELECT class_name, entity_id, access_hash FROM telegram_entity_cache WHERE chat_ref = ? AND owner_id = ? AND owner_id <> ''"
 );
 const upsertCachedEntity = db.prepare(
-  `INSERT INTO telegram_entity_cache (chat_ref, class_name, entity_id, access_hash) VALUES (@chat_ref, @class_name, @entity_id, @access_hash)
-   ON CONFLICT(chat_ref) DO UPDATE SET class_name = excluded.class_name, entity_id = excluded.entity_id, access_hash = excluded.access_hash, cached_at = datetime('now')`
+  `INSERT INTO telegram_entity_cache (chat_ref, class_name, entity_id, access_hash, owner_id) VALUES (@chat_ref, @class_name, @entity_id, @access_hash, @owner_id)
+   ON CONFLICT(chat_ref) DO UPDATE SET class_name = excluded.class_name, entity_id = excluded.entity_id, access_hash = excluded.access_hash,
+     owner_id = excluded.owner_id, cached_at = datetime('now')`
 );
+const deleteCachedEntity = db.prepare('DELETE FROM telegram_entity_cache WHERE chat_ref = ?');
+
+// The logged-in account's user ID, set once connect() succeeds.
+let ownerId = '';
+
+/** Errors meaning the peer we sent is no good for this account (stale access hash). */
+const isStalePeerError = (err) =>
+  /CHANNEL_INVALID|PEER_ID_INVALID|CHANNEL_PRIVATE|channel is invalid|Could not find the input entity/i.test(
+    String((err && (err.errorMessage || err.message)) || err)
+  );
 
 // Rebuilds just enough of the Input peer variant to forward with — no live resolve.
 function inputPeerFromCache(row) {
@@ -32,8 +49,9 @@ function inputPeerFromCache(row) {
  * a fresh resolve for every configured forward target. Once a chat_ref has been resolved
  * successfully, this never resolves it again.
  */
-async function resolveChat(client, chatRef) {
-  const cached = getCachedEntity.get(chatRef);
+async function resolveChat(client, chatRef, { fresh = false } = {}) {
+  if (fresh) deleteCachedEntity.run(chatRef);
+  const cached = getCachedEntity.get(chatRef, ownerId);
   const cachedPeer = cached && inputPeerFromCache(cached);
   if (cachedPeer) return cachedPeer;
 
@@ -43,6 +61,7 @@ async function resolveChat(client, chatRef) {
     class_name: entity.className,
     entity_id: String(entity.id),
     access_hash: entity.accessHash != null ? String(entity.accessHash) : null,
+    owner_id: ownerId,
   });
   return entity;
 }
@@ -77,7 +96,11 @@ function connect() {
       // forwardMessage below can resolve a private channel by its numeric ID even
       // though it has no public @username to resolve through instead.
       .then(() => client.getDialogs())
-      .then(() => client)
+      .then(() => client.getMe())
+      .then((me) => {
+        ownerId = me && me.id != null ? String(me.id) : '';
+        return client;
+      })
       .catch((err) => {
         clientPromise = null;
         throw err;
@@ -116,20 +139,31 @@ async function forwardMessage({ fromChat, messageId, toChat, threadId }) {
   }
   try {
     const client = await connect();
-    const [fromEntity, toEntity] = await Promise.all([resolveChat(client, fromChat), resolveChat(client, toChat)]);
-    await client.invoke(
-      new Api.messages.ForwardMessages({
-        fromPeer: fromEntity,
-        id: [messageId],
-        randomId: [randomLong()],
-        toPeer: toEntity,
-        topMsgId: threadId || undefined,
-      })
-    );
+    const send = async (fresh) => {
+      const [fromEntity, toEntity] = await Promise.all([
+        resolveChat(client, fromChat, { fresh }),
+        resolveChat(client, toChat, { fresh }),
+      ]);
+      await client.invoke(
+        new Api.messages.ForwardMessages({
+          fromPeer: fromEntity,
+          id: [messageId],
+          randomId: [randomLong()],
+          toPeer: toEntity,
+          topMsgId: threadId || undefined,
+        })
+      );
+    };
+    try {
+      await send(false);
+    } catch (err) {
+      if (!isStalePeerError(err)) throw err;
+      await send(true);
+    }
     return { ok: true };
   } catch (err) {
     return { ok: false, reason: err.message };
   }
 }
 
-module.exports = { isConfigured, start, stop, forwardMessage, getClient: connect, resolveChat };
+module.exports = { isConfigured, start, stop, forwardMessage, getClient: connect, resolveChat, isStalePeerError };

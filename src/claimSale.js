@@ -376,7 +376,23 @@ async function openChannel(channelSetting) {
   const ref = channelRef(channelSetting);
   if (!ref) throw Object.assign(new Error('Set the Claim Sale Channel in Settings first.'), { status: 400 });
   const client = await telegramUserbot.getClient();
-  const channel = await telegramUserbot.resolveChat(client, ref);
+  let channel = await telegramUserbot.resolveChat(client, ref);
+  // Prove the peer works now; a lookup saved by another account fails here with
+  // CHANNEL_INVALID, so drop it and look the channel up again.
+  try {
+    await client.getMessages(channel, { limit: 1 });
+  } catch (err) {
+    if (!telegramUserbot.isStalePeerError(err)) throw err;
+    channel = await telegramUserbot.resolveChat(client, ref, { fresh: true });
+    try {
+      await client.getMessages(channel, { limit: 1 });
+    } catch (again) {
+      if (!telegramUserbot.isStalePeerError(again)) throw again;
+      throw new Error(
+        `Telegram won't let the userbot account read ${ref}. Open ${ref} in Telegram on that account (join it if asked), then press Check now.`
+      );
+    }
+  }
   return { client, channel, ref };
 }
 
