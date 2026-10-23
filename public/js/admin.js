@@ -444,7 +444,7 @@ function renderInventory() {
   $('#scopeClaimCount').textContent = claimCount;
   $('#inventoryScopeNote').innerHTML =
     inventoryScope === 'claim'
-      ? 'Unclaimed cards from your Telegram claim sales, shown to buyers on <a href="/leftovers" target="_blank" rel="noopener">/leftovers</a>. They list and expire by themselves; see the <b>Claim Leftovers</b> page.'
+      ? 'Unclaimed cards from your Telegram claim sales, shown to buyers on <a href="/leftovers" target="_blank" rel="noopener">/leftovers</a>. They list and expire by themselves; see the <b>Claim Sales</b> page.'
       : '';
   $('#inventoryScopeNote').classList.toggle('hidden', inventoryScope !== 'claim');
 
@@ -1670,6 +1670,8 @@ async function loadSettings() {
     $('#settingReservation').value = s.reservation;
     $('#settingPaynow').value = s.paynow;
     $('#settingPaynowPayee').value = s.paynowPayee || '';
+    $('#settingPaynowNumber').value = s.paynowNumber || '';
+    $('#settingBillingTemplate').value = s.billingTemplate || '';
     $('#settingContactTelegram').value = s.contactTelegram || '';
 
     currentPaynowQr = s.paynowQr || '';
@@ -1721,6 +1723,8 @@ $('#saveSettings').onclick = async () => {
         reservation: $('#settingReservation').value,
         paynow: $('#settingPaynow').value,
         paynowPayee: $('#settingPaynowPayee').value,
+        paynowNumber: $('#settingPaynowNumber').value,
+        billingTemplate: $('#settingBillingTemplate').value,
         contactTelegram: $('#settingContactTelegram').value,
         paynowQr: currentPaynowQr,
       }),
@@ -1780,6 +1784,176 @@ $('#removePaynowQr').onclick = async () => {
     toast(err.message, true);
   }
 };
+
+/* ------------------------------------------------------ claim sale billing --- */
+
+// After a sale is loaded, every claimed card is grouped by buyer, with a ready-to-send
+// billing message (Settings -> Claim Sale Billing) and an optional order so the buyer
+// sees it under My Claims.
+let billSettings = null;
+let billOrders = {}; // buyerKey -> order id, for this sale date
+const billKey = (l) =>
+  l.buyerUsername ? '@' + l.buyerUsername.toLowerCase() : l.buyerId ? 'id:' + l.buyerId : 'name:' + String(l.buyer || '').toLowerCase();
+
+function readBillPrefs(date) {
+  try {
+    return JSON.parse(localStorage.getItem('ctcg_bills_' + date) || '{}');
+  } catch {
+    return {};
+  }
+}
+function writeBillPrefs(date, prefs) {
+  try {
+    localStorage.setItem('ctcg_bills_' + date, JSON.stringify(prefs));
+  } catch {
+    // remembering ticks is a convenience only
+  }
+}
+
+function claimBuyers() {
+  const byKey = new Map();
+  for (const l of claimListings) {
+    if (l.status !== 'claimed') continue;
+    const key = billKey(l);
+    if (!byKey.has(key)) {
+      byKey.set(key, { key, name: l.buyer || 'Buyer', username: l.buyerUsername || '', userId: l.buyerId || '', items: [] });
+    }
+    byKey.get(key).items.push({ caption: l.caption, price: Number(l.price ?? l.parsed.price) || 0, link: l.link });
+  }
+  return [...byKey.values()];
+}
+
+function billMessage(b, mailing) {
+  const fee = mailing ? Number(billSettings.mailing) || 0 : 0;
+  const subtotal = b.items.reduce((sum, i) => sum + i.price, 0);
+  const lines = b.items.map((i) => `• ${i.caption} – ${money(i.price)}`);
+  if (mailing) lines.push(`• Mailing – ${money(fee)}`);
+  const fill = {
+    name: b.name.split(' ')[0] || b.name,
+    items: lines.join('\n'),
+    subtotal: money(subtotal),
+    mailing: money(fee),
+    total: money(subtotal + fee),
+    paynow: billSettings.paynowNumber || '[add your PayNow number in Settings]',
+  };
+  const template = billSettings.billingTemplate || '{items}\n\nTotal {total}, PayNow {paynow}';
+  return template.replace(/\{(name|items|subtotal|mailing|total|paynow)\}/g, (_, k) => fill[k]);
+}
+
+function billCardHtml(b, i, prefs) {
+  const p = prefs[b.key] || {};
+  const mailing = p.mailing !== false;
+  const fee = mailing ? Number(billSettings.mailing) || 0 : 0;
+  const subtotal = b.items.reduce((sum, x) => sum + x.price, 0);
+  const order = billOrders[b.key];
+  return `<article class="bill${p.billed ? ' billed' : ''}" data-bill="${i}">
+    <header class="bill-head">
+      <span class="bill-avatar">${esc((b.name || '?').charAt(0))}</span>
+      <div class="bill-who">
+        <b>${esc(b.name)}</b>
+        <span class="small muted">${b.username ? '@' + esc(b.username) : 'No Telegram username'}</span>
+      </div>
+      <div class="bill-total"><b>${money(subtotal + fee)}</b><span class="small muted">${b.items.length} card${b.items.length === 1 ? '' : 's'}</span></div>
+    </header>
+    <ul class="bill-items">${b.items
+      .map((x) => `<li><span>${x.link ? `<a href="${esc(x.link)}" target="_blank" rel="noopener">${esc(x.caption)}</a>` : esc(x.caption)}</span><b>${money(x.price)}</b></li>`)
+      .join('')}</ul>
+    <div class="bill-opts">
+      <label><input type="checkbox" data-bill-mail${mailing ? ' checked' : ''}> Tracked Mailing (+${money(Number(billSettings.mailing) || 0)})</label>
+      <label><input type="checkbox" data-bill-done${p.billed ? ' checked' : ''}> Billed</label>
+    </div>
+    <textarea class="bill-msg" readonly rows="9">${esc(billMessage(b, mailing))}</textarea>
+    <div class="bill-actions">
+      <button class="btn primary" type="button" data-bill-copy>Copy Message</button>
+      ${b.username ? `<a class="btn" href="https://t.me/${esc(encodeURIComponent(b.username))}" target="_blank" rel="noopener">Open Chat</a>` : ''}
+      ${order
+        ? `<span class="bill-order"><span class="status order-awaiting-payment">Order ${esc(order)}</span></span>`
+        : `<button class="btn" type="button" data-bill-order title="Shows this bill under My Claims on their account">Create Order</button>`}
+    </div>
+  </article>`;
+}
+
+async function renderBilling() {
+  const buyers = claimBuyers();
+  $('#claimBilling').classList.toggle('hidden', !buyers.length);
+  if (!buyers.length) return;
+  try {
+    if (!billSettings) billSettings = await api('/api/admin/settings');
+    billOrders = await api(`/api/admin/claim-sales/bills?date=${encodeURIComponent(claimMeta.date)}`);
+  } catch (err) {
+    toast(err.message, true);
+    billSettings = billSettings || { mailing: 0 };
+  }
+  const prefs = readBillPrefs(claimMeta.date);
+  const total = buyers.reduce((sum, b) => sum + b.items.reduce((s, x) => s + x.price, 0), 0);
+  const billed = buyers.filter((b) => (prefs[b.key] || {}).billed).length;
+  $('#billingSummary').textContent = `Billing · ${buyers.length} buyer${buyers.length === 1 ? '' : 's'} · ${money(total)} in cards`;
+  $('#billingSubtext').textContent = billSettings.paynowNumber
+    ? `${billed} of ${buyers.length} billed. Messages use your template from Settings.`
+    : 'Add your PayNow number in Settings → PayNow so it appears in the messages.';
+  $('#billingList').innerHTML = buyers.map((b, i) => billCardHtml(b, i, prefs)).join('');
+  $('#billingList').dataset.buyers = '';
+  renderBilling.buyers = buyers;
+}
+
+$('#billingList').addEventListener('change', (e) => {
+  const card = e.target.closest('[data-bill]');
+  if (!card) return;
+  const b = renderBilling.buyers[Number(card.dataset.bill)];
+  const prefs = readBillPrefs(claimMeta.date);
+  prefs[b.key] = prefs[b.key] || {};
+  if (e.target.matches('[data-bill-mail]')) prefs[b.key].mailing = e.target.checked;
+  if (e.target.matches('[data-bill-done]')) prefs[b.key].billed = e.target.checked;
+  writeBillPrefs(claimMeta.date, prefs);
+  renderBilling();
+});
+
+$('#billingList').addEventListener('click', async (e) => {
+  const card = e.target.closest('[data-bill]');
+  if (!card) return;
+  const b = renderBilling.buyers[Number(card.dataset.bill)];
+  const prefs = readBillPrefs(claimMeta.date);
+  const mailing = (prefs[b.key] || {}).mailing !== false;
+
+  if (e.target.closest('[data-bill-copy]')) {
+    const text = card.querySelector('.bill-msg').value;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      card.querySelector('.bill-msg').select();
+      document.execCommand('copy');
+    }
+    toast(`Copied ${b.name}'s bill`);
+    return;
+  }
+
+  const orderBtn = e.target.closest('[data-bill-order]');
+  if (orderBtn) {
+    orderBtn.disabled = true;
+    orderBtn.textContent = 'Creating…';
+    try {
+      const res = await api('/api/admin/claim-sales/bill', {
+        method: 'POST',
+        body: JSON.stringify({
+          date: claimMeta.date,
+          buyerKey: b.key,
+          buyerName: b.name,
+          buyerUsername: b.username,
+          buyerId: b.userId,
+          mailing,
+          items: b.items.map((x) => ({ caption: x.caption, price: x.price })),
+        }),
+      });
+      toast(res.existing ? `Order ${res.orderId} already exists` : `Order ${res.orderId} created — it's on their account now`);
+      renderBilling();
+      loadStats();
+    } catch (err) {
+      toast(err.message, true);
+      orderBtn.disabled = false;
+      orderBtn.textContent = 'Create Order';
+    }
+  }
+});
 
 /* -------------------------------------------------- claim sale leftovers --- */
 
@@ -1844,11 +2018,13 @@ $('#claimScan').onclick = async () => {
     claimListings = res.listings;
     claimMeta = { channel: res.channel, date: res.date };
     renderClaimResults();
+    billSettings = null; // pick up any template edits made since
+    renderBilling();
   } catch (err) {
     toast(err.message, true);
   } finally {
     button.disabled = false;
-    button.textContent = 'Scan this date';
+    button.textContent = 'Load This Sale';
   }
 };
 

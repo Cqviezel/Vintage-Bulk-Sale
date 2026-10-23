@@ -173,6 +173,8 @@ const hasDigits = (text) => /\d/.test(text);
  * comments: oldest first, each { id, text, isSeller, buyerId, buyerName, replyToId }.
  * Returns { status: 'claimed' | 'leftover', buyer, price, reason }.
  */
+const buyerOf = (c) => ({ buyer: c.buyerName, buyerId: c.buyerId || '', buyerUsername: c.buyerUsername || '' });
+
 function decideOutcome(comments, listedPrice) {
   const byId = new Map(comments.map((c) => [c.id, c]));
   let lastOffer = null; // most recent buyer offer: { buyerId, buyerName, price }
@@ -189,12 +191,12 @@ function decideOutcome(comments, listedPrice) {
       // A plain "Okay" with no number accepts the offer it answers (or the last one).
       if (ACCEPT_WORD.test(text) && !hasDigits(text)) {
         const offer = target
-          ? { buyerName: target.buyerName, price: firstAmount(target.text) }
+          ? { ...target, price: firstAmount(target.text) }
           : lastOffer;
         if (offer) {
           return {
             status: 'claimed',
-            buyer: offer.buyerName,
+            ...buyerOf(offer),
             price: offer.price ?? listedPrice,
             reason: `You accepted ${offer.buyerName}'s offer${offer.price != null ? ` of $${offer.price}` : ''}`,
           };
@@ -218,7 +220,7 @@ function decideOutcome(comments, listedPrice) {
       const agreed = counter && (counter.buyerId == null || counter.buyerId === c.buyerId) ? counter.price : null;
       return {
         status: 'claimed',
-        buyer: c.buyerName,
+        ...buyerOf(c),
         price: agreed ?? listedPrice,
         reason: agreed != null ? `${c.buyerName} claimed at your counter of $${agreed}` : `${c.buyerName} claimed`,
       };
@@ -226,13 +228,13 @@ function decideOutcome(comments, listedPrice) {
     if (counter && counter.buyerId === c.buyerId && ACCEPT_WORD.test(text) && !hasDigits(text)) {
       return {
         status: 'claimed',
-        buyer: c.buyerName,
+        ...buyerOf(c),
         price: counter.price ?? listedPrice,
         reason: `${c.buyerName} accepted your counter${counter.price != null ? ` of $${counter.price}` : ''}`,
       };
     }
     if (OFFER_WORD.test(text)) {
-      lastOffer = { buyerId: c.buyerId, buyerName: c.buyerName, price: firstAmount(text) };
+      lastOffer = { ...c, price: firstAmount(text) };
       offers.push(lastOffer);
     }
   }
@@ -539,6 +541,7 @@ async function readOutcome({ client, channel }, post, sellers) {
         isSeller: !userId || sellers.has(userId),
         buyerId: userId,
         buyerName: displayName(c.sender),
+        buyerUsername: (c.sender && c.sender.username) || '',
         replyToId: c.replyTo && c.replyTo.replyToMsgId,
       });
     }

@@ -715,6 +715,106 @@ router.post('/claim-sales/scan', async (req, res) => {
   }
 });
 
+// Turns one buyer's claims from a sale into an "awaiting payment" order, so it shows
+// under My Claims on their account. One order per buyer per sale; asking again
+// returns the order already made.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS claim_bills (
+    sale_date  TEXT NOT NULL,
+    buyer_key  TEXT NOT NULL,
+    order_id   TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (sale_date, buyer_key)
+  )
+`);
+const billFor = db.prepare('SELECT order_id FROM claim_bills WHERE sale_date = ? AND buyer_key = ?');
+const billsForDate = db.prepare('SELECT buyer_key, order_id FROM claim_bills WHERE sale_date = ?');
+const saveBill = db.prepare('INSERT INTO claim_bills (sale_date, buyer_key, order_id) VALUES (?, ?, ?)');
+const orderIdTaken = db.prepare('SELECT 1 FROM orders WHERE id = ?');
+const insertClaimOrder = db.prepare(
+  `INSERT INTO orders (id, buyer, telegram, telegram_user_id, email, phone, address, delivery, subtotal, discount, promo_code, fee, total, status, notify_state)
+   VALUES (@id, @buyer, @telegram, @telegram_user_id, '', '', @address, @delivery, @subtotal, 0, '', @fee, @total, 'awaiting payment', 'sent')`
+);
+const insertClaimItem = db.prepare(
+  `INSERT INTO order_items (order_id, product_id, name, set_name, number, condition, variant, price, image)
+   VALUES (@order_id, NULL, @name, @set_name, @number, '', @variant, @price, @image)`
+);
+const createClaimOrder = db.transaction((order, items, saleDate, buyerKey) => {
+  insertClaimOrder.run(order);
+  for (const item of items) insertClaimItem.run({ order_id: order.id, ...item });
+  saveBill.run(saleDate, buyerKey, order.id);
+});
+
+router.get('/claim-sales/bills', (req, res) => {
+  const date = String(req.query.date || '');
+  res.json(Object.fromEntries(billsForDate.all(date).map((r) => [r.buyer_key, r.order_id])));
+});
+
+router.post('/claim-sales/bill', async (req, res) => {
+  const body = req.body || {};
+  const saleDate = String(body.date || '').slice(0, 10);
+  const buyerKey = String(body.buyerKey || '').slice(0, 80);
+  const items = Array.isArray(body.items) ? body.items.slice(0, 200) : [];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(saleDate) || !buyerKey || !items.length) {
+    return res.status(400).json({ error: 'Missing the sale date, buyer or cards.' });
+  }
+  const existing = billFor.get(saleDate, buyerKey);
+  if (existing) return res.json({ orderId: existing.order_id, existing: true });
+
+  // Official card details (picture, set, number) so the order looks right on the
+  // buyer's account; the caption is kept if a card can't be matched.
+  const lines = [];
+  for (const item of items) {
+    const price = Math.round(Number(item.price) * 100) / 100;
+    if (!Number.isFinite(price) || price < 0) continue;
+    const parsed = claimSale.parseCaption(`${item.caption || item.name || ''}\n$${price}`);
+    let card = { matched: false };
+    try {
+      card = await claimSale.matchCard(parsed);
+    } catch {
+      // keep the caption
+    }
+    lines.push({
+      name: String((card.matched && card.name) || item.caption || item.name || 'Card').slice(0, 160),
+      set_name: String((card.matched && card.set) || parsed.set || '').slice(0, 160),
+      number: String((card.matched && card.number) || parsed.number || '').slice(0, 40),
+      variant: ['Normal', 'Holo', 'Reverse Holo', '1st Edition'].includes(parsed.variant) ? parsed.variant : 'Normal',
+      price,
+      image: String((card.matched && card.image) || '').slice(0, 500),
+    });
+  }
+  if (!lines.length) return res.status(400).json({ error: 'None of those cards had a price.' });
+
+  const fee = body.mailing ? Math.round(Number(getSettings().mailing) * 100) / 100 : 0;
+  const subtotal = Math.round(lines.reduce((sum, l) => sum + l.price, 0) * 100) / 100;
+  let id = '';
+  for (let i = 0; i < 25 && !id; i++) {
+    const candidate = 'CTCG-' + String(crypto.randomInt(1000, 10000));
+    if (!orderIdTaken.get(candidate)) id = candidate;
+  }
+  if (!id) id = 'CTCG-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+
+  const username = String(body.buyerUsername || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 32);
+  const userId = Number(body.buyerId);
+  createClaimOrder(
+    {
+      id,
+      buyer: String(body.buyerName || username || 'Telegram buyer').slice(0, 120),
+      telegram: username ? '@' + username : '',
+      telegram_user_id: Number.isSafeInteger(userId) && userId > 0 ? userId : 0,
+      address: `Telegram claim sale, ${saleDate}`,
+      delivery: fee ? 'Tracked Mailing' : 'Self-Pickup',
+      subtotal,
+      fee,
+      total: Math.round((subtotal + fee) * 100) / 100,
+    },
+    lines,
+    saleDate,
+    buyerKey
+  );
+  res.status(201).json({ orderId: id });
+});
+
 router.post('/claim-sales/list-now', async (req, res) => {
   const postIds = Array.isArray(req.body && req.body.postIds) ? req.body.postIds.slice(0, 500) : [];
   if (!postIds.length) return res.status(400).json({ error: 'Tick at least one card to list.' });
@@ -1137,6 +1237,8 @@ router.put('/settings', (req, res) => {
   if (body.telegram !== undefined) patch.telegram = String(body.telegram).trim().slice(0, 80);
   if (body.claimTelegram !== undefined) patch.claimTelegram = String(body.claimTelegram).trim().slice(0, 80);
   if (body.autoLeftovers !== undefined) patch.autoLeftovers = body.autoLeftovers === 'off' ? 'off' : 'on';
+  if (body.paynowNumber !== undefined) patch.paynowNumber = String(body.paynowNumber).trim().slice(0, 40);
+  if (body.billingTemplate !== undefined) patch.billingTemplate = String(body.billingTemplate).slice(0, 4000);
   if (body.leftoverCondition !== undefined) {
     patch.leftoverCondition = CONDITIONS.has(body.leftoverCondition) ? body.leftoverCondition : 'NM';
   }

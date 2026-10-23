@@ -253,6 +253,10 @@ const DEFAULT_SETTINGS = {
   // Payment + contact details shown to the buyer after checkout.
   paynowQr: '/uploads/paynow-qr.jpg',
   paynowPayee: '',
+  // PayNow number and the message used to bill claim sale buyers (admin Claim Sales).
+  // Placeholders: {name} {items} {subtotal} {mailing} {total} {paynow}
+  paynowNumber: '',
+  billingTemplate: "Hello, thanks for supporting Crazed TCG's sales. Kindly double-check your list to ensure everything is accurate:\n\n{items}\n\n✅ Once verified, please PayNow {total} to {paynow}.\n\n⏰ Payment must be made within 24 hours, else claim will be voided.\n\n📦 Mailing will be arranged after payment is received. Let me know if you'd like to combine orders or hold for future mailing.\n\nThank you for supporting Crazed TCG!",
   contactTelegram: '@Cqvie',
 };
 

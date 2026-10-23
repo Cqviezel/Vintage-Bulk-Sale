@@ -25,7 +25,7 @@
       <button data-admin-tab="analytics"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg>Analytics</button>
       <div class="nav-label">Sales</div>
       <button data-admin-tab="orders"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v18l-3.5-2-3.5 2-3.5-2L5 21z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>Orders</button>
-      <button data-admin-tab="claimLeftovers"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>Claim Leftovers</button>
+      <button data-admin-tab="claimLeftovers"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>Claim Sales</button>
       <button data-admin-tab="promoCodes"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>Promo Codes</button>
       <div class="nav-label">Catalogue</div>
       <button data-admin-tab="products"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 9 5-9 5-9-5 9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg>Products</button>
@@ -212,7 +212,7 @@
 
     <section class="admin-tab" id="claimLeftovers">
       <div class="admin-top">
-        <div><h1>Claim Leftovers</h1><p>Unclaimed cards from your Telegram claim sales, listed for buyers on <a href="/leftovers" target="_blank" rel="noopener">/leftovers</a>.</p></div>
+        <div><h1>Claim Sales</h1><p>Bill each buyer after a Telegram claim sale, and keep track of the leftovers listed on <a href="/leftovers" target="_blank" rel="noopener">/leftovers</a>.</p></div>
         <div class="actions"><button class="btn" id="claimRunNow" type="button">Check now</button></div>
       </div>
       <div class="panel">
@@ -225,11 +225,18 @@
           </div>
           <div class="notice" id="claimStatus" style="margin-top:12px">Checking status…</div>
           <div class="form-grid" style="align-items:end;margin-top:16px">
-            <div><label for="claimDate">Look at one sale</label><input id="claimDate" type="date"></div>
-            <div><button class="btn primary" id="claimScan" type="button" style="width:100%;min-height:42px">Scan this date</button></div>
+            <div><label for="claimDate">Sale date</label><input id="claimDate" type="date"></div>
+            <div><button class="btn primary" id="claimScan" type="button" style="width:100%;min-height:42px">Load This Sale</button></div>
           </div>
         </div>
       </div>
+      <div class="panel hidden" id="claimBilling">
+        <div class="panel-head">
+          <div><h2 id="billingSummary">Billing</h2><div class="small muted" id="billingSubtext">One message per buyer, written from your template in Settings.</div></div>
+        </div>
+        <div class="panel-body"><div class="bill-grid" id="billingList"></div></div>
+      </div>
+
       <div class="panel hidden" id="claimResults">
         <div class="panel-head">
           <div><h2 id="claimSummary">Results</h2><div class="small muted" id="claimSubtext"></div></div>
@@ -308,6 +315,14 @@
         </section>
 
         <section class="settings-section">
+          <div class="section-intro"><h3>Claim Sale Billing</h3><p>The message the Claim Sales page writes for each buyer. Fill-ins: <code>{name}</code> <code>{items}</code> <code>{subtotal}</code> <code>{mailing}</code> <code>{total}</code> <code>{paynow}</code>.</p></div>
+          <div class="form-grid">
+            <div class="full"><label for="settingBillingTemplate">Billing Message</label><textarea id="settingBillingTemplate" style="min-height:260px"></textarea>
+              <div class="field-hint"><code>{items}</code> becomes one line per card (plus mailing), e.g. <i>• Mew 29 Fates Collide Holo – $20.00</i>. <code>{paynow}</code> is the PayNow number above.</div></div>
+          </div>
+        </section>
+
+        <section class="settings-section">
           <div class="section-intro"><h3>Checkout &amp; Delivery</h3><p>Fees and limits applied at checkout.</p></div>
           <div class="form-grid">
             <div><label for="settingMailing">Tracked Mailing Fee ($)</label><input id="settingMailing" type="number" step="0.01" min="0"></div>
@@ -319,7 +334,8 @@
         <section class="settings-section">
           <div class="section-intro"><h3>PayNow</h3><p>Shown to buyers on the order confirmation screen.</p></div>
           <div class="form-grid">
-            <div class="full"><label for="settingPaynowPayee">Payee Name (optional)</label><input id="settingPaynowPayee" placeholder="Shown under the QR"></div>
+            <div><label for="settingPaynowNumber">PayNow Number</label><input id="settingPaynowNumber" placeholder="e.g. 9123 4567"></div>
+            <div><label for="settingPaynowPayee">Payee Name (optional)</label><input id="settingPaynowPayee" placeholder="Shown under the QR"></div>
             <div class="full"><label for="settingPaynow">Payment Instructions</label><textarea id="settingPaynow"></textarea></div>
             <div class="full">
               <label>PayNow QR Code</label>
