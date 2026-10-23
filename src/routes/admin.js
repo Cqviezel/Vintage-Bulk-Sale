@@ -14,6 +14,7 @@ const telegram = require('../telegram');
 const csv = require('../csv');
 const ptcg = require('../pokemontcg');
 const orders = require('../orders');
+const claimSale = require('../claimSale');
 
 const router = express.Router();
 
@@ -695,6 +696,85 @@ router.post('/products/bulk-cards', (req, res) => {
     bySet.get(row.set_name).push(row);
   }
   for (const [setName, setRows] of bySet) telegram.queueRestock(setName, setRows);
+});
+
+/* ------------------------------------------------------ claim sale leftovers --- */
+
+// Reads a past Telegram claim sale and lists what went unclaimed (src/claimSale.js).
+router.post('/claim-sales/scan', async (req, res) => {
+  try {
+    const result = await claimSale.scanSale({
+      date: String((req.body && req.body.date) || ''),
+      channelSetting: getSettings().claimTelegram,
+    });
+    res.json(result);
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    console.error('[claim-sale] scan failed:', err);
+    res.status(502).json({ error: `Could not read the claim channel: ${err.message}` });
+  }
+});
+
+// Lists the chosen leftovers as live, one-of-one products.
+router.post('/claim-sales/import', async (req, res) => {
+  const body = req.body || {};
+  const items = Array.isArray(body.items) ? body.items.slice(0, MAX_SET_IMPORT_ROWS) : [];
+  if (!items.length) return res.status(400).json({ error: 'Tick at least one card to add.' });
+
+  const channelSetting = getSettings().claimTelegram;
+  const rows = [];
+  for (const item of items) {
+    const name = String(item.name || '').trim().slice(0, 160);
+    const price = Number(item.price);
+    if (!name || !Number.isFinite(price) || price < 0) continue;
+
+    // No official image matched: fall back to the photo from the Telegram post.
+    let image = String(item.image || '').trim().slice(0, 500);
+    if (!image && item.photoPostId) {
+      try {
+        image = await claimSale.savePostPhoto({
+          channelSetting,
+          postId: item.photoPostId,
+          uploadDir: UPLOAD_DIR,
+          processImage,
+        });
+      } catch (err) {
+        console.error('[claim-sale] photo download failed:', err.message);
+      }
+    }
+
+    rows.push({
+      id: 'p' + crypto.randomBytes(8).toString('hex'),
+      name,
+      set_name: String(item.set || '').trim().slice(0, 160),
+      set_symbol: String(item.setSymbol || '').trim().slice(0, 500),
+      number: String(item.number || '').trim().slice(0, 40),
+      condition: CONDITIONS.has(item.condition) ? item.condition : 'NM',
+      variant: VARIANTS.has(item.variant) ? item.variant : 'Normal',
+      price: Math.round(price * 100) / 100,
+      qty: 1,
+      status: 'live',
+      image,
+      notes: '',
+      artist: String(item.artist || '').trim().slice(0, 120),
+      postId: Number(item.postId) || 0,
+    });
+  }
+  if (!rows.length) return res.status(400).json({ error: 'None of the ticked cards had a name and price.' });
+
+  const merged = insertOrMergeRows(rows.map(({ postId, ...row }) => row));
+  for (const row of rows) if (row.postId) claimSale.markImported(channelSetting, row.postId, row.name);
+
+  res.status(201).json({ imported: rows.length, merged });
+
+  if (body.announce) {
+    const bySet = new Map();
+    for (const row of rows) {
+      if (!bySet.has(row.set_name)) bySet.set(row.set_name, []);
+      bySet.get(row.set_name).push(row);
+    }
+    for (const [setName, setRows] of bySet) telegram.queueRestock(setName, setRows);
+  }
 });
 
 /* --------------------------------------------------------------- uploads --- */

@@ -132,4 +132,4 @@ async function forwardMessage({ fromChat, messageId, toChat, threadId }) {
   }
 }
 
-module.exports = { isConfigured, start, stop, forwardMessage };
+module.exports = { isConfigured, start, stop, forwardMessage, getClient: connect, resolveChat };

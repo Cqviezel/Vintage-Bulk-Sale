@@ -19,6 +19,7 @@
     <nav class="admin-nav">
       <button class="active" data-admin-tab="dashboard">Dashboard</button>
       <button data-admin-tab="products">Products</button>
+      <button data-admin-tab="claimLeftovers">Claim Leftovers</button>
       <button data-admin-tab="orders">Orders</button>
       <button data-admin-tab="analytics">Analytics</button>
       <button data-admin-tab="tradeShows">Trade Shows</button>
@@ -189,6 +190,48 @@
       <div class="panel">
         <div class="panel-head"><div><h2>Order Status</h2><div class="small muted">Orders placed in this range, by current status.</div></div></div>
         <div class="panel-body" id="anStatusBreakdown"></div>
+      </div>
+    </section>
+
+    <section class="admin-tab" id="claimLeftovers">
+      <div class="admin-top">
+        <div><h1>Claim Leftovers</h1><p>Find the cards nobody claimed in a Telegram claim sale and list them in the store.</p></div>
+      </div>
+      <div class="panel">
+        <div class="panel-body">
+          <div class="form-grid" style="align-items:end">
+            <div><label for="claimDate">Sale date</label><input id="claimDate" type="date"></div>
+            <div><button class="btn primary" id="claimScan" type="button" style="width:100%;min-height:42px">Scan claim channel</button></div>
+          </div>
+          <div class="notice" style="margin-top:14px">
+            Reads every post in your Claim Sale Channel on that day (Singapore time). A card counts as <b>claimed</b> when a buyer
+            comments "claim", when you reply "ok" to an offer, or when the buyer accepts your counter. Everything else, including
+            offers nobody agreed to, counts as a <b>leftover</b>. Cards you've already added from a sale are marked so they can't be added twice.
+          </div>
+        </div>
+      </div>
+      <div class="panel hidden" id="claimResults">
+        <div class="panel-head">
+          <div><h2 id="claimSummary">Results</h2><div class="small muted" id="claimSubtext"></div></div>
+          <div class="panel-controls">
+            <label class="small" style="display:flex;align-items:center;gap:6px;margin:0">
+              Condition
+              <select id="claimCondition" style="min-height:34px;padding:6px 8px">
+                <option selected>NM</option><option>LP</option><option>MP</option><option>HP</option>
+              </select>
+            </label>
+            <label class="small" style="display:flex;align-items:center;gap:6px;margin:0">
+              <input type="checkbox" id="claimAnnounce" style="width:auto;min-height:0"> Announce in restock channel
+            </label>
+            <button class="btn primary" id="claimImport" type="button">Add to store</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th style="width:36px"><input type="checkbox" id="claimAll" style="width:auto;min-height:0" aria-label="Select all leftovers"></th><th>Card</th><th>Caption</th><th>Price</th><th>Outcome</th><th>Post</th></tr></thead>
+            <tbody id="claimBody"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 

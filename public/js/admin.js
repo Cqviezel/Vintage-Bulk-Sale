@@ -1951,6 +1951,125 @@ $('#removePaynowQr').onclick = async () => {
   }
 };
 
+/* -------------------------------------------------- claim sale leftovers --- */
+
+let claimListings = [];
+
+function claimRowHtml(l, i) {
+  const card = l.card || {};
+  const canAdd = l.status === 'leftover' && !l.imported;
+  const outcome = l.imported
+    ? '<span class="status status-hidden">Already added</span>'
+    : l.status === 'claimed'
+      ? `<span class="status status-sold">Claimed</span>${l.price != null ? ` <b>${money(l.price)}</b>` : ''}`
+      : '<span class="status status-live">Leftover</span>';
+  const matched = card.matched
+    ? `<div class="small muted">${esc(card.set)}${card.number ? ' &middot; #' + esc(card.number) : ''}${l.parsed.variant !== 'Normal' ? ' &middot; ' + esc(l.parsed.variant) : ''}</div>`
+    : l.status === 'leftover'
+      ? '<div class="small" style="color:var(--warning)">No official card matched; the Telegram photo will be used.</div>'
+      : '';
+  return `
+    <tr>
+      <td>${canAdd ? `<input type="checkbox" data-claim-pick="${i}" checked style="width:auto;min-height:0" aria-label="Add ${esc(card.name || l.parsed.name)}">` : ''}</td>
+      <td>
+        <div style="display:flex;gap:10px;align-items:center">
+          ${card.image ? `<img src="${esc(card.image)}" alt="" style="width:34px;height:46px;object-fit:contain">` : ''}
+          <div><b>${esc(card.name || l.parsed.name)}</b>${matched}</div>
+        </div>
+      </td>
+      <td class="small muted">${esc(l.caption)}</td>
+      <td>${canAdd ? `<input type="number" step="0.01" min="0" value="${esc(l.parsed.price)}" data-claim-price="${i}" style="width:90px;min-height:34px;padding:6px 8px">` : money(l.parsed.price)}</td>
+      <td>${outcome}<div class="small muted" style="margin-top:4px">${esc(l.reason)}</div></td>
+      <td>${l.link ? `<a href="${esc(l.link)}" target="_blank" rel="noopener">Open &nearr;</a>` : ''}</td>
+    </tr>`;
+}
+
+function renderClaimResults(result) {
+  claimListings = result.listings;
+  const claimed = claimListings.filter((l) => l.status === 'claimed').length;
+  const leftover = claimListings.filter((l) => l.status === 'leftover' && !l.imported).length;
+  const done = claimListings.filter((l) => l.imported).length;
+
+  $('#claimResults').classList.remove('hidden');
+  $('#claimSummary').textContent = claimListings.length
+    ? `${claimListings.length} cards posted · ${claimed} claimed · ${leftover} leftover`
+    : 'No card posts found that day';
+  $('#claimSubtext').textContent =
+    `${result.channel} on ${result.date}` + (done ? ` · ${done} already added to the store earlier` : '');
+  $('#claimBody').innerHTML = claimListings.length
+    ? claimListings.map(claimRowHtml).join('')
+    : '<tr><td colspan="6" class="muted">Nothing to show. Check the date and the Claim Sale Channel in Settings.</td></tr>';
+  $('#claimAll').checked = leftover > 0;
+  $('#claimImport').disabled = leftover === 0;
+}
+
+$('#claimScan').onclick = async () => {
+  const button = $('#claimScan');
+  const date = $('#claimDate').value;
+  if (!date) return toast('Pick the sale date first.', true);
+  button.disabled = true;
+  button.textContent = 'Scanning… this can take a minute';
+  try {
+    renderClaimResults(await api('/api/admin/claim-sales/scan', { method: 'POST', body: JSON.stringify({ date }) }));
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Scan claim channel';
+  }
+};
+
+$('#claimAll').onchange = () => {
+  $$('[data-claim-pick]').forEach((box) => (box.checked = $('#claimAll').checked));
+};
+
+$('#claimImport').onclick = async () => {
+  const picked = $$('[data-claim-pick]').filter((box) => box.checked).map((box) => Number(box.dataset.claimPick));
+  if (!picked.length) return toast('Tick at least one leftover to add.', true);
+
+  const condition = $('#claimCondition').value;
+  const items = picked.map((i) => {
+    const l = claimListings[i];
+    const card = l.card || {};
+    return {
+      postId: l.postId,
+      photoPostId: l.photoPostId,
+      name: card.name || l.parsed.name,
+      set: card.set || l.parsed.set,
+      setSymbol: card.setSymbol || '',
+      number: card.number || l.parsed.number,
+      variant: l.parsed.variant,
+      condition,
+      price: $(`[data-claim-price="${i}"]`).value,
+      image: card.image || '',
+      artist: card.artist || '',
+    };
+  });
+
+  const button = $('#claimImport');
+  button.disabled = true;
+  button.textContent = 'Adding…';
+  try {
+    const res = await api('/api/admin/claim-sales/import', {
+      method: 'POST',
+      body: JSON.stringify({ items, announce: $('#claimAnnounce').checked }),
+    });
+    toast(`Added ${res.imported} card${res.imported === 1 ? '' : 's'} to the store`);
+    // Show the rows just added as "Already added" without re-reading Telegram.
+    for (const i of picked) claimListings[i].imported = true;
+    renderClaimResults({
+      channel: $('#claimSubtext').textContent.split(' on ')[0],
+      date: $('#claimDate').value,
+      listings: claimListings,
+    });
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Add to store';
+  }
+};
+
 /* ---------------------------------------------------------------- wiring --- */
 
 $$('[data-admin-tab]').forEach((b) => {
