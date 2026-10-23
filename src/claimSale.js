@@ -1,8 +1,7 @@
 'use strict';
 
 /**
- * Reads a past Telegram claim sale back and works out which cards went unclaimed, so
- * the leftovers can be listed in the store.
+ * Turns unclaimed cards from Telegram claim sales into listings on the /leftovers page.
  *
  * Runs on the userbot account (it can read channel history and comment threads, which
  * the Bot API cannot). Each channel post is one card: a photo (or album) with a caption
@@ -11,28 +10,60 @@
  *   - a buyer offer that the seller answers with "ok"/"okay"/"deal"... -> claimed
  *   - a seller counter that the buyer accepts ("ok", or "claim") -> claimed
  *   - anything else, including offers nobody agreed to -> leftover
+ *
+ * autoRun() does this on a timer: once a post is a day old and still unclaimed it is
+ * listed, and a card that gets claimed late on Telegram is pulled back off the site.
  */
 
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+const sharp = require('sharp');
 const { Api } = require('teleproto');
-const { db } = require('./db');
+const { db, getSettings } = require('./db');
 const telegramUserbot = require('./telegramUserbot');
+const telegram = require('./telegram');
 const pokemontcg = require('./pokemontcg');
 
 // Claim sales run on Singapore time; a "sale date" means that calendar day there.
 const SALE_TZ_OFFSET_HOURS = 8;
+// How long a post stays open for claims before its card is listed.
+const CLAIM_WINDOW_HOURS = 24;
+// How far back the automatic job looks, both for new posts and for late claims.
+const LOOKBACK_DAYS = 7;
 
+const UPLOAD_DIR = process.env.UPLOAD_DIR
+  ? path.resolve(process.env.UPLOAD_DIR)
+  : path.join(__dirname, '..', 'uploads');
+
+// One row per card post we've reached a decision on, so each is handled once.
+//   outcome: 'claimed' | 'listed' (on /leftovers) | 'pulled' (listed, then claimed late)
 db.exec(`
-  CREATE TABLE IF NOT EXISTS claim_imports (
-    channel     TEXT NOT NULL,
-    post_id     INTEGER NOT NULL,
+  CREATE TABLE IF NOT EXISTS claim_posts (
+    channel      TEXT NOT NULL,
+    post_id      INTEGER NOT NULL,
+    outcome      TEXT NOT NULL,
+    product_id   TEXT NOT NULL DEFAULT '',
     product_name TEXT NOT NULL DEFAULT '',
-    imported_at TEXT NOT NULL DEFAULT (datetime('now')),
+    reply_count  INTEGER NOT NULL DEFAULT 0,
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (channel, post_id)
   )
 `);
-const importedPosts = db.prepare('SELECT post_id FROM claim_imports WHERE channel = ?');
-const recordImport = db.prepare(
-  'INSERT OR IGNORE INTO claim_imports (channel, post_id, product_name) VALUES (?, ?, ?)'
+const postsForChannel = db.prepare('SELECT * FROM claim_posts WHERE channel = ?');
+const savePost = db.prepare(
+  `INSERT INTO claim_posts (channel, post_id, outcome, product_id, product_name, reply_count)
+   VALUES (@channel, @post_id, @outcome, @product_id, @product_name, @reply_count)
+   ON CONFLICT(channel, post_id) DO UPDATE SET outcome = excluded.outcome, product_id = excluded.product_id,
+     product_name = excluded.product_name, reply_count = excluded.reply_count, updated_at = datetime('now')`
+);
+const insertLeftover = db.prepare(
+  `INSERT INTO products (id, name, set_name, set_symbol, number, condition, variant, price, qty, status, image, notes, artist, channel, claim_sale, claim_link)
+   VALUES (@id, @name, @set_name, @set_symbol, @number, @condition, @variant, @price, 1, 'live', @image, '', @artist, 'claim', @claim_sale, @claim_link)`
+);
+const productById = db.prepare('SELECT * FROM products WHERE id = ?');
+const pullProduct = db.prepare(
+  "UPDATE products SET status = 'hidden', updated_at = datetime('now') WHERE id = ? AND status = 'live'"
 );
 
 /* ------------------------------------------------------------- captions --- */
@@ -228,7 +259,6 @@ async function matchCard(parsed) {
   }
   return { matched: false, name: parsed.name, set: parsed.set, setSymbol: '', number: parsed.number, image: '', artist: '' };
 }
-
 /* --------------------------------------------------------------- telegram --- */
 
 function dayBounds(dateStr) {
@@ -236,6 +266,11 @@ function dayBounds(dateStr) {
   if (!m) throw Object.assign(new Error('Pick a sale date.'), { status: 400 });
   const startUtc = Date.UTC(+m[1], +m[2] - 1, +m[3]) - SALE_TZ_OFFSET_HOURS * 3600 * 1000;
   return { start: startUtc / 1000, end: startUtc / 1000 + 24 * 3600 };
+}
+
+/** "2026-10-22" for a unix time, in sale (Singapore) time. */
+function saleDate(unixSeconds) {
+  return new Date((unixSeconds + SALE_TZ_OFFSET_HOURS * 3600) * 1000).toISOString().slice(0, 10);
 }
 
 function channelRef(value) {
@@ -274,25 +309,24 @@ const displayName = (entity) =>
       [entity.firstName, entity.lastName].filter(Boolean).join(' ') ||
       (entity.username ? '@' + entity.username : 'Someone');
 
-/**
- * Scans one sale day. Returns every card post with its outcome; leftovers also carry
- * the matched official card so the admin can list them in one click.
- */
-async function scanSale({ date, channelSetting }) {
+async function openChannel(channelSetting) {
   if (!telegramUserbot.isConfigured()) {
     throw Object.assign(new Error('The Telegram userbot is not set up on this server.'), { status: 400 });
   }
   const ref = channelRef(channelSetting);
   if (!ref) throw Object.assign(new Error('Set the Claim Sale Channel in Settings first.'), { status: 400 });
-
-  const { start, end } = dayBounds(date);
   const client = await telegramUserbot.getClient();
   const channel = await telegramUserbot.resolveChat(client, ref);
-  const sellers = await sellerUserIds(client, channel);
+  return { client, channel, ref };
+}
 
-  // Newest first from the end of the day, stopping once we pass its start.
+/**
+ * Every card post between two unix times, oldest first. Comments are not fetched
+ * here (one request per post adds up), only each post's current comment count.
+ */
+async function listCardPosts({ client, channel, ref }, start, end) {
   const raw = [];
-  for await (const msg of client.iterMessages(channel, { offsetDate: end, limit: 1000 })) {
+  for await (const msg of client.iterMessages(channel, { offsetDate: end, limit: 2000 })) {
     if (msg.date < start) break;
     raw.push(msg);
   }
@@ -306,70 +340,236 @@ async function scanSale({ date, channelSetting }) {
     groups.get(key).push(msg);
   }
 
-  const already = new Set(importedPosts.all(ref).map((r) => r.post_id));
-  const listings = [];
-
+  const posts = [];
   for (const msgs of groups.values()) {
     const captionMsg = msgs.find((m) => m.message && m.message.trim()) || msgs[0];
     const parsed = parseCaption(captionMsg.message);
     if (parsed.price == null) continue; // not a card listing (announcements, rules...)
-
     const threadMsg = msgs.find((m) => m.replies && m.replies.replies > 0) || captionMsg;
-    const comments = [];
-    if (threadMsg.replies && threadMsg.replies.replies > 0) {
-      for await (const c of client.iterMessages(channel, { replyTo: threadMsg.id, reverse: true, limit: 300 })) {
-        const from = c.fromId;
-        const userId = from && from.userId != null ? String(from.userId) : null;
-        // Posting as the channel or anonymously as the group shows up as a channel peer.
-        const isSeller = !userId || sellers.has(userId);
-        comments.push({
-          id: c.id,
-          text: c.message || '',
-          isSeller,
-          buyerId: userId,
-          buyerName: displayName(c.sender),
-          replyToId: c.replyTo && c.replyTo.replyToMsgId,
-        });
-      }
-    }
-
-    const outcome = decideOutcome(comments, parsed.price);
-    listings.push({
+    posts.push({
       postId: captionMsg.id,
+      threadId: threadMsg.id,
       photoPostId: (msgs.find((m) => m.media) || captionMsg).id,
-      postedAt: new Date(captionMsg.date * 1000).toISOString(),
+      date: captionMsg.date,
+      replyCount: (threadMsg.replies && threadMsg.replies.replies) || 0,
       link: ref.startsWith('@') ? `https://t.me/${ref.slice(1)}/${captionMsg.id}` : '',
       caption: parsed.title,
       parsed,
-      commentCount: comments.length,
-      imported: already.has(captionMsg.id),
-      ...outcome,
     });
   }
+  return posts;
+}
 
-  // Official images only for the cards that might go into the store.
-  const leftovers = listings.filter((l) => l.status === 'leftover');
-  for (const l of leftovers) l.card = await matchCard(l.parsed);
-
-  return { channel: ref, date, listings };
+async function readOutcome({ client, channel }, post, sellers) {
+  const comments = [];
+  if (post.replyCount > 0) {
+    for await (const c of client.iterMessages(channel, { replyTo: post.threadId, reverse: true, limit: 300 })) {
+      const from = c.fromId;
+      const userId = from && from.userId != null ? String(from.userId) : null;
+      comments.push({
+        id: c.id,
+        text: c.message || '',
+        // Posting as the channel or anonymously as the group shows up as a channel peer.
+        isSeller: !userId || sellers.has(userId),
+        buyerId: userId,
+        buyerName: displayName(c.sender),
+        replyToId: c.replyTo && c.replyTo.replyToMsgId,
+      });
+    }
+  }
+  return decideOutcome(comments, post.parsed.price);
 }
 
 /** Saves the post's own photo to the uploads folder, for cards with no official match. */
-async function savePostPhoto({ channelSetting, postId, uploadDir, processImage }) {
-  const client = await telegramUserbot.getClient();
-  const channel = await telegramUserbot.resolveChat(client, channelRef(channelSetting));
-  const [msg] = await client.getMessages(channel, { ids: [Number(postId)] });
-  if (!msg || !msg.media) return '';
-  const buffer = await client.downloadMedia(msg, {});
-  if (!buffer || !buffer.length) return '';
-  const processed = await processImage(Buffer.from(buffer), 'image/jpeg');
-  const filename = require('crypto').randomBytes(12).toString('hex') + '.jpg';
-  await require('fs').promises.writeFile(require('path').join(uploadDir, filename), processed);
-  return '/uploads/' + filename;
+async function savePostPhoto({ client, channel }, postId) {
+  try {
+    const [msg] = await client.getMessages(channel, { ids: [Number(postId)] });
+    if (!msg || !msg.media) return '';
+    const buffer = await client.downloadMedia(msg, {});
+    if (!buffer || !buffer.length) return '';
+    const processed = await sharp(Buffer.from(buffer))
+      .rotate()
+      .resize({ width: 1400, height: 1400, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 82 })
+      .toBuffer();
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+    const filename = crypto.randomBytes(12).toString('hex') + '.jpg';
+    await fs.promises.writeFile(path.join(UPLOAD_DIR, filename), processed);
+    return '/uploads/' + filename;
+  } catch (err) {
+    console.error('[claim-sale] photo download failed:', err.message);
+    return '';
+  }
 }
 
-function markImported(channelSetting, postId, name) {
-  recordImport.run(channelRef(channelSetting), Number(postId), String(name || ''));
+/** Puts one unclaimed card on /leftovers. Returns the new product id. */
+async function listLeftover(conn, post, condition) {
+  const card = await matchCard(post.parsed);
+  const image = card.image || (await savePostPhoto(conn, post.photoPostId));
+  const id = 'p' + crypto.randomBytes(8).toString('hex');
+  insertLeftover.run({
+    id,
+    name: String(card.name || post.parsed.name).slice(0, 160),
+    set_name: String(card.set || post.parsed.set).slice(0, 160),
+    set_symbol: String(card.setSymbol || '').slice(0, 500),
+    number: String(card.number || post.parsed.number).slice(0, 40),
+    condition: ['NM', 'LP', 'MP', 'HP'].includes(condition) ? condition : 'NM',
+    variant: post.parsed.variant,
+    price: Math.round(Number(post.parsed.price) * 100) / 100,
+    image,
+    artist: String(card.artist || '').slice(0, 120),
+    claim_sale: saleDate(post.date),
+    claim_link: post.link,
+  });
+  return { id, name: card.name || post.parsed.name };
 }
 
-module.exports = { scanSale, savePostPhoto, markImported, parseCaption, decideOutcome, matchCard, channelRef };
+/* ------------------------------------------------------------ manual scan --- */
+
+/** One sale day, every card and its outcome, for the admin Claim Leftovers tab. */
+async function scanSale({ date }) {
+  const settings = getSettings();
+  const conn = await openChannel(settings.claimTelegram);
+  const { start, end } = dayBounds(date);
+  const sellers = await sellerUserIds(conn.client, conn.channel);
+  const known = new Map(postsForChannel.all(conn.ref).map((r) => [r.post_id, r]));
+
+  const posts = await listCardPosts(conn, start, end);
+  const listings = [];
+  for (const post of posts) {
+    const outcome = await readOutcome(conn, post, sellers);
+    const rec = known.get(post.postId);
+    listings.push({
+      ...post,
+      ...outcome,
+      onSite: rec ? rec.outcome : '',
+    });
+  }
+  return { channel: conn.ref, date, listings };
+}
+
+/** Lists chosen posts now, from the admin tab, without waiting for the timer. */
+async function listNow({ postIds }) {
+  const settings = getSettings();
+  const conn = await openChannel(settings.claimTelegram);
+  const wanted = new Set(postIds.map(Number));
+  const known = new Map(postsForChannel.all(conn.ref).map((r) => [r.post_id, r]));
+  const now = Math.floor(Date.now() / 1000);
+  const posts = await listCardPosts(conn, now - 60 * 86400, now);
+
+  let listed = 0;
+  for (const post of posts) {
+    if (!wanted.has(post.postId) || known.has(post.postId)) continue;
+    const product = await listLeftover(conn, post, settings.leftoverCondition);
+    savePost.run({
+      channel: conn.ref,
+      post_id: post.postId,
+      outcome: 'listed',
+      product_id: product.id,
+      product_name: product.name,
+      reply_count: post.replyCount,
+    });
+    listed++;
+  }
+  return { listed };
+}
+
+/* ---------------------------------------------------------- automatic job --- */
+
+let running = false;
+
+/**
+ * Lists every card post that is over a day old and still unclaimed, and pulls any
+ * listed card that has since been claimed on Telegram. Safe to call repeatedly.
+ */
+async function autoRun() {
+  const settings = getSettings();
+  if (running || settings.autoLeftovers === 'off' || !telegramUserbot.isConfigured()) return null;
+  if (!channelRef(settings.claimTelegram)) return null;
+  running = true;
+  const summary = { listed: [], pulled: [], claimed: 0 };
+  try {
+    const conn = await openChannel(settings.claimTelegram);
+    const now = Math.floor(Date.now() / 1000);
+    const posts = await listCardPosts(conn, now - LOOKBACK_DAYS * 86400, now);
+    const known = new Map(postsForChannel.all(conn.ref).map((r) => [r.post_id, r]));
+    let sellers = null;
+
+    for (const post of posts) {
+      const rec = known.get(post.postId);
+      const old = now - post.date >= CLAIM_WINDOW_HOURS * 3600;
+
+      if (!rec) {
+        if (!old) continue; // still open for claims
+        sellers = sellers || (await sellerUserIds(conn.client, conn.channel));
+        const outcome = await readOutcome(conn, post, sellers);
+        if (outcome.status === 'claimed') {
+          savePost.run({ channel: conn.ref, post_id: post.postId, outcome: 'claimed', product_id: '', product_name: post.parsed.name, reply_count: post.replyCount });
+          summary.claimed++;
+        } else {
+          const product = await listLeftover(conn, post, settings.leftoverCondition);
+          savePost.run({ channel: conn.ref, post_id: post.postId, outcome: 'listed', product_id: product.id, product_name: product.name, reply_count: post.replyCount });
+          summary.listed.push(product.name);
+        }
+        continue;
+      }
+
+      // Already listed: only re-read the comments when new ones have appeared.
+      if (rec.outcome === 'listed' && post.replyCount > rec.reply_count) {
+        sellers = sellers || (await sellerUserIds(conn.client, conn.channel));
+        const outcome = await readOutcome(conn, post, sellers);
+        if (outcome.status === 'claimed') {
+          const product = productById.get(rec.product_id);
+          const stillOnSale = product && product.status === 'live' && product.qty > 0;
+          if (stillOnSale) pullProduct.run(rec.product_id);
+          savePost.run({ ...rec, outcome: 'pulled', reply_count: post.replyCount });
+          summary.pulled.push({ name: rec.product_name, buyer: outcome.buyer, wasOnSale: stillOnSale, link: post.link });
+        } else {
+          savePost.run({ ...rec, reply_count: post.replyCount });
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[claim-sale] automatic run failed:', err.message);
+  } finally {
+    running = false;
+  }
+
+  if (summary.listed.length || summary.pulled.length) {
+    const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    const lines = [];
+    if (summary.listed.length) {
+      lines.push(`<b>${summary.listed.length} claim sale leftover${summary.listed.length === 1 ? '' : 's'} listed on /leftovers</b>`);
+      lines.push(summary.listed.map(esc).join(', '));
+    }
+    for (const p of summary.pulled) {
+      lines.push(
+        p.wasOnSale
+          ? `<b>Pulled from the site:</b> ${esc(p.name)} was claimed late on Telegram by ${esc(p.buyer)}.`
+          : `<b>Check this:</b> ${esc(p.name)} was claimed late on Telegram by ${esc(p.buyer)}, but it had already sold or been reserved on the site.`
+      );
+    }
+    telegram.notifyAdmin(lines.join('\n')).catch(() => {});
+  }
+  return summary;
+}
+
+let timer = null;
+function startAutoRun({ everyHours = 3, firstDelayMinutes = 2 } = {}) {
+  if (timer) return;
+  setTimeout(() => autoRun().catch(() => {}), firstDelayMinutes * 60 * 1000);
+  timer = setInterval(() => autoRun().catch(() => {}), everyHours * 3600 * 1000);
+  if (timer.unref) timer.unref();
+}
+
+module.exports = {
+  scanSale,
+  listNow,
+  autoRun,
+  startAutoRun,
+  parseCaption,
+  decideOutcome,
+  matchCard,
+  channelRef,
+  saleDate,
+};

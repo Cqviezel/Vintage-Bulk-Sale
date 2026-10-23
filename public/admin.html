@@ -195,18 +195,20 @@
 
     <section class="admin-tab" id="claimLeftovers">
       <div class="admin-top">
-        <div><h1>Claim Leftovers</h1><p>Find the cards nobody claimed in a Telegram claim sale and list them in the store.</p></div>
+        <div><h1>Claim Leftovers</h1><p>Unclaimed cards from your Telegram claim sales, listed for buyers on <a href="/leftovers" target="_blank" rel="noopener">/leftovers</a>.</p></div>
+        <div class="actions"><button class="btn" id="claimRunNow" type="button">Check now</button></div>
       </div>
       <div class="panel">
         <div class="panel-body">
-          <div class="form-grid" style="align-items:end">
-            <div><label for="claimDate">Sale date</label><input id="claimDate" type="date"></div>
-            <div><button class="btn primary" id="claimScan" type="button" style="width:100%;min-height:42px">Scan claim channel</button></div>
+          <div class="notice">
+            <b>This runs by itself.</b> Every few hours the site reads your Claim Sale Channel. Once a card post is a day old,
+            it counts as <b>claimed</b> if a buyer commented "claim", you replied "ok" to an offer, or the buyer accepted your counter.
+            Anything else, including offers nobody agreed to, is listed on <b>/leftovers</b> in the condition set in Settings.
+            If someone claims a listed card late on Telegram, it's taken off the site and you get a Telegram message.
           </div>
-          <div class="notice" style="margin-top:14px">
-            Reads every post in your Claim Sale Channel on that day (Singapore time). A card counts as <b>claimed</b> when a buyer
-            comments "claim", when you reply "ok" to an offer, or when the buyer accepts your counter. Everything else, including
-            offers nobody agreed to, counts as a <b>leftover</b>. Cards you've already added from a sale are marked so they can't be added twice.
+          <div class="form-grid" style="align-items:end;margin-top:16px">
+            <div><label for="claimDate">Look at one sale</label><input id="claimDate" type="date"></div>
+            <div><button class="btn primary" id="claimScan" type="button" style="width:100%;min-height:42px">Scan this date</button></div>
           </div>
         </div>
       </div>
@@ -214,21 +216,12 @@
         <div class="panel-head">
           <div><h2 id="claimSummary">Results</h2><div class="small muted" id="claimSubtext"></div></div>
           <div class="panel-controls">
-            <label class="small" style="display:flex;align-items:center;gap:6px;margin:0">
-              Condition
-              <select id="claimCondition" style="min-height:34px;padding:6px 8px">
-                <option selected>NM</option><option>LP</option><option>MP</option><option>HP</option>
-              </select>
-            </label>
-            <label class="small" style="display:flex;align-items:center;gap:6px;margin:0">
-              <input type="checkbox" id="claimAnnounce" style="width:auto;min-height:0"> Announce in restock channel
-            </label>
-            <button class="btn primary" id="claimImport" type="button">Add to store</button>
+            <button class="btn primary" id="claimImport" type="button">List ticked cards now</button>
           </div>
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th style="width:36px"><input type="checkbox" id="claimAll" style="width:auto;min-height:0" aria-label="Select all leftovers"></th><th>Card</th><th>Caption</th><th>Price</th><th>Outcome</th><th>Post</th></tr></thead>
+            <thead><tr><th style="width:36px"><input type="checkbox" id="claimAll" style="width:auto;min-height:0" aria-label="Select all leftovers"></th><th>Card</th><th>Caption</th><th>Price</th><th>Outcome</th><th>On the site</th><th>Post</th></tr></thead>
             <tbody id="claimBody"></tbody>
           </table>
         </div>
@@ -280,6 +273,8 @@
         <div><label for="settingStoreName">Store Name</label><input id="settingStoreName"></div>
         <div><label for="settingTelegram">Public Telegram Channel</label><input id="settingTelegram" placeholder="@crazedtcg"></div>
         <div><label for="settingClaimTelegram">Claim Sale Channel</label><input id="settingClaimTelegram" placeholder="@crazedsale"></div>
+        <div><label for="settingAutoLeftovers">Claim Sale Leftovers</label><select id="settingAutoLeftovers"><option value="on">List unclaimed cards automatically</option><option value="off">Off</option></select></div>
+        <div><label for="settingLeftoverCondition">Leftover Card Condition</label><select id="settingLeftoverCondition"><option>NM</option><option>LP</option><option>MP</option><option>HP</option></select></div>
         <div><label for="settingMailing">Tracked Mailing Fee</label><input id="settingMailing" type="number" step="0.01" min="0"></div>
         <div><label for="settingMinimum">Minimum Card Subtotal</label><input id="settingMinimum" type="number" step="0.01" min="0"></div>
         <div><label for="settingReservation">Reservation Minutes</label><input id="settingReservation" type="number" min="0"></div>

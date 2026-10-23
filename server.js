@@ -2,6 +2,7 @@
 
 require('dotenv').config();
 
+const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
@@ -16,6 +17,7 @@ const telegramUserbot2 = require('./src/telegramUserbot2');
 const publicRoutes = require('./src/routes/public');
 const { router: customerRoutes } = require('./src/routes/customer');
 const adminRoutes = require('./src/routes/admin');
+const claimSale = require('./src/claimSale');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -102,6 +104,18 @@ app.get('/', (req, res, next) => {
   next();
 });
 
+// Claim sale leftovers: the same storefront page, told to show only 'claim' cards.
+let leftoversPage = null;
+app.get('/leftovers', (req, res) => {
+  if (!leftoversPage) {
+    leftoversPage = fs
+      .readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8')
+      .replace('<body>', '<body data-store="leftovers">')
+      .replace(/<title>[^<]*<\/title>/, '<title>Claim Sale Leftovers — Crazed TCG</title>');
+  }
+  res.type('html').set('Cache-Control', 'no-cache').send(leftoversPage);
+});
+
 // Customer-uploaded card photos. Long cache: filenames are content-random.
 app.use(
   '/uploads',
@@ -170,6 +184,8 @@ const server = app.listen(PORT, HOST, () => {
 
   if (telegramUserbot.isConfigured()) {
     telegramUserbot.start().catch((err) => console.error('[telegram] userbot login failed:', err.message));
+    // Lists unclaimed claim sale cards on /leftovers every few hours.
+    claimSale.startAutoRun();
   }
   if (telegramUserbot2.isConfigured()) {
     telegramUserbot2.start().catch((err) => console.error('[telegram] userbot2 login failed:', err.message));

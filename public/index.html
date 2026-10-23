@@ -46,6 +46,8 @@
       </div>
       <a href="#catalogue" data-nav="all-cards">All Cards</a>
       <a href="#catalogue" id="latestDrop">Latest Drop</a>
+      <a href="/leftovers" class="nav-leftovers" data-store-link="leftovers">Claim Leftovers</a>
+      <a href="/" class="nav-main hidden" data-store-link="main">Main Store</a>
     </nav>
 
     <div class="store-nav-right">
@@ -66,6 +68,8 @@
         <div class="nav-dropdown-menu hidden" id="mobileNavMenu" role="menu">
           <a role="menuitem" href="#catalogue" id="mobileAllCards">All Cards</a>
           <a role="menuitem" href="#catalogue" id="mobileLatestDrop">Latest Drop</a>
+          <a role="menuitem" href="/leftovers">Claim Leftovers</a>
+          <a role="menuitem" href="/" class="nav-main hidden">Main Store</a>
           <a role="menuitem" href="/account">My Claims &amp; Orders</a>
         </div>
       </div>
@@ -113,6 +117,12 @@
       <div><b>Telegram Claim Sales</b><span>Claim cards live in our channel</span></div>
     </a>
   </section>
+
+  <a class="leftovers-promo hidden" id="leftoversPromo" href="/leftovers">
+    <span class="lp-ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg></span>
+    <span class="lp-text"><b>Claim Sale Leftovers</b><span id="leftoversCount"></span></span>
+    <span class="lp-cta">Browse Leftovers &rarr;</span>
+  </a>
 
   <section class="rail-section hidden" id="setsSection">
     <div class="rail-head">
@@ -252,6 +262,7 @@
       <h4>Shop</h4>
       <a href="#catalogue" data-nav="all-cards">All Cards</a>
       <a href="#catalogue" data-latest>Latest Drop</a>
+      <a href="/leftovers">Claim Leftovers</a>
       <a href="/account">My Claims &amp; Orders</a>
     </nav>
     <nav class="footer-col" aria-label="Help">

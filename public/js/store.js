@@ -10,7 +10,13 @@ const CART_KEY_LEGACY = 'ctcg_cart_v2'; // pre-quantity cart shape: a plain arra
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 
+// /leftovers serves this same page with <body data-store="leftovers">.
+const STORE_MODE = document.body.dataset.store === 'leftovers' ? 'leftovers' : 'main';
+
+// Every live card (the cart needs all of them, whichever page they were added on)...
 let products = [];
+// ...and just the ones this page shows: main-shop cards, or claim sale leftovers.
+let catalog = [];
 let settings = { mailing: 0, minimum: 0, telegram: '', paynow: '' };
 let tradeShows = [];
 let cart = new Map(loadCart()); // id -> quantity
@@ -199,6 +205,7 @@ async function load() {
       api('/api/settings'),
     ]);
     products = productData;
+    catalog = products.filter((p) => (p.channel === 'claim') === (STORE_MODE === 'leftovers'));
     settings = settingData;
 
     // Drop anything that sold out, and lower any line that now exceeds current stock,
@@ -228,6 +235,7 @@ async function load() {
     renderProducts();
     renderCart();
     renderHero();
+    renderLeftoversPromo();
     wireTelegramLinks();
   } catch (err) {
     $('#productGrid').innerHTML =
@@ -247,10 +255,12 @@ async function load() {
 
 /** Live stock count in the hero, plus the "Shop by set" and "Just added" rails. */
 function renderHero() {
-  const count = products.reduce((n, p) => n + (Number(p.qty) || 0), 0);
+  const count = catalog.reduce((n, p) => n + (Number(p.qty) || 0), 0);
   const chip = $('#heroStock');
   if (chip && count) {
-    chip.textContent = `${count.toLocaleString()} cards in stock now`;
+    chip.textContent = STORE_MODE === 'leftovers'
+      ? `${count.toLocaleString()} leftover card${count === 1 ? '' : 's'} available`
+      : `${count.toLocaleString()} cards in stock now`;
     chip.hidden = false;
   }
 
@@ -276,7 +286,7 @@ function renderHero() {
     };
   });
 
-  const fresh = products
+  const fresh = catalog
     .filter((p) => p.image)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 12);
@@ -302,10 +312,10 @@ let browseSetGroups = [];
 let setSymbolByName = new Map();
 
 function renderSetOptions() {
-  const sets = [...new Set(products.map((p) => p.set).filter(Boolean))];
+  const sets = [...new Set(catalog.map((p) => p.set).filter(Boolean))];
   browseSetGroups = groupSetsByEra(sets);
   setSymbolByName = new Map();
-  for (const p of products) {
+  for (const p of catalog) {
     if (p.set && p.setSymbol && !setSymbolByName.has(p.set)) setSymbolByName.set(p.set, p.setSymbol);
   }
   const current = $('#storeSet').value;
@@ -469,7 +479,7 @@ function renderProducts() {
   const variant = $('#storeVariant').value;
   const priceRange = $('#storePriceRange').value;
 
-  const list = products.filter(
+  const list = catalog.filter(
     (p) =>
       (!q || `${p.name} ${p.set} ${p.number} ${p.artist || ''}`.toLowerCase().includes(q)) &&
       (!set || p.set === set) &&
@@ -504,6 +514,8 @@ function renderProducts() {
           <h3>${esc(p.name)}</h3>
           <div class="tags">
             <span class="tag">${esc(p.condition)}</span>
+          ${p.channel === 'claim' && p.claimSale ? `<span class="tag claim-tag">${esc(claimSaleLabel(p.claimSale))}</span>` : ''}
+            ${p.channel === 'claim' && p.claimSale ? `<span class="tag claim-tag">${esc(claimSaleLabel(p.claimSale))}</span>` : ''}
             ${p.variant && p.variant !== 'Normal' ? `<span class="tag variant">${esc(p.variant)}</span>` : ''}
             ${p.qty > 1 ? `<span class="stock-note">${p.qty} in stock</span>` : ''}
           </div>
@@ -521,8 +533,11 @@ function renderProducts() {
       </article>`;
         })
         .join('')
-    : '<div class="empty">No cards match these filters.<br><button class="btn" id="emptyClearFilters" type="button" style="margin-top:14px">Clear filters</button></div>';
+    : STORE_MODE === 'leftovers' && !catalog.length
+      ? '<div class="empty">No leftovers right now.<br><span class="small">Cards nobody claims in our Telegram claim sales show up here a day after each sale.</span><a class="btn" href="#" data-claim-link style="margin-top:14px">Join The Claim Channel</a></div>'
+      : '<div class="empty">No cards match these filters.<br><button class="btn" id="emptyClearFilters" type="button" style="margin-top:14px">Clear Filters</button></div>';
 
+  if (STORE_MODE === 'leftovers' && !catalog.length) wireTelegramLinks();
   const emptyClearBtn = $('#emptyClearFilters');
   if (emptyClearBtn) {
     emptyClearBtn.onclick = () => {
@@ -582,7 +597,7 @@ function setFilter(id, value) {
 
 function countBy(key) {
   const m = new Map();
-  for (const p of products) m.set(p[key], (m.get(p[key]) || 0) + 1);
+  for (const p of catalog) m.set(p[key], (m.get(p[key]) || 0) + 1);
   return m;
 }
 
@@ -602,7 +617,7 @@ function renderFacets() {
   };
   const currentRange = $('#storePriceRange').value;
   $('#facetPrice').innerHTML = PRICE_RANGES.map((r) => {
-    const n = products.filter((p) => inPriceRange(Number(p.price), r.value)).length;
+    const n = catalog.filter((p) => inPriceRange(Number(p.price), r.value)).length;
     const on = currentRange === r.value;
     return `<button type="button" class="chip${on ? ' on' : ''}" data-facet="storePriceRange" data-value="${r.value}"
       aria-pressed="${on}"${n || on ? '' : ' hidden'}>${esc(r.label)}<span>${n}</span></button>`;
@@ -622,7 +637,7 @@ function renderFacets() {
     </button>`;
   };
   $('#facetSets').innerHTML =
-    setRow('', 'All sets', products.length) +
+    setRow('', 'All sets', catalog.length) +
     shown.map((s) => setRow(s, s, setCounts.get(s) || 0)).join('') +
     (sets.length > SETS_COLLAPSED
       ? `<button type="button" class="facet-more" id="facetMore">${showAllSets ? 'Show fewer' : `Show all ${sets.length} sets`}</button>`
@@ -724,7 +739,7 @@ function openQuickView(id) {
   $('#quickViewTitle').textContent = p.name;
 
   const cartQty = cart.get(p.id) || 0;
-  const related = products.filter((x) => x.set === p.set && x.id !== p.id).slice(0, 6);
+  const related = catalog.filter((x) => x.set === p.set && x.id !== p.id).slice(0, 6);
 
   $('#quickViewBody').innerHTML = `
     <div class="quick-view">
@@ -1492,10 +1507,43 @@ function wireTelegramLinks() {
   };
   const main = telegramUrl(settings.telegram);
   const claim = telegramUrl(settings.claimTelegram) || main;
-  bind($('#joinTelegram'), main, 'No Telegram channel is configured yet.');
+  bind($('#joinTelegram'), STORE_MODE === 'leftovers' ? claim : main, 'No Telegram channel is configured yet.');
   $$('[data-main-link]').forEach((a) => bind(a, main, 'No Telegram channel is configured yet.'));
   $$('[data-claim-link]').forEach((a) => bind(a, claim, 'No claim sale channel is configured yet.'));
 }
+/** "2026-10-22" -> "22 Oct claim sale". */
+function claimSaleLabel(date) {
+  const [y, m, d] = String(date).split('-').map(Number);
+  if (!y || !m || !d) return 'Claim sale';
+  return `${d} ${SHOW_MONTHS[m - 1] || ''} claim sale`;
+}
+
+function applyStoreMode() {
+  const leftovers = STORE_MODE === 'leftovers';
+  $$('[data-store-link]').forEach((a) => a.classList.toggle('current', a.dataset.storeLink === STORE_MODE));
+  $$('.nav-main').forEach((a) => a.classList.toggle('hidden', !leftovers));
+  if (!leftovers) return;
+
+  $('.hero h1').innerHTML = 'Claim Sale Leftovers<br><em>Last Chance Cards</em>';
+  $('.hero p').innerHTML = 'Cards nobody claimed in our Telegram claim sales.<br>Grab them here at the claim sale price before they\'re gone.';
+  $('#joinTelegram').textContent = 'Join The Claim Channel';
+  $('#catalogue .section-head h2').textContent = 'Leftover Cards';
+  $('#catalogue .section-head p').textContent = 'Unclaimed cards from recent claim sales. Each one is a single copy.';
+  $('#newSection .rail-head h2').textContent = 'Latest Leftovers';
+  $('#newSeeAll').innerHTML = 'See All Leftovers &rarr;';
+  $('#leftoversPromo').classList.add('hidden');
+}
+
+/** On the main shop, a strip pointing to /leftovers whenever there are any. */
+function renderLeftoversPromo() {
+  const box = $('#leftoversPromo');
+  if (!box || STORE_MODE === 'leftovers') return;
+  const n = products.filter((p) => p.channel === 'claim').length;
+  box.classList.toggle('hidden', !n);
+  $('#leftoversCount').textContent = `${n} card${n === 1 ? '' : 's'} nobody claimed in our Telegram claim sales, at claim sale prices.`;
+}
+
+applyStoreMode();
 wireTelegramLinks();
 $('#year').textContent = new Date().getFullYear();
 

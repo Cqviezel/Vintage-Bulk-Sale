@@ -428,6 +428,17 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0
 /* ---------- phone cart bar ---------- */
 .cart-bar{display:none}
 
+/* ---------- claim sale leftovers ---------- */
+.store-nav-left>a.current{background:var(--brand-soft);color:var(--brand-ink);font-weight:650}
+.tag.claim-tag{background:#eef4fb;border-color:#d6e3f1;color:#2f5d86}
+.leftovers-promo{display:flex;align-items:center;gap:16px;margin-top:14px;padding:16px 20px;border:1px solid var(--gold-border);border-radius:var(--radius-lg);background:var(--gold-soft);transition:border-color .15s,box-shadow .15s}
+.leftovers-promo:hover{border-color:#dcc58f;box-shadow:var(--shadow-md)}
+.lp-ico{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;flex-shrink:0;background:#fff;border:1px solid var(--gold-border);color:var(--gold-ink)}
+.lp-text{flex:1;min-width:0}
+.lp-text b{display:block;font-size:15px;font-weight:700;color:#3f3213}
+.lp-text span{display:block;font-size:13.5px;color:#6b5a2e}
+.lp-cta{flex-shrink:0;font-size:14px;font-weight:700;color:var(--gold-ink);white-space:nowrap}
+
 /* ---------- responsive ---------- */
 @media (max-width:1100px){
   .features{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -471,6 +482,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0
   .claims-cta{flex-direction:column;align-items:flex-start}
 }
 @media (max-width:600px){
+  .leftovers-promo{flex-wrap:wrap;gap:10px 14px}
+  .lp-cta{width:100%;padding-left:54px}
   .hero-search{margin-top:22px}
   .hero-search button{padding:0 16px}
   .hero-search input{font-size:15px;padding-left:40px}

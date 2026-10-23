@@ -33,6 +33,10 @@ function toPublicProduct(row) {
     notes: row.notes,
     createdAt: row.created_at,
     artist: row.artist,
+    // 'claim' cards are claim sale leftovers, shown only on /leftovers.
+    channel: row.channel || 'store',
+    claimSale: row.claim_sale || '',
+    claimLink: row.claim_link || '',
   };
 }
 

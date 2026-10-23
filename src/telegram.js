@@ -1168,6 +1168,18 @@ function stopPolling() {
   if (pollAbortController) pollAbortController.abort();
 }
 
+/** A plain heads-up to the admin chat (e.g. from the claim sale leftovers job). */
+async function notifyAdmin(html) {
+  if (!isConfigured()) return { ok: false, reason: 'not configured' };
+  return post('sendMessage', {
+    chat_id: process.env.TELEGRAM_ADMIN_CHAT_ID,
+    message_thread_id: threadId('TELEGRAM_TOPIC_SALES'),
+    text: html,
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
+  });
+}
+
 async function sendTest() {
   if (!isConfigured()) {
     return {
@@ -1188,6 +1200,7 @@ module.exports = {
   queueRestock,
   flushRestocks,
   sendTest,
+  notifyAdmin,
   isConfigured,
   buildMessage,
   getBotUsername,

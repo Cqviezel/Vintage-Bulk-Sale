@@ -169,6 +169,11 @@ ensureColumn('products', 'artist', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('orders', 'promo_code', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('orders', 'discount', "REAL NOT NULL DEFAULT 0");
 ensureColumn('products', 'set_symbol', "TEXT NOT NULL DEFAULT ''");
+// 'store' for the main shop, 'claim' for unclaimed cards from Telegram claim sales,
+// which get their own storefront page (/leftovers) instead of mixing into the shop.
+ensureColumn('products', 'channel', "TEXT NOT NULL DEFAULT 'store'");
+ensureColumn('products', 'claim_sale', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('products', 'claim_link', "TEXT NOT NULL DEFAULT ''");
 // Telegram user ID of the logged-in buyer who placed the order (0 = guest checkout).
 ensureColumn('orders', 'telegram_user_id', 'INTEGER NOT NULL DEFAULT 0');
 db.exec('CREATE INDEX IF NOT EXISTS idx_orders_telegram_user ON orders(telegram_user_id)');
@@ -237,6 +242,10 @@ const DEFAULT_SETTINGS = {
   telegram: '@crazedtcg',
   // Separate channel where the live claim sales happen.
   claimTelegram: '@crazedsale',
+  // Unclaimed claim sale cards go to /leftovers by themselves ('on'/'off'), listed
+  // in this condition since captions don't state one.
+  autoLeftovers: 'on',
+  leftoverCondition: 'NM',
   mailing: '2.50',
   minimum: '0',
   reservation: '30',
