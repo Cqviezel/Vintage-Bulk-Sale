@@ -66,6 +66,20 @@ const insertLeftover = db.prepare(
    VALUES (@id, @name, @set_name, @set_symbol, @number, @condition, @variant, @price, 1, 'live', @image, '', @artist, 'claim', @claim_sale, @claim_link)`
 );
 const productById = db.prepare('SELECT * FROM products WHERE id = ?');
+
+// Bumped whenever matchCard gets smarter; listings made by an older version are
+// matched again once (e.g. version 1 could pick Base Set 2 Gyarados for a caption
+// that said "Hitmonchan 7 Base Set").
+const MATCH_VERSION = 2;
+if (!db.prepare('PRAGMA table_info(claim_posts)').all().some((c) => c.name === 'match_version')) {
+  db.exec('ALTER TABLE claim_posts ADD COLUMN match_version INTEGER NOT NULL DEFAULT 1');
+}
+const setMatchVersion = db.prepare('UPDATE claim_posts SET match_version = ? WHERE channel = ? AND post_id = ?');
+const updateListedCard = db.prepare(
+  `UPDATE products SET name = @name, set_name = @set_name, set_symbol = @set_symbol, number = @number,
+     image = @image, artist = @artist, updated_at = datetime('now')
+   WHERE id = @id AND channel = 'claim' AND status = 'live'`
+);
 const pullProduct = db.prepare(
   "UPDATE products SET status = 'hidden', updated_at = datetime('now') WHERE id = ? AND status = 'live'"
 );
@@ -245,80 +259,156 @@ function decideOutcome(comments, listedPrice) {
 
 const normSet = (s) => String(s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
 const normNum = (n) => String(n || '').toLowerCase().replace(/^0+(?=\d)/, '');
+// "Moltres & Zapdos & Articuno-GX" and "Moltres & Zapdos & Articuno GX" compare equal.
+const normName = (s) => String(s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
+
+function editDistance(a, b) {
+  const row = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return row[b.length];
+}
+
+/** Same card name, allowing a small typo ("Kangashan" vs "Kangaskhan"). */
+function namesMatch(caption, official) {
+  const a = normName(caption);
+  const b = normName(official);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return editDistance(a, b) <= Math.max(1, Math.floor(b.length / 6));
+}
+
+// How sellers commonly write set names, mapped to the database's names.
+const SET_ALIASES = new Map(
+  Object.entries({
+    baseset: 'Base',
+    base1: 'Base',
+    bs: 'Base',
+    bs1: 'Base',
+    bs2: 'Base Set 2',
+    tr: 'Team Rocket',
+    lc: 'Legendary Collection',
+    trr: 'Team Rocket Returns',
+    hgss: 'HeartGold & SoulSilver',
+    expedition: 'Expedition Base Set',
+    pokemongo: 'Pokémon GO',
+    shiningfates: 'Shining Fates',
+    hiddenfates: 'Hidden Fates',
+  })
+);
+
+// Promo card numbers carry their promo set: "XY118", "SM210", "SWSH050", "SVP 85".
+const PROMO_SETS = [
+  [/^swsh\d/i, 'swshp'],
+  [/^svp?\d/i, 'svp'],
+  [/^sm\d/i, 'smp'],
+  [/^xy\d/i, 'xyp'],
+  [/^bw\d/i, 'bwp'],
+  [/^hgss\d/i, 'hsp'],
+  [/^dp\d/i, 'dpp'],
+];
+
+const cardResult = (card, set) => ({
+  matched: true,
+  name: card.name,
+  set: set.name,
+  setSymbol: set.symbol || '',
+  number: card.number,
+  image: card.image,
+  artist: card.artist,
+});
 
 /**
- * The official card for a caption, found by set + number so a typo in the name
- * ("Kangashan") still lands on the right card. Falls back to a name search.
+ * Within one set: the card at the caption's number if its name agrees, otherwise the
+ * one card in the set with that name (captions sometimes have the number wrong).
+ */
+async function findInSet(set, name, number) {
+  const cards = await pokemontcg.listSetCards(set.id);
+  const atNumber = number && cards.find((c) => normNum(c.number) === normNum(number));
+  // With the number agreeing, the official name may add a suffix the caption skips
+  // ("Espeon" for "Espeon E4", "Garchomp" for "Garchomp C LV.X").
+  const prefixOk =
+    atNumber && normName(name).length >= 4 && normName(atNumber.name).startsWith(normName(name));
+  if (atNumber && (namesMatch(name, atNumber.name) || prefixOk)) return cardResult(atNumber, set);
+  const byName = cards.filter((c) => namesMatch(name, c.name));
+  if (byName.length === 1) return cardResult(byName[0], set);
+  return null;
+}
+
+/** Sets a caption's set text could mean, most likely first. Never just the first loose match. */
+function candidateSets(sets, setText) {
+  const want = normSet(setText);
+  if (!want) return [];
+  const alias = SET_ALIASES.get(want);
+  const out = [];
+  const add = (s) => s && !out.includes(s) && out.push(s);
+  add(sets.find((s) => normSet(s.name) === want));
+  if (alias) add(sets.find((s) => s.name === alias));
+  for (const s of sets) if (normSet(s.name).startsWith(want) || want.startsWith(normSet(s.name))) add(s);
+  return out.slice(0, 4);
+}
+
+/**
+ * The official card for a caption. The card's name must agree with the caption (a
+ * small typo is fine), so a wrong number or a loosely matched set can never swap in
+ * a different card. Returns { matched: false } when unsure; the post's photo is used.
  */
 async function matchCard(parsed) {
+  const unmatched = { matched: false, name: parsed.name, set: parsed.set, setSymbol: '', number: parsed.number, image: '', artist: '' };
   try {
-    // No card number ("Houndoom Crimson Invasion RH"): find the set name at the end of
-    // the title, then the card in that set by name, but only if exactly one matches.
-    if (!parsed.number && parsed.name) {
-      const sets = await pokemontcg.listSets();
-      const words = parsed.name.split(' ');
-      for (let i = 1; i < words.length; i++) {
-        const want = normSet(words.slice(i).join(' '));
-        const set = sets.find((s) => normSet(s.name) === want);
-        if (!set) continue;
-        const name = words.slice(0, i).join(' ');
-        const cards = (await pokemontcg.listSetCards(set.id)).filter(
-          (c) => normSet(c.name) === normSet(name)
-        );
-        if (cards.length === 1) {
-          const card = cards[0];
-          return {
-            matched: true,
-            name: card.name,
-            set: set.name,
-            setSymbol: set.symbol,
-            number: card.number,
-            image: card.image,
-            artist: card.artist,
-          };
-        }
-        return { matched: false, name, set: set.name, setSymbol: set.symbol, number: '', image: '', artist: '' };
-      }
+    const sets = await pokemontcg.listSets();
+    // "Promo" is how the caption says it's a promo, not part of the card's name.
+    const name = String(parsed.name || '').replace(/\bpromo\b/gi, ' ').replace(/\s+/g, ' ').trim();
+    if (!name) return unmatched;
+    unmatched.name = name;
+
+    // Promos: the number says which promo set.
+    const promo = parsed.number && PROMO_SETS.find(([re]) => re.test(parsed.number));
+    if (promo) {
+      const set = sets.find((s) => s.id === promo[1]);
+      const hit = set && (await findInSet(set, name, parsed.number.replace(/\s+/g, '').toUpperCase()));
+      if (hit) return hit;
     }
-    if (parsed.set && parsed.number) {
-      const sets = await pokemontcg.listSets();
-      const want = normSet(parsed.set);
-      const set =
-        sets.find((s) => normSet(s.name) === want) ||
-        sets.find((s) => normSet(s.name).startsWith(want) || want.startsWith(normSet(s.name)));
-      if (set) {
-        const cards = await pokemontcg.listSetCards(set.id);
-        const card = cards.find((c) => normNum(c.number) === normNum(parsed.number));
-        if (card) {
-          return {
-            matched: true,
-            name: card.name,
-            set: set.name,
-            setSymbol: set.symbol,
-            number: card.number,
-            image: card.image,
-            artist: card.artist,
-          };
+
+    // Set named in the caption (with or without a number).
+    let setText = parsed.set;
+    let cardName = name;
+    if (!setText && !parsed.number) {
+      // "Houndoom Crimson Invasion RH": the set name is at the end of the title.
+      const words = name.split(' ');
+      for (let i = 1; i < words.length && !setText; i++) {
+        if (candidateSets(sets, words.slice(i).join(' ')).length) {
+          setText = words.slice(i).join(' ');
+          cardName = words.slice(0, i).join(' ');
         }
       }
     }
-    const hit = await pokemontcg.lookup({ name: parsed.name, set: parsed.set, number: parsed.number });
-    if (hit && hit.image && hit.confidence !== 'ambiguous' && hit.confidence !== 'name-only') {
-      return {
-        matched: true,
-        name: hit.name,
-        set: hit.set,
-        setSymbol: '',
-        number: hit.number,
-        image: hit.image,
-        artist: hit.artist,
-      };
+    for (const set of candidateSets(sets, setText)) {
+      const hit = await findInSet(set, cardName, parsed.number);
+      if (hit) return hit;
+    }
+    if (setText) unmatched.set = (candidateSets(sets, setText)[0] || {}).name || setText;
+
+    // Last resort: a name + number search, still name-checked.
+    const hit = await pokemontcg.lookup({ name: cardName, set: setText, number: parsed.number });
+    if (hit && hit.image && hit.confidence !== 'ambiguous' && hit.confidence !== 'name-only' && namesMatch(cardName, hit.name)) {
+      return { matched: true, name: hit.name, set: hit.set, setSymbol: '', number: hit.number, image: hit.image, artist: hit.artist };
     }
   } catch (err) {
     console.error('[claim-sale] card lookup failed:', err.message);
+    unmatched.lookupFailed = true;
   }
-  return { matched: false, name: parsed.name, set: parsed.set, setSymbol: '', number: parsed.number, image: '', artist: '' };
+  return unmatched;
 }
+
+
 /* --------------------------------------------------------------- telegram --- */
 
 function dayBounds(dateStr) {
@@ -546,6 +636,7 @@ async function listNow({ postIds }) {
       product_name: product.name,
       reply_count: post.replyCount,
     });
+    setMatchVersion.run(MATCH_VERSION, conn.ref, post.postId);
     listed++;
   }
   return { listed };
@@ -584,7 +675,7 @@ async function autoRun() {
     return { listed: [], pulled: [], claimed: 0, expired, error: skip };
   }
   running = true;
-  const summary = { listed: [], pulled: [], claimed: 0, expired };
+  const summary = { listed: [], pulled: [], claimed: 0, expired, corrected: [] };
   try {
     const conn = await openChannel(settings.claimTelegram);
     const now = Math.floor(Date.now() / 1000);
@@ -606,9 +697,39 @@ async function autoRun() {
         } else {
           const product = await listLeftover(conn, post, settings.leftoverCondition);
           savePost.run({ channel: conn.ref, post_id: post.postId, outcome: 'listed', product_id: product.id, product_name: product.name, reply_count: post.replyCount });
+          setMatchVersion.run(MATCH_VERSION, conn.ref, post.postId);
           summary.listed.push(product.name);
         }
         continue;
+      }
+
+      // Listed by an older matcher: match it again with the current one.
+      if (rec.outcome === 'listed' && (rec.match_version || 1) < MATCH_VERSION) {
+        const product = productById.get(rec.product_id);
+        if (product && product.channel === 'claim' && product.status === 'live') {
+          const card = await matchCard(post.parsed);
+          if (!card.lookupFailed) {
+            const keepPhoto = String(product.image || '').startsWith('/uploads/');
+            const image = card.matched
+              ? card.image
+              : keepPhoto
+                ? product.image
+                : await savePostPhoto(conn, post.photoPostId);
+            updateListedCard.run({
+              id: product.id,
+              name: String(card.name || post.parsed.name).slice(0, 160),
+              set_name: String(card.set || post.parsed.set).slice(0, 160),
+              set_symbol: String(card.setSymbol || '').slice(0, 500),
+              number: String(card.number || post.parsed.number).slice(0, 40),
+              image: image || product.image,
+              artist: String(card.artist || '').slice(0, 120),
+            });
+            if (product.name !== card.name) summary.corrected.push(`${product.name} → ${card.name || post.parsed.name}`);
+            setMatchVersion.run(MATCH_VERSION, conn.ref, post.postId);
+          }
+        } else {
+          setMatchVersion.run(MATCH_VERSION, conn.ref, post.postId);
+        }
       }
 
       // Already listed: only re-read the comments when new ones have appeared.
@@ -643,12 +764,15 @@ async function autoRun() {
     running = false;
   }
 
-  if (summary.listed.length || summary.pulled.length || summary.expired.length) {
+  if (summary.listed.length || summary.pulled.length || summary.expired.length || summary.corrected.length) {
     const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
     const lines = [];
     if (summary.listed.length) {
       lines.push(`<b>${summary.listed.length} claim sale leftover${summary.listed.length === 1 ? '' : 's'} listed on /leftovers</b>`);
       lines.push(summary.listed.map(esc).join(', '));
+    }
+    if (summary.corrected.length) {
+      lines.push(`<b>Fixed ${summary.corrected.length} leftover card match${summary.corrected.length === 1 ? '' : 'es'}:</b> ${summary.corrected.map(esc).join(', ')}`);
     }
     if (summary.expired.length) {
       lines.push(`<b>${summary.expired.length} leftover${summary.expired.length === 1 ? '' : 's'} taken down after ${LISTING_DAYS} days unsold:</b> ${summary.expired.map(esc).join(', ')}`);
