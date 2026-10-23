@@ -724,9 +724,13 @@ router.post('/claim-sales/list-now', async (req, res) => {
   }
 });
 
+router.get('/claim-sales/status', (req, res) => {
+  res.json(claimSale.getStatus());
+});
+
 router.post('/claim-sales/run', async (req, res) => {
   const summary = await claimSale.autoRun();
-  if (!summary) return res.status(409).json({ error: 'Automatic listing is off, not set up, or already running.' });
+  if (summary.error) return res.status(502).json({ error: summary.error });
   res.json({ listed: summary.listed.length, pulled: summary.pulled.length, claimed: summary.claimed, expired: summary.expired.length });
 });
 

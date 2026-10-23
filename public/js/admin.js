@@ -2051,6 +2051,31 @@ $('#claimImport').onclick = async () => {
   }
 };
 
+async function loadClaimStatus() {
+  const box = $('#claimStatus');
+  try {
+    const s = await api('/api/admin/claim-sales/status');
+    const r = s.lastRun;
+    const when = r ? new Date(r.at).toLocaleString() : '';
+    if (!s.userbotConfigured) {
+      box.className = 'notice error';
+      box.innerHTML = '<b>Not running:</b> the Telegram userbot isn\'t set up on the server, so leftovers can\'t be read. Log it in and set <code>TELEGRAM_USERBOT_SESSION</code> on Railway.';
+    } else if (!r) {
+      box.className = 'notice';
+      box.textContent = 'Waiting for the first automatic check (runs a couple of minutes after the server starts).';
+    } else if (!r.ok) {
+      box.className = 'notice error';
+      box.innerHTML = `<b>Last check failed</b> (${esc(when)}): ${esc(r.error)}${/session|auth|AUTH_KEY|invalidated/i.test(r.error) ? '<br>The userbot needs logging in again: run <code>npm run telegram-userbot-login-qr</code> and update <code>TELEGRAM_USERBOT_SESSION</code> on Railway.' : ''}`;
+    } else {
+      box.className = 'notice';
+      box.innerHTML = `<b>Working.</b> Last checked ${esc(when)}: read ${r.postsSeen} card posts from the last week, listed ${r.listed}, skipped ${r.claimed} claimed${r.pulled ? `, pulled ${r.pulled}` : ''}${r.expired ? `, took down ${r.expired}` : ''}.`;
+    }
+  } catch (err) {
+    box.className = 'notice error';
+    box.textContent = err.message;
+  }
+}
+
 $('#claimRunNow').onclick = async () => {
   const button = $('#claimRunNow');
   button.disabled = true;
@@ -2065,6 +2090,7 @@ $('#claimRunNow').onclick = async () => {
   } catch (err) {
     toast(err.message, true);
   } finally {
+    loadClaimStatus();
     button.disabled = false;
     button.textContent = 'Check now';
   }
@@ -2077,6 +2103,7 @@ $$('[data-admin-tab]').forEach((b) => {
     $$('.admin-tab').forEach((t) => t.classList.toggle('active', t.id === b.dataset.adminTab));
     $$('[data-admin-tab]').forEach((x) => x.classList.toggle('active', x === b));
     if (b.dataset.adminTab === 'products') loadProducts();
+    if (b.dataset.adminTab === 'claimLeftovers') loadClaimStatus();
     if (b.dataset.adminTab === 'orders') loadOrders();
     if (b.dataset.adminTab === 'analytics') loadAnalytics();
     if (b.dataset.adminTab === 'tradeShows') loadTradeShows();

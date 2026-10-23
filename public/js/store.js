@@ -529,9 +529,11 @@ function renderProducts() {
         })
         .join('')
     : STORE_MODE === 'leftovers' && !catalog.length
-      ? '<div class="empty">No leftovers right now.<br><span class="small">Cards nobody claims in our Telegram claim sales show up here a couple of hours after each sale.</span><a class="btn" href="#" data-claim-link style="margin-top:14px">Join The Claim Channel</a></div>'
+      ? `<div class="empty-state"><span class="es-ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg></span><h3>No Leftovers Right Now</h3><p>Every card from our recent claim sales has found a home. Cards nobody claims show up here about 2 hours after they're posted.</p><div class="es-actions"><a class="btn-solid" href="#" data-claim-link>Join The Claim Channel</a><a class="btn-outline" href="/">Browse All Cards</a></div></div>`
       : '<div class="empty">No cards match these filters.<br><button class="btn" id="emptyClearFilters" type="button" style="margin-top:14px">Clear Filters</button></div>';
 
+  // Nothing at all on /leftovers: drop the filters and show a proper empty state.
+  $('#catalogue').classList.toggle('is-empty', STORE_MODE === 'leftovers' && !catalog.length);
   if (STORE_MODE === 'leftovers' && !catalog.length) wireTelegramLinks();
   const emptyClearBtn = $('#emptyClearFilters');
   if (emptyClearBtn) {

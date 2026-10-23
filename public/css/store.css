@@ -462,6 +462,19 @@ body.store-leftovers .catalogue{margin-top:32px}
 
 .tag.unlimited-tag{background:#f3f0fa;border-color:#e2dcf2;color:#5b4a8a}
 
+/* empty /leftovers */
+.catalogue.is-empty .facets,.catalogue.is-empty .toolbar,.catalogue.is-empty .active-filters,.catalogue.is-empty .pagination,.catalogue.is-empty .section-head p{display:none}
+.catalogue.is-empty .shop-layout{grid-template-columns:minmax(0,1fr)}
+.catalogue.is-empty .grid{display:block}
+.empty-state{display:flex;flex-direction:column;align-items:center;text-align:center;padding:56px 24px;background:var(--surface);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow-xs)}
+.es-ico{display:grid;place-items:center;width:56px;height:56px;margin-bottom:18px;border-radius:16px;background:var(--gold-soft);border:1px solid var(--gold-border);color:var(--gold-ink)}
+.es-ico .i{width:26px;height:26px}
+.empty-state h3{font-size:20px;font-weight:700;letter-spacing:-.015em}
+.empty-state p{margin-top:8px;max-width:440px;font-size:14.5px;line-height:1.6;color:var(--text-2)}
+.es-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-top:22px}
+.btn-outline{display:inline-flex;align-items:center;height:44px;padding:0 18px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font-size:14px;font-weight:650;color:var(--text);transition:background .15s,border-color .15s}
+.btn-outline:hover{background:var(--hover);border-color:var(--border-strong)}
+
 /* ---------- responsive ---------- */
 @media (max-width:1100px){
   .features{grid-template-columns:repeat(2,minmax(0,1fr))}

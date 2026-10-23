@@ -105,10 +105,19 @@ function parseCaption(text) {
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean);
-  const priceMatch = String(text || '').match(/\$\s*(\d+(?:\.\d{1,2})?)/);
+  // The price sits on its own short line ("$12"). Requiring that keeps announcements
+  // and giveaways that happen to mention a dollar amount from passing as cards.
+  const priceLine = lines.find((l) => l.length <= 24 && /\$\s*\d/.test(l));
+  const priceMatch = priceLine && priceLine.match(/\$\s*(\d+(?:\.\d{1,2})?)/);
   const price = priceMatch ? Number(priceMatch[1]) : null;
 
-  const title = (lines.find((l) => !/\$\s*\d/.test(l)) || lines[0] || '').replace(/\s+/g, ' ');
+  // Everything else is the title, which sometimes wraps onto a second line
+  // ("Lillie's Poke Doll 197 / Cosmic Eclipse RH").
+  const title = lines
+    .filter((l) => l !== priceLine)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   let rest = title;
   let variant = '';
   for (const [re, label] of VARIANT_WORDS) {
@@ -243,6 +252,34 @@ const normNum = (n) => String(n || '').toLowerCase().replace(/^0+(?=\d)/, '');
  */
 async function matchCard(parsed) {
   try {
+    // No card number ("Houndoom Crimson Invasion RH"): find the set name at the end of
+    // the title, then the card in that set by name, but only if exactly one matches.
+    if (!parsed.number && parsed.name) {
+      const sets = await pokemontcg.listSets();
+      const words = parsed.name.split(' ');
+      for (let i = 1; i < words.length; i++) {
+        const want = normSet(words.slice(i).join(' '));
+        const set = sets.find((s) => normSet(s.name) === want);
+        if (!set) continue;
+        const name = words.slice(0, i).join(' ');
+        const cards = (await pokemontcg.listSetCards(set.id)).filter(
+          (c) => normSet(c.name) === normSet(name)
+        );
+        if (cards.length === 1) {
+          const card = cards[0];
+          return {
+            matched: true,
+            name: card.name,
+            set: set.name,
+            setSymbol: set.symbol,
+            number: card.number,
+            image: card.image,
+            artist: card.artist,
+          };
+        }
+        return { matched: false, name, set: set.name, setSymbol: set.symbol, number: '', image: '', artist: '' };
+      }
+    }
     if (parsed.set && parsed.number) {
       const sets = await pokemontcg.listSets();
       const want = normSet(parsed.set);
@@ -501,6 +538,14 @@ async function listNow({ postIds }) {
 /* ---------------------------------------------------------- automatic job --- */
 
 let running = false;
+// What the last automatic run did, for the admin tab. Errors used to go only to the
+// server log, which made a logged-out userbot look like "nothing to list".
+let lastRun = null;
+const getStatus = () => ({
+  lastRun,
+  userbotConfigured: telegramUserbot.isConfigured(),
+  enabled: getSettings().autoLeftovers !== 'off',
+});
 
 /**
  * Lists every card post that is over two hours old and still unclaimed, and pulls any
@@ -509,10 +554,19 @@ let running = false;
 async function autoRun() {
   const settings = getSettings();
   const expired = expireOldLeftovers();
-  if (running || settings.autoLeftovers === 'off' || !telegramUserbot.isConfigured()) {
-    return expired.length ? { listed: [], pulled: [], claimed: 0, expired } : null;
+  const skip = running
+    ? 'Already running'
+    : settings.autoLeftovers === 'off'
+      ? 'Automatic listing is switched off in Settings'
+      : !telegramUserbot.isConfigured()
+        ? 'The Telegram userbot is not set up on the server (TELEGRAM_USERBOT_* variables)'
+        : !channelRef(settings.claimTelegram)
+          ? 'No Claim Sale Channel is set in Settings'
+          : '';
+  if (skip) {
+    if (!running) lastRun = { at: new Date().toISOString(), ok: false, error: skip, expired: expired.length };
+    return { listed: [], pulled: [], claimed: 0, expired, error: skip };
   }
-  if (!channelRef(settings.claimTelegram)) return null;
   running = true;
   const summary = { listed: [], pulled: [], claimed: 0, expired };
   try {
@@ -556,8 +610,19 @@ async function autoRun() {
         }
       }
     }
+    lastRun = {
+      at: new Date().toISOString(),
+      ok: true,
+      postsSeen: posts.length,
+      listed: summary.listed.length,
+      claimed: summary.claimed,
+      pulled: summary.pulled.length,
+      expired: summary.expired.length,
+    };
   } catch (err) {
     console.error('[claim-sale] automatic run failed:', err.message);
+    summary.error = err.message;
+    lastRun = { at: new Date().toISOString(), ok: false, error: err.message, expired: summary.expired.length };
   } finally {
     running = false;
   }
@@ -596,6 +661,7 @@ module.exports = {
   scanSale,
   listNow,
   autoRun,
+  getStatus,
   startAutoRun,
   parseCaption,
   decideOutcome,
