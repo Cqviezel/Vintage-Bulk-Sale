@@ -606,6 +606,11 @@ const claimOrderFor = db.prepare(
   "SELECT * FROM orders WHERE source = 'claim' AND claim_sale = ? AND buyer_key = ? AND status <> 'cancelled' ORDER BY created_at LIMIT 1"
 );
 const claimItemFor = db.prepare('SELECT 1 FROM order_items WHERE claim_post_id = ? LIMIT 1');
+// The buyer's other claim orders that haven't gone out yet.
+const openClaimOrdersFor = db.prepare(
+  "SELECT delivery, fee FROM orders WHERE source = 'claim' AND buyer_key = ? AND status IN ('awaiting payment', 'paid', 'packed')"
+);
+const MAIL_PAID = 'Tracked Mailing (Paid)';
 const orderIdTaken = db.prepare('SELECT 1 FROM orders WHERE id = ?');
 const insertClaimOrder = db.prepare(
   `INSERT INTO orders (id, buyer, telegram, telegram_user_id, email, phone, address, delivery, subtotal, discount, promo_code, fee, total, status, notify_state, source, claim_sale, buyer_key)
@@ -646,14 +651,21 @@ async function addClaimToOrder(post, outcome) {
   const card = await matchCard(post.parsed).catch(() => ({ matched: false }));
   const settings = getSettings();
   if (!order) {
+    // A buyer whose earlier parcel hasn't shipped yet doesn't pay mailing twice: if
+    // they've been charged mailing on it, this order rides along fee-free; if they're
+    // holding cards for a later parcel, this one is held too.
+    const others = openClaimOrdersFor.all(key);
+    const paidMail = others.some((o) => o.delivery === 'Tracked Mailing' && o.fee > 0);
+    const holding = others.some((o) => o.delivery === 'Hold Mailing');
+    const delivery = paidMail ? MAIL_PAID : holding ? 'Hold Mailing' : 'Tracked Mailing';
     const userId = Number(outcome.buyerId);
     order = {
       id: newClaimOrderId(),
       buyer: String(outcome.buyer || outcome.buyerUsername || 'Telegram buyer').slice(0, 120),
       telegram: outcome.buyerUsername ? '@' + outcome.buyerUsername : '',
       telegram_user_id: Number.isSafeInteger(userId) && userId > 0 ? userId : 0,
-      delivery: 'Tracked Mailing',
-      fee: Math.round(Number(settings.mailing || 0) * 100) / 100,
+      delivery,
+      fee: delivery === 'Tracked Mailing' ? Math.round(Number(settings.mailing || 0) * 100) / 100 : 0,
       claim_sale: sale,
       buyer_key: key,
     };

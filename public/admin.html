@@ -223,13 +223,19 @@
           <div class="scope-toggle tracker-filter" id="trackerFilter" role="tablist" aria-label="Show"></div>
           <div class="panel-controls">
             <select id="trackerSale" aria-label="Sale"><option value="">All sales</option></select>
+            <select id="trackerSort" aria-label="Sort by">
+              <option value="newest">Newest sale first</option>
+              <option value="oldest">Oldest sale first</option>
+              <option value="buyer">Buyer A–Z</option>
+              <option value="total">Highest total</option>
+            </select>
             <input id="trackerSearch" type="search" placeholder="Search buyer or card" aria-label="Search">
           </div>
         </div>
         <div class="table-wrap">
           <table class="tracker">
             <thead><tr>
-              <th>Buyer</th><th>Sale</th><th>Cards</th><th class="r">Total</th><th>Delivery</th>
+              <th>Buyer</th><th id="trackerSaleTh" class="sortable" title="Sort by sale date">Sale</th><th>Cards</th><th class="r">Total</th><th>Delivery</th>
               <th class="c">Billed</th><th class="c">Paid</th><th class="c">Packed</th><th class="c">Shipped</th><th></th>
             </tr></thead>
             <tbody id="trackerBody"></tbody>

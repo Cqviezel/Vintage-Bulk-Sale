@@ -725,7 +725,7 @@ const setDelivery = db.prepare(
   `UPDATE orders SET delivery = @delivery, fee = @fee, total = subtotal - discount + @fee, billed_at = @billed_at,
      updated_at = datetime('now') WHERE id = @id AND source = 'claim'`
 );
-const CLAIM_DELIVERY = { mail: 'Tracked Mailing', hold: 'Hold Mailing', pickup: 'Self-Pickup' };
+const CLAIM_DELIVERY = { mail: 'Tracked Mailing', mailpaid: 'Tracked Mailing (Paid)', hold: 'Hold Mailing', pickup: 'Self-Pickup' };
 
 function toClaimOrder(o) {
   return {

@@ -1795,6 +1795,14 @@ let trackerFilter = 'open';
 const trackerOpen = new Set();
 
 const isHeld = (o) => o.delivery === 'Hold Mailing';
+const isMailPaid = (o) => o.delivery === 'Tracked Mailing (Paid)';
+let trackerSort = 'newest';
+const TRACKER_SORTS = {
+  newest: (a, b) => String(b.sale).localeCompare(String(a.sale)) || String(b.createdAt).localeCompare(String(a.createdAt)),
+  oldest: (a, b) => String(a.sale).localeCompare(String(b.sale)) || String(a.createdAt).localeCompare(String(b.createdAt)),
+  buyer: (a, b) => String(a.buyer).localeCompare(String(b.buyer)) || String(b.sale).localeCompare(String(a.sale)),
+  total: (a, b) => b.total - a.total,
+};
 const isDone = (o) => o.status === 'mailed' || o.status === 'completed';
 const TRACKER_FILTERS = [
   ['open', 'Open', (o) => o.status !== 'cancelled' && !isDone(o)],
@@ -1803,7 +1811,8 @@ const TRACKER_FILTERS = [
   ['pack', 'To Pack', (o) => o.status === 'paid' && !isHeld(o)],
   ['ship', 'To Ship', (o) => o.status === 'packed' && !isHeld(o)],
   ['hold', 'On Hold', (o) => isHeld(o) && !isDone(o) && o.status !== 'cancelled'],
-  ['done', 'Done', isDone],
+  // Shipped and collected orders leave the working views and live here.
+  ['done', 'Archive', isDone],
   ['all', 'All', () => true],
 ];
 const trackerTest = (key) => (TRACKER_FILTERS.find((f) => f[0] === key) || TRACKER_FILTERS[0])[2];
@@ -1817,6 +1826,7 @@ function trackerMessage(o) {
   const s = trackerSettings || {};
   const lines = o.items.map((i) => `• ${i.label} – ${money(i.price)}`);
   if (o.fee > 0) lines.push(`• Mailing – ${money(o.fee)}`);
+  else if (isMailPaid(o)) lines.push('• Mailing – already paid');
   const fill = {
     name: String(o.buyer || '').split(' ')[0],
     items: lines.join('\n'),
@@ -1840,7 +1850,7 @@ function trackerRow(o) {
   const heldOthers = isHeld(o)
     ? trackerOrders.filter((x) => x !== o && x.telegram && x.telegram === o.telegram && isHeld(x) && !isDone(x) && x.status !== 'cancelled').length
     : 0;
-  const delivery = o.delivery === 'Hold Mailing' ? 'hold' : o.delivery === 'Self-Pickup' ? 'pickup' : 'mail';
+  const delivery = isHeld(o) ? 'hold' : o.delivery === 'Self-Pickup' ? 'pickup' : isMailPaid(o) ? 'mailpaid' : 'mail';
   const open = trackerOpen.has(o.id);
   const tick = (field, on, label, disabled) =>
     `<td class="c"><input type="checkbox" class="tick" data-tick="${field}"${on ? ' checked' : ''}${disabled ? ' disabled' : ''} aria-label="${label}"></td>`;
@@ -1858,9 +1868,10 @@ function trackerRow(o) {
       </td>
       <td><span class="trk-sale">${esc(saleLabel(o.sale))}</span><div class="small muted">${esc(o.id)}</div></td>
       <td class="trk-cards"><span class="small">${esc(o.items.map((i) => i.label).join(', '))}</span><div class="small muted">${o.items.length} card${o.items.length === 1 ? '' : 's'}</div></td>
-      <td class="r"><b>${money(o.total)}</b>${o.fee ? `<div class="small muted">incl. ${money(o.fee)} mailing</div>` : isHeld(o) ? '<div class="small muted">mailing later</div>' : ''}</td>
+      <td class="r"><b>${money(o.total)}</b>${o.fee ? `<div class="small muted">incl. ${money(o.fee)} mailing</div>` : isHeld(o) ? '<div class="small muted">mailing later</div>' : isMailPaid(o) ? '<div class="small muted">mailing already paid</div>' : ''}</td>
       <td><select class="trk-delivery" data-delivery aria-label="Delivery"${cancelled ? ' disabled' : ''}>
         <option value="mail"${delivery === 'mail' ? ' selected' : ''}>Mail</option>
+        <option value="mailpaid"${delivery === 'mailpaid' ? ' selected' : ''} title="Mailed, but the buyer already paid mailing on an earlier order">Mail – Paid</option>
         <option value="hold"${delivery === 'hold' ? ' selected' : ''}>Hold</option>
         <option value="pickup"${delivery === 'pickup' ? ' selected' : ''}>Pickup</option>
       </select></td>
@@ -1922,13 +1933,15 @@ function renderTracker() {
       `<button type="button" data-filter="${key}" class="${trackerFilter === key ? 'active' : ''}">${label} <span>${pool.filter(test).length}</span></button>`
   ).join('');
 
-  const rows = pool.filter(trackerTest(trackerFilter));
+  const rows = pool.filter(trackerTest(trackerFilter)).sort(TRACKER_SORTS[trackerSort] || TRACKER_SORTS.newest);
+  const saleTh = $('#trackerSaleTh');
+  if (saleTh) saleTh.dataset.dir = trackerSort === 'oldest' ? 'up' : trackerSort === 'newest' ? 'down' : '';
   // Held orders sit together per buyer, so combining them for one parcel is easy.
   if (trackerFilter === 'hold') rows.sort((a, b) => String(a.telegram || a.buyer).localeCompare(String(b.telegram || b.buyer)));
   $('#trackerBody').innerHTML = rows.length
     ? rows.map(trackerRow).join('')
     : `<tr><td colspan="10"><div class="empty">${
-        trackerOrders.length ? 'Nothing here. Try another filter.' : 'No claim sale orders yet. They appear here by themselves after your next claim sale.'
+        trackerOrders.length ? (trackerFilter === 'done' ? 'Shipped orders are archived here.' : 'Nothing here. Try another filter, or look in Archive.') : 'No claim sale orders yet. They appear here by themselves after your next claim sale.'
       }</div></td></tr>`;
 }
 
@@ -1962,6 +1975,15 @@ async function updateClaimOrder(id, patch) {
 }
 
 $('#trackerSale').onchange = renderTracker;
+$('#trackerSort').onchange = (e) => {
+  trackerSort = e.target.value;
+  renderTracker();
+};
+$('#trackerSaleTh').onclick = () => {
+  trackerSort = trackerSort === 'newest' ? 'oldest' : 'newest';
+  $('#trackerSort').value = trackerSort;
+  renderTracker();
+};
 $('#trackerSearch').oninput = renderTracker;
 $('#claimLeftovers').addEventListener('click', (e) => {
   const f = e.target.closest('[data-filter]');
