@@ -184,7 +184,7 @@ const server = app.listen(PORT, HOST, () => {
 
   if (telegramUserbot.isConfigured()) {
     telegramUserbot.start().catch((err) => console.error('[telegram] userbot login failed:', err.message));
-    // Lists unclaimed claim sale cards on /leftovers every few hours.
+    // Lists unclaimed claim sale cards on /leftovers (checks every 30 minutes).
     claimSale.startAutoRun();
   }
   if (telegramUserbot2.isConfigured()) {

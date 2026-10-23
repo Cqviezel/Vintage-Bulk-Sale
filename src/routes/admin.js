@@ -727,7 +727,7 @@ router.post('/claim-sales/list-now', async (req, res) => {
 router.post('/claim-sales/run', async (req, res) => {
   const summary = await claimSale.autoRun();
   if (!summary) return res.status(409).json({ error: 'Automatic listing is off, not set up, or already running.' });
-  res.json({ listed: summary.listed.length, pulled: summary.pulled.length, claimed: summary.claimed });
+  res.json({ listed: summary.listed.length, pulled: summary.pulled.length, claimed: summary.claimed, expired: summary.expired.length });
 });
 
 /* --------------------------------------------------------------- uploads --- */

@@ -529,7 +529,7 @@ function renderProducts() {
         })
         .join('')
     : STORE_MODE === 'leftovers' && !catalog.length
-      ? '<div class="empty">No leftovers right now.<br><span class="small">Cards nobody claims in our Telegram claim sales show up here a day after each sale.</span><a class="btn" href="#" data-claim-link style="margin-top:14px">Join The Claim Channel</a></div>'
+      ? '<div class="empty">No leftovers right now.<br><span class="small">Cards nobody claims in our Telegram claim sales show up here a couple of hours after each sale.</span><a class="btn" href="#" data-claim-link style="margin-top:14px">Join The Claim Channel</a></div>'
       : '<div class="empty">No cards match these filters.<br><button class="btn" id="emptyClearFilters" type="button" style="margin-top:14px">Clear Filters</button></div>';
 
   if (STORE_MODE === 'leftovers' && !catalog.length) wireTelegramLinks();

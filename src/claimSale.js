@@ -11,7 +11,9 @@
  *   - a seller counter that the buyer accepts ("ok", or "claim") -> claimed
  *   - anything else, including offers nobody agreed to -> leftover
  *
- * autoRun() does this on a timer: once a post is a day old and still unclaimed it is
+ * Unsold leftovers come down again after LISTING_DAYS.
+ *
+ * autoRun() does this on a timer: once a post is two hours old and still unclaimed it is
  * listed, and a card that gets claimed late on Telegram is pulled back off the site.
  */
 
@@ -28,9 +30,11 @@ const pokemontcg = require('./pokemontcg');
 // Claim sales run on Singapore time; a "sale date" means that calendar day there.
 const SALE_TZ_OFFSET_HOURS = 8;
 // How long a post stays open for claims before its card is listed.
-const CLAIM_WINDOW_HOURS = 24;
+const CLAIM_WINDOW_HOURS = 2;
 // How far back the automatic job looks, both for new posts and for late claims.
 const LOOKBACK_DAYS = 7;
+// How long an unsold leftover stays on /leftovers before it's taken down.
+const LISTING_DAYS = 7;
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR
   ? path.resolve(process.env.UPLOAD_DIR)
@@ -65,6 +69,24 @@ const productById = db.prepare('SELECT * FROM products WHERE id = ?');
 const pullProduct = db.prepare(
   "UPDATE products SET status = 'hidden', updated_at = datetime('now') WHERE id = ? AND status = 'live'"
 );
+// Leftovers still unsold after LISTING_DAYS. Cards sitting in an unpaid order are
+// 'reserved', not 'live', so they are left alone.
+const staleLeftovers = db.prepare(
+  "SELECT id, name FROM products WHERE channel = 'claim' AND status = 'live' AND created_at <= datetime('now', ?)"
+);
+const markExpired = db.prepare(
+  "UPDATE claim_posts SET outcome = 'expired', updated_at = datetime('now') WHERE product_id = ? AND outcome = 'listed'"
+);
+
+/** Takes leftovers down once they've been up for LISTING_DAYS. Returns their names. */
+const expireOldLeftovers = db.transaction(() => {
+  const rows = staleLeftovers.all(`-${LISTING_DAYS} days`);
+  for (const row of rows) {
+    pullProduct.run(row.id);
+    markExpired.run(row.id);
+  }
+  return rows.map((r) => r.name);
+});
 
 /* ------------------------------------------------------------- captions --- */
 
@@ -481,15 +503,18 @@ async function listNow({ postIds }) {
 let running = false;
 
 /**
- * Lists every card post that is over a day old and still unclaimed, and pulls any
+ * Lists every card post that is over two hours old and still unclaimed, and pulls any
  * listed card that has since been claimed on Telegram. Safe to call repeatedly.
  */
 async function autoRun() {
   const settings = getSettings();
-  if (running || settings.autoLeftovers === 'off' || !telegramUserbot.isConfigured()) return null;
+  const expired = expireOldLeftovers();
+  if (running || settings.autoLeftovers === 'off' || !telegramUserbot.isConfigured()) {
+    return expired.length ? { listed: [], pulled: [], claimed: 0, expired } : null;
+  }
   if (!channelRef(settings.claimTelegram)) return null;
   running = true;
-  const summary = { listed: [], pulled: [], claimed: 0 };
+  const summary = { listed: [], pulled: [], claimed: 0, expired };
   try {
     const conn = await openChannel(settings.claimTelegram);
     const now = Math.floor(Date.now() / 1000);
@@ -537,12 +562,15 @@ async function autoRun() {
     running = false;
   }
 
-  if (summary.listed.length || summary.pulled.length) {
+  if (summary.listed.length || summary.pulled.length || summary.expired.length) {
     const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
     const lines = [];
     if (summary.listed.length) {
       lines.push(`<b>${summary.listed.length} claim sale leftover${summary.listed.length === 1 ? '' : 's'} listed on /leftovers</b>`);
       lines.push(summary.listed.map(esc).join(', '));
+    }
+    if (summary.expired.length) {
+      lines.push(`<b>${summary.expired.length} leftover${summary.expired.length === 1 ? '' : 's'} taken down after ${LISTING_DAYS} days unsold:</b> ${summary.expired.map(esc).join(', ')}`);
     }
     for (const p of summary.pulled) {
       lines.push(
@@ -557,7 +585,7 @@ async function autoRun() {
 }
 
 let timer = null;
-function startAutoRun({ everyHours = 3, firstDelayMinutes = 2 } = {}) {
+function startAutoRun({ everyHours = 0.5, firstDelayMinutes = 2 } = {}) {
   if (timer) return;
   setTimeout(() => autoRun().catch(() => {}), firstDelayMinutes * 60 * 1000);
   timer = setInterval(() => autoRun().catch(() => {}), everyHours * 3600 * 1000);

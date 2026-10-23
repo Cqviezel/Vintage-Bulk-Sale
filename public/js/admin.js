@@ -1961,6 +1961,7 @@ let claimMeta = { channel: '', date: '' };
 const ON_SITE = {
   listed: '<span class="status status-live">Listed</span>',
   pulled: '<span class="status status-hidden">Pulled (claimed late)</span>',
+  expired: '<span class="status status-hidden">Taken down after 1 week</span>',
   claimed: '<span class="status status-sold">Not listed</span>',
 };
 
@@ -1973,7 +1974,7 @@ function claimRowHtml(l, i) {
   const onSite = l.onSite
     ? ON_SITE[l.onSite] || esc(l.onSite)
     : l.status === 'leftover'
-      ? '<span class="small muted">Lists automatically a day after posting</span>'
+      ? '<span class="small muted">Lists automatically 2 hours after posting</span>'
       : '<span class="small muted">—</span>';
   return `
     <tr>
@@ -2057,8 +2058,8 @@ $('#claimRunNow').onclick = async () => {
   try {
     const res = await api('/api/admin/claim-sales/run', { method: 'POST', body: '{}' });
     toast(
-      res.listed || res.pulled
-        ? `Listed ${res.listed}, pulled ${res.pulled} (claimed late)`
+      res.listed || res.pulled || res.expired
+        ? `Listed ${res.listed}, pulled ${res.pulled} (claimed late), expired ${res.expired}`
         : 'Up to date: nothing new to list'
     );
   } catch (err) {
