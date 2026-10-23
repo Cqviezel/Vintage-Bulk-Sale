@@ -212,29 +212,42 @@
 
     <section class="admin-tab" id="claimLeftovers">
       <div class="admin-top">
-        <div><h1>Claim Sales</h1><p>Bill each buyer after a Telegram claim sale, and keep track of the leftovers listed on <a href="/leftovers" target="_blank" rel="noopener">/leftovers</a>.</p></div>
-        <div class="actions"><button class="btn" id="claimRunNow" type="button">Check now</button></div>
+        <div><h1>Claim Sales</h1><p>Every buyer from your Telegram claim sales, from billing through to shipping.</p></div>
+        <div class="actions"><button class="btn" id="claimRunNow" type="button">Check Telegram Now</button></div>
       </div>
+
+      <div class="tracker-stats" id="trackerStats"></div>
+
       <div class="panel">
-        <div class="panel-body">
-          <div class="notice">
-            <b>This runs by itself.</b> Every 30 minutes the site reads your Claim Sale Channel. Once a card post is 2 hours old,
-            it counts as <b>claimed</b> if a buyer commented "claim", you replied "ok" to an offer, or the buyer accepted your counter.
-            Anything else, including offers nobody agreed to, is listed on <b>/leftovers</b>, where buyers are pointed to the Telegram post for its condition.
-            If someone claims a listed card late on Telegram, it's taken off the site and you get a Telegram message. Leftovers that haven't sold after 1 week are taken down too.
+        <div class="panel-head tracker-head">
+          <div class="scope-toggle tracker-filter" id="trackerFilter" role="tablist" aria-label="Show"></div>
+          <div class="panel-controls">
+            <select id="trackerSale" aria-label="Sale"><option value="">All sales</option></select>
+            <input id="trackerSearch" type="search" placeholder="Search buyer or card" aria-label="Search">
           </div>
-          <div class="notice" id="claimStatus" style="margin-top:12px">Checking status…</div>
-          <div class="form-grid" style="align-items:end;margin-top:16px">
-            <div><label for="claimDate">Sale date</label><input id="claimDate" type="date"></div>
-            <div><button class="btn primary" id="claimScan" type="button" style="width:100%;min-height:42px">Load This Sale</button></div>
-          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="tracker">
+            <thead><tr>
+              <th>Buyer</th><th>Sale</th><th>Cards</th><th class="r">Total</th><th>Delivery</th>
+              <th class="c">Billed</th><th class="c">Paid</th><th class="c">Packed</th><th class="c">Shipped</th><th></th>
+            </tr></thead>
+            <tbody id="trackerBody"></tbody>
+          </table>
         </div>
       </div>
-      <div class="panel hidden" id="claimBilling">
+
+      <div class="panel">
         <div class="panel-head">
-          <div><h2 id="billingSummary">Billing</h2><div class="small muted" id="billingSubtext">One message per buyer, written from your template in Settings.</div></div>
+          <div><h2>Telegram Scan &amp; Leftovers</h2><div class="small muted">Every 30 minutes the site reads your Claim Sale Channel. Claimed cards are added to the buyer's order above; cards nobody claims after 2 hours go on <a href="/leftovers" target="_blank" rel="noopener">/leftovers</a> for a week.</div></div>
         </div>
-        <div class="panel-body"><div class="bill-grid" id="billingList"></div></div>
+        <div class="panel-body">
+          <div class="notice" id="claimStatus">Checking status…</div>
+          <div class="form-grid" style="align-items:end;margin-top:16px">
+            <div><label for="claimDate">Re-check one sale</label><input id="claimDate" type="date"></div>
+            <div><button class="btn" id="claimScan" type="button" style="width:100%;min-height:42px">Load This Sale</button></div>
+          </div>
+        </div>
       </div>
 
       <div class="panel hidden" id="claimResults">

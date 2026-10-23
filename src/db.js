@@ -174,6 +174,15 @@ ensureColumn('products', 'set_symbol', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('products', 'channel', "TEXT NOT NULL DEFAULT 'store'");
 ensureColumn('products', 'claim_sale', "TEXT NOT NULL DEFAULT ''");
 ensureColumn('products', 'claim_link', "TEXT NOT NULL DEFAULT ''");
+// Claim sale orders: one per buyer per sale, built automatically from the Telegram
+// claims (src/claimSale.js) and tracked on the admin Claim Sales page.
+ensureColumn('orders', 'source', "TEXT NOT NULL DEFAULT 'store'");
+ensureColumn('orders', 'claim_sale', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('orders', 'buyer_key', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('orders', 'billed_at', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('order_items', 'claim_post_id', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('order_items', 'label', "TEXT NOT NULL DEFAULT ''");
+db.exec("CREATE INDEX IF NOT EXISTS idx_orders_claim ON orders(source, claim_sale, buyer_key)");
 // Telegram user ID of the logged-in buyer who placed the order (0 = guest checkout).
 ensureColumn('orders', 'telegram_user_id', 'INTEGER NOT NULL DEFAULT 0');
 db.exec('CREATE INDEX IF NOT EXISTS idx_orders_telegram_user ON orders(telegram_user_id)');

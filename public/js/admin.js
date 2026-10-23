@@ -1785,173 +1785,228 @@ $('#removePaynowQr').onclick = async () => {
   }
 };
 
-/* ------------------------------------------------------ claim sale billing --- */
+/* ------------------------------------------------------ claim sale tracker --- */
 
-// After a sale is loaded, every claimed card is grouped by buyer, with a ready-to-send
-// billing message (Settings -> Claim Sale Billing) and an optional order so the buyer
-// sees it under My Claims.
-let billSettings = null;
-let billOrders = {}; // buyerKey -> order id, for this sale date
-const billKey = (l) =>
-  l.buyerUsername ? '@' + l.buyerUsername.toLowerCase() : l.buyerId ? 'id:' + l.buyerId : 'name:' + String(l.buyer || '').toLowerCase();
+// One row per buyer per sale (built automatically from the Telegram claims). The ticks
+// move the real order status, so the buyer's My Claims page follows along.
+let trackerOrders = [];
+let trackerSettings = null;
+let trackerFilter = 'open';
+const trackerOpen = new Set();
 
-function readBillPrefs(date) {
-  try {
-    return JSON.parse(localStorage.getItem('ctcg_bills_' + date) || '{}');
-  } catch {
-    return {};
-  }
-}
-function writeBillPrefs(date, prefs) {
-  try {
-    localStorage.setItem('ctcg_bills_' + date, JSON.stringify(prefs));
-  } catch {
-    // remembering ticks is a convenience only
-  }
-}
+const isHeld = (o) => o.delivery === 'Hold Mailing';
+const isDone = (o) => o.status === 'mailed' || o.status === 'completed';
+const TRACKER_FILTERS = [
+  ['open', 'Open', (o) => o.status !== 'cancelled' && !isDone(o)],
+  ['bill', 'To Bill', (o) => o.status === 'awaiting payment' && !o.billed],
+  ['pay', 'Awaiting Payment', (o) => o.status === 'awaiting payment' && o.billed],
+  ['pack', 'To Pack', (o) => o.status === 'paid' && !isHeld(o)],
+  ['ship', 'To Ship', (o) => o.status === 'packed' && !isHeld(o)],
+  ['hold', 'On Hold', (o) => isHeld(o) && !isDone(o) && o.status !== 'cancelled'],
+  ['done', 'Done', isDone],
+  ['all', 'All', () => true],
+];
+const trackerTest = (key) => (TRACKER_FILTERS.find((f) => f[0] === key) || TRACKER_FILTERS[0])[2];
 
-function claimBuyers() {
-  const byKey = new Map();
-  for (const l of claimListings) {
-    if (l.status !== 'claimed') continue;
-    const key = billKey(l);
-    if (!byKey.has(key)) {
-      byKey.set(key, { key, name: l.buyer || 'Buyer', username: l.buyerUsername || '', userId: l.buyerId || '', items: [] });
-    }
-    byKey.get(key).items.push({ caption: l.caption, price: Number(l.price ?? l.parsed.price) || 0, link: l.link });
-  }
-  return [...byKey.values()];
+function saleLabel(date) {
+  const d = new Date(String(date) + 'T00:00:00');
+  return isNaN(d) ? date || '—' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
-function billMessage(b, mailing) {
-  const fee = mailing ? Number(billSettings.mailing) || 0 : 0;
-  const subtotal = b.items.reduce((sum, i) => sum + i.price, 0);
-  const lines = b.items.map((i) => `• ${i.caption} – ${money(i.price)}`);
-  if (mailing) lines.push(`• Mailing – ${money(fee)}`);
+function trackerMessage(o) {
+  const s = trackerSettings || {};
+  const lines = o.items.map((i) => `• ${i.label} – ${money(i.price)}`);
+  if (o.fee > 0) lines.push(`• Mailing – ${money(o.fee)}`);
   const fill = {
-    name: b.name.split(' ')[0] || b.name,
+    name: String(o.buyer || '').split(' ')[0],
     items: lines.join('\n'),
-    subtotal: money(subtotal),
-    mailing: money(fee),
-    total: money(subtotal + fee),
-    paynow: billSettings.paynowNumber || '[add your PayNow number in Settings]',
+    subtotal: money(o.subtotal),
+    mailing: money(o.fee),
+    total: money(o.total),
+    paynow: s.paynowNumber || '[add your PayNow number in Settings]',
   };
-  const template = billSettings.billingTemplate || '{items}\n\nTotal {total}, PayNow {paynow}';
-  return template.replace(/\{(name|items|subtotal|mailing|total|paynow)\}/g, (_, k) => fill[k]);
+  return (s.billingTemplate || '{items}\n\nTotal {total}, PayNow {paynow}').replace(
+    /\{(name|items|subtotal|mailing|total|paynow)\}/g,
+    (_, k) => fill[k]
+  );
 }
 
-function billCardHtml(b, i, prefs) {
-  const p = prefs[b.key] || {};
-  const mailing = p.mailing !== false;
-  const fee = mailing ? Number(billSettings.mailing) || 0 : 0;
-  const subtotal = b.items.reduce((sum, x) => sum + x.price, 0);
-  const order = billOrders[b.key];
-  return `<article class="bill${p.billed ? ' billed' : ''}" data-bill="${i}">
-    <header class="bill-head">
-      <span class="bill-avatar">${esc((b.name || '?').charAt(0))}</span>
-      <div class="bill-who">
-        <b>${esc(b.name)}</b>
-        <span class="small muted">${b.username ? '@' + esc(b.username) : 'No Telegram username'}</span>
-      </div>
-      <div class="bill-total"><b>${money(subtotal + fee)}</b><span class="small muted">${b.items.length} card${b.items.length === 1 ? '' : 's'}</span></div>
-    </header>
-    <ul class="bill-items">${b.items
-      .map((x) => `<li><span>${x.link ? `<a href="${esc(x.link)}" target="_blank" rel="noopener">${esc(x.caption)}</a>` : esc(x.caption)}</span><b>${money(x.price)}</b></li>`)
-      .join('')}</ul>
-    <div class="bill-opts">
-      <label><input type="checkbox" data-bill-mail${mailing ? ' checked' : ''}> Tracked Mailing (+${money(Number(billSettings.mailing) || 0)})</label>
-      <label><input type="checkbox" data-bill-done${p.billed ? ' checked' : ''}> Billed</label>
-    </div>
-    <textarea class="bill-msg" readonly rows="9">${esc(billMessage(b, mailing))}</textarea>
-    <div class="bill-actions">
-      <button class="btn primary" type="button" data-bill-copy>Copy Message</button>
-      ${b.username ? `<a class="btn" href="https://t.me/${esc(encodeURIComponent(b.username))}" target="_blank" rel="noopener">Open Chat</a>` : ''}
-      ${order
-        ? `<span class="bill-order"><span class="status order-awaiting-payment">Order ${esc(order)}</span></span>`
-        : `<button class="btn" type="button" data-bill-order title="Shows this bill under My Claims on their account">Create Order</button>`}
-    </div>
-  </article>`;
+function trackerRow(o) {
+  const paid = ['paid', 'packed', 'mailed', 'completed'].includes(o.status);
+  const packed = ['packed', 'mailed', 'completed'].includes(o.status);
+  const shipped = isDone(o);
+  const cancelled = o.status === 'cancelled';
+  const user = String(o.telegram || '').replace(/^@/, '');
+  const heldOthers = isHeld(o)
+    ? trackerOrders.filter((x) => x !== o && x.telegram && x.telegram === o.telegram && isHeld(x) && !isDone(x) && x.status !== 'cancelled').length
+    : 0;
+  const delivery = o.delivery === 'Hold Mailing' ? 'hold' : o.delivery === 'Self-Pickup' ? 'pickup' : 'mail';
+  const open = trackerOpen.has(o.id);
+  const tick = (field, on, label, disabled) =>
+    `<td class="c"><input type="checkbox" class="tick" data-tick="${field}"${on ? ' checked' : ''}${disabled ? ' disabled' : ''} aria-label="${label}"></td>`;
+  return `
+    <tr class="trk-row${cancelled ? ' cancelled' : ''}${open ? ' open' : ''}" data-order="${esc(o.id)}">
+      <td>
+        <div class="trk-buyer">
+          <span class="bill-avatar">${esc((o.buyer || '?').charAt(0))}</span>
+          <div><b>${esc(o.buyer)}</b>
+            <span class="small muted">${user ? `<a href="https://t.me/${esc(encodeURIComponent(user))}" target="_blank" rel="noopener">@${esc(user)}</a>` : 'No username'}${
+              heldOthers ? ` · <span class="trk-held">${heldOthers + 1} held orders</span>` : ''
+            }</span>
+          </div>
+        </div>
+      </td>
+      <td><span class="trk-sale">${esc(saleLabel(o.sale))}</span><div class="small muted">${esc(o.id)}</div></td>
+      <td class="trk-cards"><span class="small">${esc(o.items.map((i) => i.label).join(', '))}</span><div class="small muted">${o.items.length} card${o.items.length === 1 ? '' : 's'}</div></td>
+      <td class="r"><b>${money(o.total)}</b>${o.fee ? `<div class="small muted">incl. ${money(o.fee)} mailing</div>` : isHeld(o) ? '<div class="small muted">mailing later</div>' : ''}</td>
+      <td><select class="trk-delivery" data-delivery aria-label="Delivery"${cancelled ? ' disabled' : ''}>
+        <option value="mail"${delivery === 'mail' ? ' selected' : ''}>Mail</option>
+        <option value="hold"${delivery === 'hold' ? ' selected' : ''}>Hold</option>
+        <option value="pickup"${delivery === 'pickup' ? ' selected' : ''}>Pickup</option>
+      </select></td>
+      ${tick('billed', o.billed || paid, 'Billed', cancelled || paid)}
+      ${tick('paid', paid, 'Paid', cancelled || packed)}
+      ${tick('packed', packed, 'Packed', cancelled || !paid || shipped)}
+      ${tick('shipped', shipped, delivery === 'pickup' ? 'Collected' : 'Shipped', cancelled || !packed)}
+      <td class="r"><button class="row-toggle" type="button" data-expand aria-expanded="${open}" aria-label="Show bill">${open ? 'Hide' : 'Bill'}</button></td>
+    </tr>
+    ${
+      open
+        ? `<tr class="trk-detail"><td colspan="10">
+            <div class="trk-detail-grid">
+              <ul class="bill-items">${o.items
+                .map(
+                  (i) => `<li>${i.image ? `<img src="${esc(i.image)}" alt="">` : '<i class="trk-noimg"></i>'}<span>${
+                    i.postId ? `<a href="https://t.me/${esc(String(trackerSettings && trackerSettings.claimTelegram || '').replace(/^@/, ''))}/${i.postId}" target="_blank" rel="noopener">${esc(i.label)}</a>` : esc(i.label)
+                  }</span><b>${money(i.price)}</b></li>`
+                )
+                .join('')}${o.fee ? `<li><i class="trk-noimg"></i><span>Mailing</span><b>${money(o.fee)}</b></li>` : ''}</ul>
+              <div>
+                <textarea class="bill-msg" readonly rows="10">${esc(trackerMessage(o))}</textarea>
+                <div class="bill-actions">
+                  <button class="btn primary" type="button" data-copy>Copy Message</button>
+                  ${user ? `<a class="btn" href="https://t.me/${esc(encodeURIComponent(user))}" target="_blank" rel="noopener">Open Chat</a>` : ''}
+                  <span class="small muted">Copying ticks Billed.</span>
+                </div>
+              </div>
+            </div>
+          </td></tr>`
+        : ''
+    }`;
 }
 
-async function renderBilling() {
-  const buyers = claimBuyers();
-  $('#claimBilling').classList.toggle('hidden', !buyers.length);
-  if (!buyers.length) return;
+function renderTracker() {
+  const sale = $('#trackerSale').value;
+  const q = ($('#trackerSearch').value || '').trim().toLowerCase();
+  const pool = trackerOrders.filter(
+    (o) =>
+      (!sale || o.sale === sale) &&
+      (!q || `${o.buyer} ${o.telegram} ${o.id} ${o.items.map((i) => i.label).join(' ')}`.toLowerCase().includes(q))
+  );
+
+  // Headline numbers across every sale, so nothing waiting is missed.
+  const live = trackerOrders.filter((o) => o.status !== 'cancelled');
+  const owing = live.filter(trackerTest('pay'));
+  const stat = (key, label, value, note) =>
+    `<button class="stat stat-btn${trackerFilter === key ? ' on' : ''}" type="button" data-filter="${key}"><span>${label}</span><strong>${value}</strong>${note ? `<em>${note}</em>` : ''}</button>`;
+  $('#trackerStats').innerHTML = [
+    stat('bill', 'To Bill', live.filter(trackerTest('bill')).length, 'buyers'),
+    stat('pay', 'Awaiting Payment', money(owing.reduce((s, o) => s + o.total, 0)), `${owing.length} buyer${owing.length === 1 ? '' : 's'}`),
+    stat('pack', 'To Pack', live.filter(trackerTest('pack')).length, 'orders'),
+    stat('ship', 'To Ship', live.filter(trackerTest('ship')).length, 'orders'),
+    stat('hold', 'On Hold', live.filter(trackerTest('hold')).length, 'orders'),
+  ].join('');
+
+  $('#trackerFilter').innerHTML = TRACKER_FILTERS.map(
+    ([key, label, test]) =>
+      `<button type="button" data-filter="${key}" class="${trackerFilter === key ? 'active' : ''}">${label} <span>${pool.filter(test).length}</span></button>`
+  ).join('');
+
+  const rows = pool.filter(trackerTest(trackerFilter));
+  // Held orders sit together per buyer, so combining them for one parcel is easy.
+  if (trackerFilter === 'hold') rows.sort((a, b) => String(a.telegram || a.buyer).localeCompare(String(b.telegram || b.buyer)));
+  $('#trackerBody').innerHTML = rows.length
+    ? rows.map(trackerRow).join('')
+    : `<tr><td colspan="10"><div class="empty">${
+        trackerOrders.length ? 'Nothing here. Try another filter.' : 'No claim sale orders yet. They appear here by themselves after your next claim sale.'
+      }</div></td></tr>`;
+}
+
+async function loadClaimTracker() {
   try {
-    if (!billSettings) billSettings = await api('/api/admin/settings');
-    billOrders = await api(`/api/admin/claim-sales/bills?date=${encodeURIComponent(claimMeta.date)}`);
+    const [list, settings] = await Promise.all([api('/api/admin/claim-orders'), api('/api/admin/settings')]);
+    trackerOrders = list;
+    trackerSettings = settings;
+    const current = $('#trackerSale').value;
+    const sales = [...new Set(list.map((o) => o.sale).filter(Boolean))];
+    $('#trackerSale').innerHTML =
+      '<option value="">All sales</option>' +
+      sales.map((d) => `<option value="${esc(d)}"${d === current ? ' selected' : ''}>${esc(saleLabel(d))} sale</option>`).join('');
+    renderTracker();
   } catch (err) {
     toast(err.message, true);
-    billSettings = billSettings || { mailing: 0 };
   }
-  const prefs = readBillPrefs(claimMeta.date);
-  const total = buyers.reduce((sum, b) => sum + b.items.reduce((s, x) => s + x.price, 0), 0);
-  const billed = buyers.filter((b) => (prefs[b.key] || {}).billed).length;
-  $('#billingSummary').textContent = `Billing · ${buyers.length} buyer${buyers.length === 1 ? '' : 's'} · ${money(total)} in cards`;
-  $('#billingSubtext').textContent = billSettings.paynowNumber
-    ? `${billed} of ${buyers.length} billed. Messages use your template from Settings.`
-    : 'Add your PayNow number in Settings → PayNow so it appears in the messages.';
-  $('#billingList').innerHTML = buyers.map((b, i) => billCardHtml(b, i, prefs)).join('');
-  $('#billingList').dataset.buyers = '';
-  renderBilling.buyers = buyers;
 }
 
-$('#billingList').addEventListener('change', (e) => {
-  const card = e.target.closest('[data-bill]');
-  if (!card) return;
-  const b = renderBilling.buyers[Number(card.dataset.bill)];
-  const prefs = readBillPrefs(claimMeta.date);
-  prefs[b.key] = prefs[b.key] || {};
-  if (e.target.matches('[data-bill-mail]')) prefs[b.key].mailing = e.target.checked;
-  if (e.target.matches('[data-bill-done]')) prefs[b.key].billed = e.target.checked;
-  writeBillPrefs(claimMeta.date, prefs);
-  renderBilling();
+async function updateClaimOrder(id, patch) {
+  try {
+    const updated = await api(`/api/admin/claim-orders/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+    trackerOrders = trackerOrders.map((o) => (o.id === id ? updated : o));
+    renderTracker();
+    return updated;
+  } catch (err) {
+    toast(err.message, true);
+    renderTracker();
+    return null;
+  }
+}
+
+$('#trackerSale').onchange = renderTracker;
+$('#trackerSearch').oninput = renderTracker;
+$('#claimLeftovers').addEventListener('click', (e) => {
+  const f = e.target.closest('[data-filter]');
+  if (f && (f.closest('#trackerFilter') || f.closest('#trackerStats'))) {
+    trackerFilter = trackerFilter === f.dataset.filter && f.closest('#trackerStats') ? 'open' : f.dataset.filter;
+    renderTracker();
+  }
 });
 
-$('#billingList').addEventListener('click', async (e) => {
-  const card = e.target.closest('[data-bill]');
-  if (!card) return;
-  const b = renderBilling.buyers[Number(card.dataset.bill)];
-  const prefs = readBillPrefs(claimMeta.date);
-  const mailing = (prefs[b.key] || {}).mailing !== false;
+$('#trackerBody').addEventListener('change', (e) => {
+  const row = e.target.closest('[data-order]');
+  if (!row) return;
+  const id = row.dataset.order;
+  if (e.target.matches('[data-delivery]')) return updateClaimOrder(id, { delivery: e.target.value });
+  const tick = e.target.dataset.tick;
+  if (!tick) return;
+  const on = e.target.checked;
+  const status = {
+    paid: on ? 'paid' : 'awaiting payment',
+    packed: on ? 'packed' : 'paid',
+    shipped: on ? 'mailed' : 'packed',
+  }[tick];
+  if (tick === 'billed') return updateClaimOrder(id, { billed: on });
+  updateClaimOrder(id, status === 'paid' && on ? { status, billed: true } : { status });
+});
 
-  if (e.target.closest('[data-bill-copy]')) {
-    const text = card.querySelector('.bill-msg').value;
+$('#trackerBody').addEventListener('click', async (e) => {
+  const row = e.target.closest('[data-order]') || (e.target.closest('.trk-detail') || {}).previousElementSibling;
+  if (!row) return;
+  const id = row.dataset.order;
+  if (e.target.closest('[data-expand]')) {
+    trackerOpen.has(id) ? trackerOpen.delete(id) : trackerOpen.add(id);
+    return renderTracker();
+  }
+  if (e.target.closest('[data-copy]')) {
+    const box = e.target.closest('.trk-detail').querySelector('.bill-msg');
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(box.value);
     } catch {
-      card.querySelector('.bill-msg').select();
+      box.select();
       document.execCommand('copy');
     }
-    toast(`Copied ${b.name}'s bill`);
-    return;
-  }
-
-  const orderBtn = e.target.closest('[data-bill-order]');
-  if (orderBtn) {
-    orderBtn.disabled = true;
-    orderBtn.textContent = 'Creating…';
-    try {
-      const res = await api('/api/admin/claim-sales/bill', {
-        method: 'POST',
-        body: JSON.stringify({
-          date: claimMeta.date,
-          buyerKey: b.key,
-          buyerName: b.name,
-          buyerUsername: b.username,
-          buyerId: b.userId,
-          mailing,
-          items: b.items.map((x) => ({ caption: x.caption, price: x.price })),
-        }),
-      });
-      toast(res.existing ? `Order ${res.orderId} already exists` : `Order ${res.orderId} created — it's on their account now`);
-      renderBilling();
-      loadStats();
-    } catch (err) {
-      toast(err.message, true);
-      orderBtn.disabled = false;
-      orderBtn.textContent = 'Create Order';
-    }
+    const o = trackerOrders.find((x) => x.id === id);
+    toast(`Copied ${o ? o.buyer + "'s" : 'the'} bill`);
+    if (o && !o.billed && o.status === 'awaiting payment') updateClaimOrder(id, { billed: true });
   }
 });
 
@@ -2018,8 +2073,7 @@ $('#claimScan').onclick = async () => {
     claimListings = res.listings;
     claimMeta = { channel: res.channel, date: res.date };
     renderClaimResults();
-    billSettings = null; // pick up any template edits made since
-    renderBilling();
+    loadClaimTracker(); // the scan adds any missing claims to orders
   } catch (err) {
     toast(err.message, true);
   } finally {
@@ -2095,8 +2149,9 @@ $('#claimRunNow').onclick = async () => {
     toast(err.message, true);
   } finally {
     loadClaimStatus();
+    loadClaimTracker();
     button.disabled = false;
-    button.textContent = 'Check now';
+    button.textContent = 'Check Telegram Now';
   }
 };
 
@@ -2114,7 +2169,10 @@ $$('[data-admin-tab]').forEach((b) => {
     $$('.admin-tab').forEach((t) => t.classList.toggle('active', t.id === b.dataset.adminTab));
     $$('[data-admin-tab]').forEach((x) => x.classList.toggle('active', x === b));
     if (b.dataset.adminTab === 'products') loadProducts();
-    if (b.dataset.adminTab === 'claimLeftovers') loadClaimStatus();
+    if (b.dataset.adminTab === 'claimLeftovers') {
+      loadClaimStatus();
+      loadClaimTracker();
+    }
     if (b.dataset.adminTab === 'orders') loadOrders();
     if (b.dataset.adminTab === 'analytics') loadAnalytics();
     if (b.dataset.adminTab === 'tradeShows') loadTradeShows();

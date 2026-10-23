@@ -594,6 +594,86 @@ async function listLeftover(conn, post, condition) {
   return { id, name: card.name || post.parsed.name };
 }
 
+/* ---------------------------------------------------------- claim orders --- */
+
+// Each buyer's claims from one sale become a single "awaiting payment" order, so the
+// seller tracks billing/payment/packing on the Claim Sales page and the buyer sees it
+// under My Claims. Items are keyed by their Telegram post, so syncing twice is harmless.
+const buyerKeyOf = (o) =>
+  o.buyerUsername ? '@' + o.buyerUsername.toLowerCase() : o.buyerId ? 'id:' + o.buyerId : 'name:' + String(o.buyer || '').toLowerCase();
+
+const claimOrderFor = db.prepare(
+  "SELECT * FROM orders WHERE source = 'claim' AND claim_sale = ? AND buyer_key = ? AND status <> 'cancelled' ORDER BY created_at LIMIT 1"
+);
+const claimItemFor = db.prepare('SELECT 1 FROM order_items WHERE claim_post_id = ? LIMIT 1');
+const orderIdTaken = db.prepare('SELECT 1 FROM orders WHERE id = ?');
+const insertClaimOrder = db.prepare(
+  `INSERT INTO orders (id, buyer, telegram, telegram_user_id, email, phone, address, delivery, subtotal, discount, promo_code, fee, total, status, notify_state, source, claim_sale, buyer_key)
+   VALUES (@id, @buyer, @telegram, @telegram_user_id, '', '', '', @delivery, 0, 0, '', @fee, @fee, 'awaiting payment', 'sent', 'claim', @claim_sale, @buyer_key)`
+);
+const insertClaimItem = db.prepare(
+  `INSERT INTO order_items (order_id, product_id, name, set_name, number, condition, variant, price, image, claim_post_id, label)
+   VALUES (@order_id, NULL, @name, @set_name, @number, '', @variant, @price, @image, @claim_post_id, @label)`
+);
+const recalcOrder = db.prepare(
+  `UPDATE orders SET subtotal = (SELECT COALESCE(SUM(price), 0) FROM order_items WHERE order_id = @id),
+     total = (SELECT COALESCE(SUM(price), 0) FROM order_items WHERE order_id = @id) + fee,
+     billed_at = '', updated_at = datetime('now')
+   WHERE id = @id`
+);
+
+function newClaimOrderId() {
+  for (let i = 0; i < 25; i++) {
+    const id = 'CTCG-' + String(crypto.randomInt(1000, 10000));
+    if (!orderIdTaken.get(id)) return id;
+  }
+  return 'CTCG-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+}
+
+/**
+ * Adds one claimed card to its buyer's order for that sale, creating the order if
+ * needed. Cards are only added while the order is still awaiting payment; a card won
+ * after the buyer paid goes into a fresh order instead. Adding a card clears "billed",
+ * since the bill the buyer has is now out of date.
+ */
+async function addClaimToOrder(post, outcome) {
+  if (claimItemFor.get(post.postId)) return null;
+  const sale = saleDate(post.date);
+  const key = buyerKeyOf(outcome);
+  let order = claimOrderFor.get(sale, key);
+  if (order && order.status !== 'awaiting payment') order = null;
+
+  const card = await matchCard(post.parsed).catch(() => ({ matched: false }));
+  const settings = getSettings();
+  if (!order) {
+    const userId = Number(outcome.buyerId);
+    order = {
+      id: newClaimOrderId(),
+      buyer: String(outcome.buyer || outcome.buyerUsername || 'Telegram buyer').slice(0, 120),
+      telegram: outcome.buyerUsername ? '@' + outcome.buyerUsername : '',
+      telegram_user_id: Number.isSafeInteger(userId) && userId > 0 ? userId : 0,
+      delivery: 'Tracked Mailing',
+      fee: Math.round(Number(settings.mailing || 0) * 100) / 100,
+      claim_sale: sale,
+      buyer_key: key,
+    };
+    insertClaimOrder.run(order);
+  }
+  insertClaimItem.run({
+    order_id: order.id,
+    name: String((card.matched && card.name) || post.parsed.name || post.caption).slice(0, 160),
+    set_name: String((card.matched && card.set) || post.parsed.set || '').slice(0, 160),
+    number: String((card.matched && card.number) || post.parsed.number || '').slice(0, 40),
+    variant: post.parsed.variant || 'Normal',
+    price: Math.round(Number(outcome.price ?? post.parsed.price) * 100) / 100,
+    image: String((card.matched && card.image) || '').slice(0, 500),
+    claim_post_id: post.postId,
+    label: String(post.caption || '').slice(0, 200),
+  });
+  recalcOrder.run({ id: order.id });
+  return order.id;
+}
+
 /* ------------------------------------------------------------ manual scan --- */
 
 /** One sale day, every card and its outcome, for the admin Claim Leftovers tab. */
@@ -614,6 +694,7 @@ async function scanSale({ date }) {
       ...outcome,
       onSite: rec ? rec.outcome : '',
     });
+    if (outcome.status === 'claimed' && !(rec && rec.outcome === 'listed')) await addClaimToOrder(post, outcome);
   }
   return { channel: conn.ref, date, listings };
 }
@@ -696,6 +777,7 @@ async function autoRun() {
         const outcome = await readOutcome(conn, post, sellers);
         if (outcome.status === 'claimed') {
           savePost.run({ channel: conn.ref, post_id: post.postId, outcome: 'claimed', product_id: '', product_name: post.parsed.name, reply_count: post.replyCount });
+          await addClaimToOrder(post, outcome);
           summary.claimed++;
         } else {
           const product = await listLeftover(conn, post, settings.leftoverCondition);
@@ -744,6 +826,7 @@ async function autoRun() {
           const stillOnSale = product && product.status === 'live' && product.qty > 0;
           if (stillOnSale) pullProduct.run(rec.product_id);
           savePost.run({ ...rec, outcome: 'pulled', reply_count: post.replyCount });
+          if (stillOnSale) await addClaimToOrder(post, outcome);
           summary.pulled.push({ name: rec.product_name, buyer: outcome.buyer, wasOnSale: stillOnSale, link: post.link });
         } else {
           savePost.run({ ...rec, reply_count: post.replyCount });
