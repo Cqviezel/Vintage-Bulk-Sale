@@ -292,12 +292,17 @@ async function fetchJson(url, attempt = 0) {
 
 // tcgplayer prices one card by print style — this is exactly where "reverse holo" lives:
 // the same card number, priced separately, because it's a different physical print.
+// WOTC-era cards price their regular print as "unlimited..." rather than "normal" /
+// "holofoil"; without those keys an unlimited Jungle holo only offered "1st Edition".
 const VARIANT_PRICE_KEYS = {
   normal: 'Normal',
+  unlimited: 'Normal',
   holofoil: 'Holo',
+  unlimitedHolofoil: 'Holo',
   reverseHolofoil: 'Reverse Holo',
   '1stEditionNormal': '1st Edition',
   '1stEditionHolofoil': '1st Edition',
+  '1stEdition': '1st Edition',
 };
 
 /** Every priced print style becomes its own row candidate — a card sold as both Normal

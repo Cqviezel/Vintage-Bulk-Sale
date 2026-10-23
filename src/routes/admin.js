@@ -84,6 +84,9 @@ function toAdminProduct(row) {
     image: row.image,
     notes: row.notes,
     artist: row.artist,
+    channel: row.channel || 'store',
+    claimSale: row.claim_sale || '',
+    claimLink: row.claim_link || '',
   };
 }
 

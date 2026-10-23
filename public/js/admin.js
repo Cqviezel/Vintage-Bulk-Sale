@@ -282,11 +282,21 @@ async function loadProducts() {
 }
 
 let inventoryView = localStorage.getItem('ctcg_inventory_view') === 'grid' ? 'grid' : 'list';
+// Store stock and claim sale leftovers are listed separately; leftovers arrive on
+// their own from Telegram, so mixing them in made the inventory hard to scan.
+let inventoryScope = 'store';
+const inScope = (p) => (p.channel === 'claim' ? 'claim' : 'store') === inventoryScope;
+
+/** "2026-10-22" -> "22 Oct Sale". */
+function claimSaleLabel(date) {
+  const d = new Date(String(date) + 'T00:00:00');
+  return isNaN(d) ? 'Claim Sale' : `${d.getDate()} ${d.toLocaleString('en', { month: 'short' })} Sale`;
+}
 
 /** Rebuilds the set dropdown from whatever sets exist right now, keeping the current pick if it still exists. */
 function renderSetFilterOptions() {
   const current = $('#adminSetFilter').value;
-  const sets = [...new Set(productCache.map((p) => p.set).filter(Boolean))].sort();
+  const sets = [...new Set(productCache.filter(inScope).map((p) => p.set).filter(Boolean))].sort();
 
   $('#adminSetFilter').innerHTML =
     '<option value="">All sets</option>' +
@@ -320,7 +330,7 @@ function renderInventoryList(list, q) {
         .map(
           (p) => `<tr>
       <td><img src="${esc(p.image || LOGO)}" alt="" style="width:30px;height:40px;object-fit:contain" onerror="this.onerror=null;this.src='${LOGO}'"></td>
-      <td>${esc(p.name)}<div class="small muted">${esc(p.number)}</div></td>
+      <td>${esc(p.name)}<div class="small muted">${esc(p.number)}${p.channel === 'claim' && p.claimSale ? ` &middot; ${esc(claimSaleLabel(p.claimSale))}` : ''}</div></td>
       <td>${esc(p.set)}</td>
       <td>${esc(p.condition)}</td>
       <td>${p.variant && p.variant !== 'Normal' ? esc(p.variant) : '<span class="muted">Normal</span>'}</td>
@@ -424,9 +434,19 @@ function renderInventory() {
   const set = $('#adminSetFilter').value;
   const list = productCache.filter(
     (p) =>
+      inScope(p) &&
       (!q || `${p.name} ${p.set} ${p.number} ${p.variant}`.toLowerCase().includes(q)) &&
       (!set || p.set === set)
   );
+
+  const claimCount = productCache.filter((p) => p.channel === 'claim').length;
+  $('#scopeStoreCount').textContent = productCache.length - claimCount;
+  $('#scopeClaimCount').textContent = claimCount;
+  $('#inventoryScopeNote').innerHTML =
+    inventoryScope === 'claim'
+      ? 'Unclaimed cards from your Telegram claim sales, shown to buyers on <a href="/leftovers" target="_blank" rel="noopener">/leftovers</a>. They list and expire by themselves; see the <b>Claim Leftovers</b> page.'
+      : '';
+  $('#inventoryScopeNote').classList.toggle('hidden', inventoryScope !== 'claim');
 
   if (inventoryView === 'grid') {
     $('#inventoryPagination').innerHTML = '';
@@ -437,6 +457,17 @@ function renderInventory() {
 
   wireRowActions();
 }
+
+$$('#inventoryScope button').forEach((b) => {
+  b.onclick = () => {
+    inventoryScope = b.dataset.scope;
+    inventoryPage = 1;
+    $$('#inventoryScope button').forEach((x) => x.classList.toggle('active', x === b));
+    $('#adminSetFilter').value = '';
+    renderSetFilterOptions();
+    renderInventory();
+  };
+});
 
 $$('.view-toggle button').forEach((b) => {
   b.onclick = () => {
@@ -822,527 +853,326 @@ async function backfillSetSymbols() {
 }
 $('#backfillSetSymbols').onclick = backfillSetSymbols;
 
-/* -------------------------------------------------------------- add by set --- */
+/* ------------------------------------------------------------- add cards --- */
 
-let setsCache = null; // lazy-loaded, kept for the life of the page
-let setRowsCache = null; // the currently open set, flattened one row per priced variant
-let setEdits = null; // parallel array: {qty, condition, price, status, variant} per row — the
-                      // actual source of truth, since pagination means most rows aren't in the DOM
-const SET_PAGE_SIZE = 40;
-let setPage = 1;
-let summaryDebounce = null;
-
-function renderSetPicker() {
-  const q = ($('#setSearch').value || '').trim().toLowerCase();
-
-  // A card search that's in flight or has already found matches owns this query --
-  // don't also show sets that happen to share a substring (e.g. "Pikachu" coincidentally
-  // matching the "Detective Pikachu" set), which read as "it searched sets instead."
-  if (q.length >= 2 && (cardSearchPending || lastCardSearchResults.length > 0)) {
-    $('#setPickerResult').innerHTML = cardSearchPending ? '<div class="muted small">Searching cards…</div>' : '';
-    return;
-  }
-
-  const list = !q
-    ? setsCache
-    : setsCache.filter((s) => `${s.name} ${s.series}`.toLowerCase().includes(q));
-
-  $('#setPickerResult').innerHTML = list.length
-    ? `<div class="set-grid">${list
-        .map(
-          (s, i) => `<button class="set-card" type="button" data-set-index="${i}">
-            <img src="${esc(s.logo || s.symbol || LOGO)}" alt="">
-            <b>${esc(s.name)}</b>
-            <div class="small muted">${esc(s.series)}${s.total ? ` &middot; ${s.total} cards` : ''}</div>
-          </button>`
-        )
-        .join('')}</div>`
-    : q
-    ? '<div class="muted small">No sets match that search.</div>'
-    : '';
-
-  $$('[data-set-index]').forEach((b) => {
-    b.onclick = () => openSetCards(list[Number(b.dataset.setIndex)]);
-  });
-}
-
-/* ---------------------------------------------------------- pokemon search --- */
-
-let cardSearchDebounce = null;
-let cardSearchToken = 0;
-let cardSearchPending = false;
-let lastCardSearchResults = [];
-let cardSearchRowsCache = null; // flattened one row per priced variant, like setRowsCache
-let cardSearchEdits = null; // parallel array: {qty, condition, price, variant} per row
-let cardSearchSummaryDebounce = null;
-
-function scheduleCardSearch() {
-  clearTimeout(cardSearchDebounce);
-  const q = ($('#setSearch').value || '').trim();
-  if (q.length < 2) {
-    cardSearchPending = false;
-    lastCardSearchResults = [];
-    clearCardSearchResults();
-    return; // the oninput handler re-renders the set picker right after calling this
-  }
-  cardSearchPending = true;
-  cardSearchDebounce = setTimeout(() => runCardSearch(q), 350);
-}
-
-async function runCardSearch(q) {
-  const token = ++cardSearchToken;
-  try {
-    const cards = await api(`/api/admin/cards/search?q=${encodeURIComponent(q)}`);
-    if (token !== cardSearchToken) return; // a newer keystroke already superseded this
-    cardSearchPending = false;
-    lastCardSearchResults = cards;
-    renderCardSearchResults(cards);
-    renderSetPicker(); // re-run in case results came back empty and sets should show instead
-  } catch {
-    if (token !== cardSearchToken) return;
-    cardSearchPending = false;
-    lastCardSearchResults = [];
-    clearCardSearchResults();
-    renderSetPicker();
-  }
-}
-
-function clearCardSearchResults() {
-  cardSearchRowsCache = null;
-  cardSearchEdits = null;
-  $('#cardSearchSection').classList.add('hidden');
-  $('#cardSearchBody').innerHTML = '';
-}
-
-/** One row per priced print style per card hit — same shape flattenSetCards produces
-    for a single set, just carrying the card's own setId/setName/setSymbol through too
-    since results here can span several sets. */
-function flattenCardSearchResults(cards) {
-  const rows = [];
-  cards.forEach((card, ci) => {
-    card.variants.forEach((v, vi) => {
-      rows.push({
-        key: `${ci}-${vi}`,
-        name: card.name,
-        number: card.number,
-        image: card.image,
-        artist: card.artist,
-        setId: card.setId,
-        setName: card.setName,
-        setSymbol: card.setSymbol,
-        variant: v.variant,
-        marketPrice: v.marketPrice,
-      });
-    });
-  });
-  return rows;
-}
-
-function cardSearchRow(row, i, edit) {
-  return `<tr data-row-index="${i}">
-    <td>${row.image ? `<img src="${esc(row.image)}" alt="">` : ''}</td>
-    <td>${esc(row.name)}</td>
-    <td class="small muted">${row.setSymbol ? `<img class="set-icon" src="${esc(row.setSymbol)}" alt="">` : ''}${esc(row.setName)}</td>
-    <td class="small muted">${esc(row.number)}</td>
-    <td><select data-field="variant">
-      ${VARIANT_OPTIONS.map((v) => `<option${v === edit.variant ? ' selected' : ''}>${v}</option>`).join('')}
-    </select></td>
-    <td class="small muted">${row.marketPrice != null ? money(row.marketPrice) : '—'}</td>
-    <td><input type="number" min="0" value="${edit.qty}" data-field="qty"></td>
-    <td><select data-field="condition">
-      <option${edit.condition === 'NM' ? ' selected' : ''}>NM</option>
-      <option${edit.condition === 'LP' ? ' selected' : ''}>LP</option>
-      <option${edit.condition === 'MP' ? ' selected' : ''}>MP</option>
-      <option${edit.condition === 'HP' ? ' selected' : ''}>HP</option>
-    </select></td>
-    <td><input type="number" min="0" step="0.01" placeholder="0.00" value="${esc(edit.price)}" data-field="price"></td>
-  </tr>`;
-}
-
-function renderCardSearchResults(cards) {
-  if (!cards.length) {
-    clearCardSearchResults();
-    return;
-  }
-
-  cardSearchRowsCache = flattenCardSearchResults(cards);
-  cardSearchEdits = cardSearchRowsCache.map((row) => ({
-    qty: 0,
-    condition: 'NM',
-    price: '',
-    variant: row.variant,
-  }));
-
-  $('#cardSearchSection').classList.remove('hidden');
-  $('#cardSearchBody').innerHTML = cardSearchRowsCache
-    .map((row, i) => cardSearchRow(row, i, cardSearchEdits[i]))
-    .join('');
-  updateCardSearchSummary();
-}
-
-function updateCardSearchSummary() {
-  let cardCount = 0;
-  let totalQty = 0;
-  let totalPrice = 0;
-
-  (cardSearchRowsCache || []).forEach((row, i) => {
-    const edit = cardSearchEdits[i];
-    if (!Number.isInteger(edit.qty) || edit.qty <= 0) return;
-    cardCount++;
-    totalQty += edit.qty;
-    totalPrice += edit.qty * (Number(edit.price) || 0);
-  });
-
-  $('#cardSearchSummary').innerHTML = cardCount
-    ? `<b>${cardCount}</b> card${cardCount === 1 ? '' : 's'} selected &middot; <b>${totalQty}</b> total qty &middot; est. <b>${money(totalPrice)}</b>`
-    : '<span class="muted">No cards selected yet — set a quantity on the ones you want to add.</span>';
-
-  $('#cardSearchCommit').disabled = !cardCount;
-  $('#cardSearchCommit').textContent = cardCount ? `Add ${cardCount} Card${cardCount === 1 ? '' : 's'}` : 'Add Selected Cards';
-}
-
-async function commitCardSearchImport() {
-  const button = $('#cardSearchCommit');
-
-  const cards = [];
-  cardSearchRowsCache.forEach((row, i) => {
-    const edit = cardSearchEdits[i];
-    if (!Number.isInteger(edit.qty) || edit.qty <= 0) return;
-    cards.push({
-      name: row.name,
-      number: row.number,
-      image: row.image,
-      artist: row.artist,
-      setName: row.setName,
-      setSymbol: row.setSymbol,
-      qty: edit.qty,
-      variant: edit.variant,
-      condition: edit.condition,
-      price: edit.price,
-    });
-  });
-  if (!cards.length) return;
-
-  button.disabled = true;
-  button.textContent = 'Adding…';
-  try {
-    const data = await api('/api/admin/products/bulk-cards', {
-      method: 'POST',
-      body: JSON.stringify({ cards }),
-    });
-    closeModals();
-    await Promise.all([loadProducts(), loadStats()]);
-    toast(
-      `Added ${data.imported} card${data.imported === 1 ? '' : 's'}` +
-        (data.merged ? ` (${data.merged} merged into existing listing${data.merged === 1 ? '' : 's'})` : '')
-    );
-  } catch (err) {
-    toast(err.message, true);
-  } finally {
-    button.disabled = false;
-    updateCardSearchSummary();
-  }
-}
-
-$('#cardSearchCommit').onclick = commitCardSearchImport;
-
-$('#cardSearchBody').addEventListener('input', (e) => {
-  const field = e.target.dataset.field;
-  const row = e.target.closest('tr[data-row-index]');
-  if (!field || !row) return;
-  const i = Number(row.dataset.rowIndex);
-
-  if (field === 'qty') cardSearchEdits[i].qty = Number.parseInt(e.target.value, 10);
-  else if (field === 'price') cardSearchEdits[i].price = e.target.value;
-  else if (field === 'condition') cardSearchEdits[i].condition = e.target.value;
-  else if (field === 'variant') cardSearchEdits[i].variant = e.target.value;
-
-  clearTimeout(cardSearchSummaryDebounce);
-  cardSearchSummaryDebounce = setTimeout(updateCardSearchSummary, 150);
-});
-
-async function openSetImport() {
-  $('#setPickerView').classList.remove('hidden');
-  $('#setCardsView').classList.add('hidden');
-  $('#setSearch').value = '';
-  cardSearchPending = false;
-  lastCardSearchResults = [];
-  clearCardSearchResults();
-  openModal('#setModal');
-
-  if (setsCache) {
-    renderSetPicker();
-    return;
-  }
-
-  $('#setPickerResult').innerHTML = '<div class="muted small">Loading sets…</div>';
-  try {
-    setsCache = await api('/api/admin/sets');
-    renderSetPicker();
-  } catch (err) {
-    $('#setPickerResult').innerHTML = `<div class="notice error">${esc(err.message)}</div>`;
-  }
-}
-
+// Browse a set (or search a Pokémon) as card pictures, click to add to a tray, then
+// set condition / qty / price per card in the tray and add them all at once.
 const VARIANT_OPTIONS = ['Normal', 'Holo', 'Reverse Holo', '1st Edition'];
+const ac = {
+  mode: 'set',
+  sets: null, // every set, lazy-loaded once
+  set: null, // the set being browsed
+  setCards: [], // its cards
+  results: [], // Pokémon search hits
+  searchToken: 0,
+  searchTimer: null,
+  tray: [], // { key, name, setName, setSymbol, number, image, artist, variant, marketPrice, condition, qty, price, status }
+};
 
-/** One card becomes one row per priced print style — that's where Reverse Holo shows up. */
-function flattenSetCards(cards) {
-  const rows = [];
-  cards.forEach((card, ci) => {
-    card.variants.forEach((v, vi) => {
-      rows.push({
-        key: `${ci}-${vi}`,
-        name: card.name,
-        number: card.number,
-        image: card.image,
-        artist: card.artist,
-        variant: v.variant,
-        marketPrice: v.marketPrice,
-      });
-    });
-  });
-  return rows;
+const acKey = (setName, number, variant) => `${setName}|${number}|${variant}`;
+const acInTray = (setName, number) => ac.tray.filter((t) => t.setName === setName && t.number === number).reduce((n, t) => n + (t.qty || 0), 0);
+
+function acSetTile(s, i) {
+  const year = (s.releaseDate || '').slice(0, 4);
+  return `<button class="ac-set" type="button" data-ac-set="${i}">
+    <span class="ac-set-logo">${s.logo ? `<img src="${esc(s.logo)}" alt="" loading="lazy">` : ''}</span>
+    <b>${esc(s.name)}</b>
+    <span class="small muted">${esc([s.series, year, s.total ? `${s.total} cards` : ''].filter(Boolean).join(' · '))}</span>
+  </button>`;
 }
 
-function setCardRow(row, i, edit) {
-  return `<tr data-row-index="${i}">
-    <td>${row.image ? `<img src="${esc(row.image)}" alt="">` : ''}</td>
-    <td>${esc(row.name)}</td>
-    <td class="small muted">${esc(row.number)}</td>
-    <td><select data-field="variant">
-      ${VARIANT_OPTIONS.map((v) => `<option${v === edit.variant ? ' selected' : ''}>${v}</option>`).join('')}
-    </select></td>
-    <td class="small muted">${row.marketPrice != null ? money(row.marketPrice) : '—'}</td>
-    <td><input type="number" min="0" value="${edit.qty}" data-field="qty"></td>
-    <td><select data-field="condition">
-      <option${edit.condition === 'NM' ? ' selected' : ''}>NM</option>
-      <option${edit.condition === 'LP' ? ' selected' : ''}>LP</option>
-      <option${edit.condition === 'MP' ? ' selected' : ''}>MP</option>
-      <option${edit.condition === 'HP' ? ' selected' : ''}>HP</option>
-    </select></td>
-    <td><input type="number" min="0" step="0.01" placeholder="0.00" value="${esc(edit.price)}" data-field="price"></td>
-    <td><select data-field="status">
-      <option value="live"${edit.status === 'live' ? ' selected' : ''}>Live</option>
-      <option value="draft"${edit.status === 'draft' ? ' selected' : ''}>Draft</option>
-      <option value="reserved"${edit.status === 'reserved' ? ' selected' : ''}>Reserved</option>
-      <option value="hidden"${edit.status === 'hidden' ? ' selected' : ''}>Hidden</option>
-    </select></td>
-  </tr>`;
+/** A card picture with one "+" button per print style it comes in. */
+function acCardTile(card, setName, setSymbol, i, showSet = true) {
+  const have = acInTray(setName, card.number);
+  const variants = (card.variants && card.variants.length ? card.variants : [{ variant: 'Normal', marketPrice: null }]);
+  return `<div class="ac-card${have ? ' picked' : ''}">
+    <button class="ac-card-img" type="button" data-ac-add="${i}" data-ac-variant="0" title="Add ${esc(card.name)}">
+      <img src="${esc(card.image || LOGO)}" alt="" loading="lazy" onerror="this.onerror=null;this.src='${LOGO}'">
+      ${have ? `<span class="ac-have">${have}</span>` : ''}
+    </button>
+    <div class="ac-card-meta">
+      <b>${esc(card.name)}</b>
+      <span class="small muted">${esc(showSet ? `${setName} · #${card.number}` : `#${card.number}`)}</span>
+    </div>
+    <div class="ac-variants">${variants
+      .map(
+        (v, vi) => `<button type="button" class="ac-variant" data-ac-add="${i}" data-ac-variant="${vi}">+ ${esc(v.variant)}${
+          v.marketPrice != null ? ` <span>US$${v.marketPrice.toFixed(2)}</span>` : ''
+        }</button>`
+      )
+      .join('')}</div>
+  </div>`;
 }
 
-async function openSetCards(set) {
-  $('#setPickerView').classList.add('hidden');
-  $('#setCardsView').classList.remove('hidden');
-  $('#setCardsTitle').textContent = set.name;
-  $('#setCardsError').classList.add('hidden');
-  $('#cardFilter').value = '';
-  $('#setCardsBody').innerHTML = '<tr><td colspan="9" class="muted">Loading cards…</td></tr>';
-  $('#setImportSummary').innerHTML = '';
-  $('#setPagination').innerHTML = '';
-  $('#setCommit').disabled = true;
-  $('#setCommit').dataset.setName = set.name;
-  $('#setCommit').dataset.setSymbol = set.symbol || set.logo || '';
+function acRenderResults() {
+  const q = ($('#acSearch').value || '').trim().toLowerCase();
+  const box = $('#acResults');
+  $('#acCrumb').classList.toggle('hidden', !(ac.mode === 'set' && ac.set));
 
-  try {
-    const cards = await api(`/api/admin/sets/${encodeURIComponent(set.id)}/cards`);
-    setRowsCache = flattenSetCards(cards);
-    setEdits = setRowsCache.map((row) => ({
-      qty: 0,
-      condition: $('#setDefaultCondition').value,
-      price: '',
-      status: $('#setDefaultStatus').value,
-      variant: row.variant,
-    }));
-    setPage = 1;
-    $('#setCommit').disabled = !setRowsCache.length;
-    renderSetCardsPage();
-  } catch (err) {
-    $('#setCardsBody').innerHTML = '';
-    $('#setCardsError').textContent = err.message;
-    $('#setCardsError').classList.remove('hidden');
-  }
-}
-
-/** Which row indexes match the current search box, in setRowsCache order. */
-function visibleSetRowIndexes() {
-  const q = ($('#cardFilter').value || '').trim().toLowerCase();
-  const indexes = [];
-  setRowsCache.forEach((row, i) => {
-    if (!q || `${row.name} ${row.number}`.toLowerCase().includes(q)) indexes.push(i);
-  });
-  return indexes;
-}
-
-/** Renders one page of the (filtered) card list, reading/writing setEdits so nothing is lost off-page. */
-function renderSetCardsPage() {
-  if (!setRowsCache) return;
-
-  const visible = visibleSetRowIndexes();
-  if (!visible.length) {
-    $('#setCardsBody').innerHTML = `<tr><td colspan="9" class="muted">${
-      setRowsCache.length ? 'No cards match that filter.' : 'No cards found for this set.'
-    }</td></tr>`;
-    $('#setPagination').innerHTML = '';
-    updateSetImportSummary();
+  if (ac.mode === 'set' && !ac.set) {
+    if (!ac.sets) {
+      box.innerHTML = '<div class="empty">Loading sets…</div>';
+      return;
+    }
+    const list = ac.sets
+      .map((s, i) => ({ s, i }))
+      .filter(({ s }) => !q || `${s.name} ${s.series}`.toLowerCase().includes(q));
+    box.innerHTML = list.length
+      ? `<div class="ac-set-grid">${list.map(({ s, i }) => acSetTile(s, i)).join('')}</div>`
+      : '<div class="empty">No sets match that search.</div>';
     return;
   }
 
-  const totalPages = Math.max(1, Math.ceil(visible.length / SET_PAGE_SIZE));
-  if (setPage > totalPages) setPage = totalPages;
-  const pageIndexes = visible.slice((setPage - 1) * SET_PAGE_SIZE, setPage * SET_PAGE_SIZE);
+  if (ac.mode === 'set') {
+    const cards = ac.setCards
+      .map((c, i) => ({ c, i }))
+      .filter(({ c }) => !q || `${c.name} ${c.number}`.toLowerCase().includes(q));
+    box.innerHTML = cards.length
+      ? `<div class="ac-card-grid">${cards.map(({ c, i }) => acCardTile(c, ac.set.name, ac.set.symbol || '', i, false)).join('')}</div>`
+      : `<div class="empty">${ac.setCards.length ? 'No cards match that filter.' : 'Loading cards…'}</div>`;
+    return;
+  }
 
-  $('#setCardsBody').innerHTML = pageIndexes
-    .map((i) => setCardRow(setRowsCache[i], i, setEdits[i]))
-    .join('');
-
-  renderPager($('#setPagination'), setPage, totalPages, (page) => {
-    setPage = page;
-    renderSetCardsPage();
-  });
-
-  updateSetImportSummary();
+  // Pokémon search
+  if (q.length < 2) {
+    box.innerHTML = '<div class="empty">Type at least 2 letters of a Pokémon name, e.g. Charizard.</div>';
+    return;
+  }
+  box.innerHTML = ac.results.length
+    ? `<div class="ac-card-grid">${ac.results.map((c, i) => acCardTile(c, c.setName, c.setSymbol, i)).join('')}</div>`
+    : `<div class="empty">${ac.searching ? 'Searching…' : 'No cards found.'}</div>`;
 }
 
-/** Live recap of what "Add Selected Cards" would actually do, so it's never a surprise. */
-function updateSetImportSummary() {
-  let cardCount = 0;
-  let totalQty = 0;
-  let totalPrice = 0;
-  const items = [];
-
-  (setRowsCache || []).forEach((row, i) => {
-    const edit = setEdits[i];
-    if (!Number.isInteger(edit.qty) || edit.qty <= 0) return;
-    cardCount++;
-    totalQty += edit.qty;
-    const lineTotal = edit.qty * (Number(edit.price) || 0);
-    totalPrice += lineTotal;
-    items.push({ row, edit, lineTotal });
-  });
-
-  const summaryLine = cardCount
-    ? `<b>${cardCount}</b> card${cardCount === 1 ? '' : 's'} selected &middot; <b>${totalQty}</b> total qty &middot; est. <b>${money(totalPrice)}</b>`
-    : '<span class="muted">No cards selected yet — set a quantity on the ones you want to add.</span>';
-
-  const list = items.length
-    ? `<div class="set-import-list">${items
-        .map(
-          ({ row, edit, lineTotal }) => `<div class="set-import-item">
-            <span>${edit.qty}&times; ${esc(row.name)}${
-              row.number ? ` <span class="muted">#${esc(row.number)}</span>` : ''
-            } <span class="muted">(${esc(edit.variant)}, ${esc(edit.condition)})</span></span>
-            <b>${money(lineTotal)}</b>
-          </div>`
-        )
-        .join('')}</div>`
-    : '';
-
-  $('#setImportSummary').innerHTML = `<div>${summaryLine}</div>${list}`;
-
-  $('#setCommit').textContent = cardCount
-    ? `Add ${cardCount} Card${cardCount === 1 ? '' : 's'}`
-    : 'Add Selected Cards';
+async function acOpenSet(s) {
+  ac.set = s;
+  ac.setCards = [];
+  $('#acSearch').value = '';
+  $('#acSearch').placeholder = 'Filter this set by name or number';
+  $('#acSetTitle').innerHTML = `${s.symbol ? `<img src="${esc(s.symbol)}" alt="">` : ''}<b>${esc(s.name)}</b><span class="muted small">${esc(s.series || '')}</span>`;
+  acRenderResults();
+  try {
+    ac.setCards = await api(`/api/admin/sets/${encodeURIComponent(s.id)}/cards`);
+    if (ac.set === s) acRenderResults();
+  } catch (err) {
+    if (ac.set !== s) return;
+    $('#acResults').innerHTML = `<div class="notice error">${esc(err.message)} <button class="btn" type="button" id="acRetry" style="margin-left:8px;height:30px">Try Again</button></div>`;
+    $('#acRetry').onclick = () => acOpenSet(s);
+  }
 }
 
-async function commitSetImport() {
-  const button = $('#setCommit');
-  const errorBox = $('#setCardsError');
-  errorBox.classList.add('hidden');
+function acBackToSets() {
+  ac.set = null;
+  $('#acSearch').value = '';
+  $('#acSearch').placeholder = 'Search sets e.g. Base, Evolving Skies';
+  acRenderResults();
+}
 
-  const cards = [];
-  setRowsCache.forEach((row, i) => {
-    const edit = setEdits[i];
-    if (!Number.isInteger(edit.qty) || edit.qty <= 0) return;
-    cards.push({
-      name: row.name,
-      number: row.number,
-      image: row.image,
-      artist: row.artist,
-      qty: edit.qty,
-      variant: edit.variant,
-      condition: edit.condition,
-      price: edit.price,
-      status: edit.status,
+function acSetMode(mode) {
+  ac.mode = mode;
+  $$('#acMode button').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
+  $('#acSearch').value = '';
+  $('#acSearch').placeholder =
+    mode === 'pokemon' ? 'Search a Pokémon e.g. Charizard, Pikachu' : ac.set ? 'Filter this set by name or number' : 'Search sets e.g. Base, Evolving Skies';
+  ac.results = [];
+  acRenderResults();
+  $('#acSearch').focus();
+}
+
+function acScheduleSearch() {
+  clearTimeout(ac.searchTimer);
+  const q = ($('#acSearch').value || '').trim();
+  if (q.length < 2) {
+    ac.results = [];
+    ac.searching = false;
+    acRenderResults();
+    return;
+  }
+  ac.searching = true;
+  acRenderResults();
+  ac.searchTimer = setTimeout(async () => {
+    const token = ++ac.searchToken;
+    try {
+      const hits = await api(`/api/admin/cards/search?q=${encodeURIComponent(q)}`);
+      if (token !== ac.searchToken) return;
+      ac.results = hits;
+    } catch (err) {
+      if (token !== ac.searchToken) return;
+      ac.results = [];
+      toast(err.message, true);
+    }
+    ac.searching = false;
+    acRenderResults();
+  }, 350);
+}
+
+/** Adds one copy of a card (or bumps its qty if that exact print is already in the tray). */
+function acAdd(card, setName, setSymbol, variantIndex) {
+  const variants = card.variants && card.variants.length ? card.variants : [{ variant: 'Normal', marketPrice: null }];
+  const v = variants[variantIndex] || variants[0];
+  const key = acKey(setName, card.number, v.variant);
+  const existing = ac.tray.find((t) => t.key === key);
+  if (existing) existing.qty += 1;
+  else {
+    ac.tray.unshift({
+      key,
+      name: card.name,
+      setName,
+      setSymbol,
+      number: card.number,
+      image: card.image,
+      artist: card.artist || '',
+      variant: VARIANT_OPTIONS.includes(v.variant) ? v.variant : 'Normal',
+      marketPrice: v.marketPrice,
+      condition: $('#acDefaultCondition').value,
+      status: $('#acDefaultStatus').value,
+      qty: 1,
+      price: '',
     });
-  });
+  }
+  acRenderTray();
+  acRenderResults();
+}
 
-  if (!cards.length) {
-    errorBox.textContent = 'Set a quantity of at least 1 on the cards you want to add.';
+function acTrayItem(t, i) {
+  return `<div class="ac-item" data-ac-item="${i}">
+    <img src="${esc(t.image || LOGO)}" alt="" onerror="this.onerror=null;this.src='${LOGO}'">
+    <div class="ac-item-main">
+      <div class="ac-item-top">
+        <div><b>${esc(t.name)}</b><span class="small muted">${esc(t.setName)} · #${esc(t.number)}</span></div>
+        <button class="ac-remove" type="button" data-ac-remove="${i}" aria-label="Remove ${esc(t.name)}">&times;</button>
+      </div>
+      <div class="ac-item-fields">
+        <select data-ac-field="variant" aria-label="Variant">${VARIANT_OPTIONS.map((v) => `<option${v === t.variant ? ' selected' : ''}>${v}</option>`).join('')}</select>
+        <select data-ac-field="condition" aria-label="Condition">${['NM', 'LP', 'MP', 'HP'].map((c) => `<option${c === t.condition ? ' selected' : ''}>${c}</option>`).join('')}</select>
+        <input data-ac-field="qty" type="number" min="1" value="${t.qty}" aria-label="Quantity" title="Quantity">
+        <div class="ac-price"><span>$</span><input data-ac-field="price" type="number" min="0" step="0.01" value="${esc(t.price)}" placeholder="Price" aria-label="Price"></div>
+      </div>
+      ${t.marketPrice != null ? `<div class="ac-mkt small muted">Market US$${t.marketPrice.toFixed(2)}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+function acRenderTray() {
+  const n = ac.tray.reduce((sum, t) => sum + (t.qty || 0), 0);
+  $('#acCount').textContent = n;
+  $('#acTray').innerHTML = ac.tray.length
+    ? ac.tray.map(acTrayItem).join('')
+    : '<div class="ac-tray-empty">Click a card on the left to add it here.</div>';
+  const priced = ac.tray.every((t) => t.price !== '' && Number(t.price) >= 0);
+  const value = ac.tray.reduce((sum, t) => sum + (Number(t.price) || 0) * (t.qty || 0), 0);
+  $('#acTotal').textContent = ac.tray.length ? `${n} card${n === 1 ? '' : 's'} · ${money(value)} total` : '';
+  $('#acCommit').disabled = !ac.tray.length;
+  $('#acCommit').textContent = ac.tray.length ? `Add ${n} Card${n === 1 ? '' : 's'}` : 'Add Cards';
+  $('#acCommit').dataset.unpriced = priced ? '' : '1';
+}
+
+async function acCommit() {
+  const errorBox = $('#acError');
+  errorBox.classList.add('hidden');
+  const missing = ac.tray.filter((t) => t.price === '' || !(Number(t.price) >= 0));
+  if (missing.length) {
+    errorBox.textContent = `Set a price for ${missing.length === 1 ? `"${missing[0].name}"` : `${missing.length} cards`} first.`;
     errorBox.classList.remove('hidden');
     return;
   }
-
+  const button = $('#acCommit');
   button.disabled = true;
   button.textContent = 'Adding…';
   try {
-    const data = await api('/api/admin/products/bulk-set', {
+    const res = await api('/api/admin/products/bulk-cards', {
       method: 'POST',
       body: JSON.stringify({
-        setName: button.dataset.setName || '',
-        setSymbol: button.dataset.setSymbol || '',
-        cards,
+        cards: ac.tray.map((t) => ({
+          name: t.name,
+          setName: t.setName,
+          setSymbol: t.setSymbol,
+          number: t.number,
+          image: t.image,
+          artist: t.artist,
+          variant: t.variant,
+          condition: t.condition,
+          qty: t.qty,
+          price: Number(t.price),
+          status: t.status,
+        })),
       }),
     });
+    ac.tray = [];
+    acRenderTray();
     closeModals();
     await Promise.all([loadProducts(), loadStats()]);
-    toast(
-      `Added ${data.imported} card${data.imported === 1 ? '' : 's'}` +
-        (data.merged ? ` (${data.merged} merged into existing listing${data.merged === 1 ? '' : 's'})` : '')
-    );
+    toast(`Added ${res.imported} card${res.imported === 1 ? '' : 's'}${res.merged ? ` (${res.merged} merged into existing listings)` : ''}`);
   } catch (err) {
     errorBox.textContent = err.message;
     errorBox.classList.remove('hidden');
   } finally {
-    button.disabled = false;
-    updateSetImportSummary();
+    acRenderTray();
   }
 }
 
-$('#openSetImport').onclick = openSetImport;
-$('#setSearch').oninput = () => {
-  // Order matters: scheduleCardSearch() updates cardSearchPending for this keystroke,
-  // and renderSetPicker() needs that up to date or its sets-vs-cards decision lags by one.
-  scheduleCardSearch();
-  renderSetPicker();
-};
-$('#backToSetPicker').onclick = () => {
-  $('#setCardsView').classList.add('hidden');
-  $('#setPickerView').classList.remove('hidden');
-};
-$('#cardFilter').oninput = () => {
-  setPage = 1;
-  renderSetCardsPage();
-};
-$('#setCommit').onclick = commitSetImport;
+async function openAddCards() {
+  $('#acError').classList.add('hidden');
+  openModal('#addCardsModal');
+  acRenderTray();
+  acRenderResults();
+  $('#acSearch').focus();
+  if (!ac.sets) {
+    try {
+      ac.sets = await api('/api/admin/sets');
+      acRenderResults();
+    } catch (err) {
+      $('#acResults').innerHTML = `<div class="notice error">${esc(err.message)}</div>`;
+    }
+  }
+}
 
-// Source of truth lives in setEdits, not the DOM, so a row keeps its values even after
-// paging away from it. The summary recompute is debounced since it's cheap now (a plain
-// array scan) but still no reason to run it on every single keystroke.
-$('#setCardsBody').addEventListener('input', (e) => {
-  const field = e.target.dataset.field;
-  const row = e.target.closest('tr[data-row-index]');
-  if (!field || !row) return;
-  const i = Number(row.dataset.rowIndex);
+$('#openAddCards').onclick = openAddCards;
+$$('#acMode button').forEach((b) => (b.onclick = () => acSetMode(b.dataset.mode)));
+$('#acBack').onclick = acBackToSets;
+$('#acSearch').oninput = () => (ac.mode === 'pokemon' ? acScheduleSearch() : acRenderResults());
+$('#acClear').onclick = () => {
+  if (ac.tray.length && !confirm('Remove every card from the list?')) return;
+  ac.tray = [];
+  acRenderTray();
+  acRenderResults();
+};
+$('#acCommit').onclick = acCommit;
 
-  if (field === 'qty') setEdits[i].qty = Number.parseInt(e.target.value, 10);
-  else if (field === 'price') setEdits[i].price = e.target.value;
-  else if (field === 'condition') setEdits[i].condition = e.target.value;
-  else if (field === 'status') setEdits[i].status = e.target.value;
-  else if (field === 'variant') setEdits[i].variant = e.target.value;
-
-  clearTimeout(summaryDebounce);
-  summaryDebounce = setTimeout(updateSetImportSummary, 150);
+$('#acResults').addEventListener('click', (e) => {
+  const setBtn = e.target.closest('[data-ac-set]');
+  if (setBtn) return acOpenSet(ac.sets[Number(setBtn.dataset.acSet)]);
+  const add = e.target.closest('[data-ac-add]');
+  if (!add) return;
+  const i = Number(add.dataset.acAdd);
+  const vi = Number(add.dataset.acVariant);
+  if (ac.mode === 'set') acAdd(ac.setCards[i], ac.set.name, ac.set.symbol || '', vi);
+  else acAdd(ac.results[i], ac.results[i].setName, ac.results[i].setSymbol || '', vi);
 });
 
-$('#setDefaultCondition').onchange = (e) => {
-  (setEdits || []).forEach((edit) => (edit.condition = e.target.value));
-  renderSetCardsPage();
-};
-$('#setDefaultStatus').onchange = (e) => {
-  (setEdits || []).forEach((edit) => (edit.status = e.target.value));
-  renderSetCardsPage();
-};
+// Tray edits write straight into ac.tray; only qty changes need a re-render (counts).
+$('#acTray').addEventListener('input', (e) => {
+  const field = e.target.dataset.acField;
+  const item = e.target.closest('[data-ac-item]');
+  if (!field || !item) return;
+  const t = ac.tray[Number(item.dataset.acItem)];
+  if (field === 'qty') t.qty = Math.max(1, Number.parseInt(e.target.value, 10) || 1);
+  else t[field] = e.target.value;
+  const n = ac.tray.reduce((sum, x) => sum + (x.qty || 0), 0);
+  const value = ac.tray.reduce((sum, x) => sum + (Number(x.price) || 0) * (x.qty || 0), 0);
+  $('#acCount').textContent = n;
+  $('#acTotal').textContent = `${n} card${n === 1 ? '' : 's'} · ${money(value)} total`;
+  $('#acCommit').textContent = `Add ${n} Card${n === 1 ? '' : 's'}`;
+});
+$('#acTray').addEventListener('change', (e) => {
+  if (e.target.dataset.acField === 'qty') acRenderResults();
+});
+$('#acTray').addEventListener('click', (e) => {
+  const rm = e.target.closest('[data-ac-remove]');
+  if (!rm) return;
+  ac.tray.splice(Number(rm.dataset.acRemove), 1);
+  acRenderTray();
+  acRenderResults();
+});
 
 /* ------------------------------------------------------- Pokémon TCG API --- */
 
