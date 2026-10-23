@@ -887,6 +887,8 @@ function toAdminOrder(row, items) {
     notifyState: row.notify_state,
     notifyError: row.notify_error,
     createdAt: row.created_at,
+    source: row.source || 'store',
+    claimSale: row.claim_sale || '',
     items: (items || []).map((i) => ({
       id: i.product_id,
       name: i.name,
@@ -913,7 +915,10 @@ const ORDER_EXPORT_HEADERS = [
 
 router.get('/orders/export.csv', (req, res) => {
   const rows = [];
+  // ?source=store or ?source=claim narrows the export to one kind of order.
+  const source = ['store', 'claim'].includes(req.query.source) ? req.query.source : '';
   for (const o of orders.listAllOrders()) {
+    if (source && (o.source || 'store') !== source) continue;
     const base = {
       order_id: o.id,
       date: o.created_at,

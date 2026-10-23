@@ -135,7 +135,7 @@ function renderRecentOrders() {
         .map(
           (o) => `<tr>
             <td>${esc(o.id)}</td>
-            <td>${esc(o.buyer)}</td>
+            <td>${esc(o.buyer)}${o.source === 'claim' ? ' <span class="tag">Claim Sale</span>' : ''}</td>
             <td>${money(o.total)}</td>
             <td><span class="status order-${slug(o.status)}">${esc(o.status)}</span></td>
           </tr>`
@@ -1236,6 +1236,28 @@ $('#apiSearch').onclick = async () => {
 
 /* ---------------------------------------------------------------- orders --- */
 
+// Online shop orders only; claim sale orders (source 'claim') live on Claim Sales.
+let orderFilter = 'open';
+const shopOrders = () => orderCache.filter((o) => o.source !== 'claim');
+const orderDone = (o) => o.status === 'mailed' || o.status === 'completed';
+const ORDER_FILTERS = [
+  ['open', 'Open', (o) => o.status !== 'cancelled' && !orderDone(o)],
+  ['pay', 'Awaiting Payment', (o) => o.status === 'awaiting payment'],
+  ['pack', 'To Pack', (o) => o.status === 'paid'],
+  ['ship', 'To Ship', (o) => o.status === 'packed'],
+  ['done', 'Archive', orderDone],
+  ['cancelled', 'Cancelled', (o) => o.status === 'cancelled'],
+  ['all', 'All', () => true],
+  // Not a tab: the Pickups Ready tile.
+  ['pickup', 'Pickups', (o) => o.delivery === 'Self-Pickup' && ['paid', 'packed'].includes(o.status), true],
+];
+const ORDER_SORTS = {
+  newest: (a, b) => String(b.createdAt).localeCompare(String(a.createdAt)),
+  oldest: (a, b) => String(a.createdAt).localeCompare(String(b.createdAt)),
+  total: (a, b) => b.total - a.total,
+};
+const orderTest = (key) => (ORDER_FILTERS.find((f) => f[0] === key) || ORDER_FILTERS[0])[2];
+
 async function loadOrders() {
   try {
     orderCache = await api('/api/admin/orders');
@@ -1246,20 +1268,13 @@ async function loadOrders() {
   }
 }
 
-function filteredOrders() {
-  const status = $('#orderStatusFilter').value;
+/** Everything except the status tab: search and date range. */
+function searchedOrders() {
   const q = ($('#orderSearch').value || '').trim().toLowerCase();
   const from = $('#orderFrom').value;
   const to = $('#orderTo').value;
-
-  return orderCache.filter((o) => {
-    if (status && o.status !== status) return false;
-    if (
-      q &&
-      !`${o.id} ${o.buyer} ${o.telegram} ${o.email}`.toLowerCase().includes(q)
-    ) {
-      return false;
-    }
+  return shopOrders().filter((o) => {
+    if (q && !`${o.id} ${o.buyer} ${o.telegram} ${o.email} ${o.items.map((i) => i.name).join(' ')}`.toLowerCase().includes(q)) return false;
     const day = (o.createdAt || '').slice(0, 10);
     if (from && day < from) return false;
     if (to && day > to) return false;
@@ -1267,47 +1282,129 @@ function filteredOrders() {
   });
 }
 
-function renderOrders() {
-  const list = filteredOrders();
+function placedLabel(createdAt) {
+  const d = new Date(String(createdAt || '').replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return createdAt || '';
+  return d.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+}
 
+function orderRow(o) {
+  const paid = ['paid', 'packed', 'mailed', 'completed'].includes(o.status);
+  const packed = ['packed', 'mailed', 'completed'].includes(o.status);
+  const shipped = orderDone(o);
+  const cancelled = o.status === 'cancelled';
+  const pickup = o.delivery === 'Self-Pickup';
+  const user = String(o.telegram || '').replace(/^@/, '');
+  const alertBad = o.notifyState === 'failed' || o.notifyState === 'pending';
+  const tick = (field, on, label, disabled) =>
+    `<td class="c"><input type="checkbox" class="tick" data-otick="${field}"${on ? ' checked' : ''}${disabled ? ' disabled' : ''} aria-label="${label}"></td>`;
+  const thumbs = o.items
+    .slice(0, 3)
+    .map((i) => `<img src="${esc(i.image || LOGO)}" alt="" onerror="this.onerror=null;this.src='${LOGO}'">`)
+    .join('');
+  return `<tr class="trk-row${cancelled ? ' cancelled' : ''}" data-shop-order="${esc(o.id)}">
+    <td><b class="trk-sale">${esc(o.id)}</b><div class="small muted">${esc(placedLabel(o.createdAt))}</div>
+      ${cancelled ? '<span class="status order-cancelled">Cancelled</span>' : ''}</td>
+    <td>
+      <div class="trk-buyer">
+        <span class="bill-avatar">${esc((o.buyer || '?').charAt(0))}</span>
+        <div><b>${esc(o.buyer)}</b><span class="small muted">${
+          user ? `<a href="https://t.me/${esc(encodeURIComponent(user))}" target="_blank" rel="noopener">@${esc(user)}</a>` : esc(o.email || 'No contact')
+        }</span></div>
+      </div>
+    </td>
+    <td><div class="ord-items"><span class="ord-thumbs">${thumbs}</span><span class="small">${esc(o.items.map((i) => i.name).join(', '))}</span></div>
+      <div class="small muted">${o.items.length} card${o.items.length === 1 ? '' : 's'}${o.promoCode ? ` · code ${esc(o.promoCode)}` : ''}</div></td>
+    <td class="r"><b>${money(o.total)}</b>${o.fee ? `<div class="small muted">incl. ${money(o.fee)} mailing</div>` : ''}</td>
+    <td><span class="ord-delivery">${pickup ? 'Pickup' : 'Mail'}</span>${
+      alertBad ? `<div class="small" style="color:var(--red-ink)">Telegram alert ${esc(o.notifyState)}</div>` : ''
+    }</td>
+    ${tick('paid', paid, 'Paid', cancelled || packed)}
+    ${tick('packed', packed, 'Packed', cancelled || !paid || shipped)}
+    ${tick('shipped', shipped, pickup ? 'Collected' : 'Shipped', cancelled || !packed)}
+    <td class="r"><div class="row-actions" style="justify-content:flex-end">
+      ${alertBad ? `<button data-resend="${esc(o.id)}" title="Send the Telegram alert again">Resend</button>` : ''}
+      <button data-view-order="${esc(o.id)}">View</button>
+    </div></td>
+  </tr>`;
+}
+
+function renderOrders() {
+  const pool = searchedOrders();
+  const all = shopOrders().filter((o) => o.status !== 'cancelled');
+  const owing = all.filter(orderTest('pay'));
+  const pickupsReady = all.filter((o) => o.delivery === 'Self-Pickup' && ['paid', 'packed'].includes(o.status));
+  const stat = (key, label, value, note) =>
+    `<button class="stat stat-btn${orderFilter === key ? ' on' : ''}" type="button" data-ofilter="${key}"><span>${label}</span><strong>${value}</strong>${note ? `<em>${note}</em>` : ''}</button>`;
+  $('#orderStats').innerHTML = [
+    stat('pay', 'Awaiting Payment', money(owing.reduce((s, o) => s + o.total, 0)), `${owing.length} order${owing.length === 1 ? '' : 's'}`),
+    stat('pack', 'To Pack', all.filter(orderTest('pack')).length, 'paid orders'),
+    stat('ship', 'To Ship', all.filter(orderTest('ship')).length, 'packed orders'),
+    stat('pickup', 'Pickups Ready', pickupsReady.length, 'paid self-pickups'),
+    stat('done', 'Shipped', all.filter(orderDone).length, 'all time'),
+  ].join('');
+
+  $('#orderFilter').innerHTML = ORDER_FILTERS.filter((f) => !f[3]).map(
+    ([key, label, test]) =>
+      `<button type="button" data-ofilter="${key}" class="${orderFilter === key ? 'active' : ''}">${label} <span>${pool.filter(test).length}</span></button>`
+  ).join('');
+
+  const list = pool.filter(orderTest(orderFilter)).sort(ORDER_SORTS[$('#orderSort').value] || ORDER_SORTS.newest);
   const totalPages = Math.max(1, Math.ceil(list.length / ORDERS_PAGE_SIZE));
   if (ordersPage > totalPages) ordersPage = totalPages;
   const pageItems = list.slice((ordersPage - 1) * ORDERS_PAGE_SIZE, ordersPage * ORDERS_PAGE_SIZE);
 
   $('#ordersBody').innerHTML = pageItems.length
-    ? pageItems
-        .map(
-          (o) => `<tr>
-      <td>${esc(o.id)}<div class="small muted">${esc((o.createdAt || '').replace('T', ' '))}</div></td>
-      <td>${esc(o.buyer)}<div class="small muted">${esc(o.telegram || o.email || '')}</div></td>
-      <td>${o.items.length}</td>
-      <td>${money(o.total)}</td>
-      <td>${esc(o.delivery)}</td>
-      <td><span class="status order-${slug(o.status)}">${esc(o.status)}</span></td>
-      <td><span class="status notify-${slug(o.notifyState)}">${esc(o.notifyState)}</span></td>
-      <td><div class="row-actions">
-        <button data-order="${esc(o.id)}">View</button>
-        <button data-advance="${esc(o.id)}">Advance</button>
-        <button data-resend="${esc(o.id)}">Resend</button>
-        <button data-delete-order="${esc(o.id)}" ${isDeletableOrder(o) ? '' : 'disabled'}>Delete</button>
-      </div></td>
-    </tr>`
-        )
-        .join('')
-    : `<tr><td colspan="8" class="muted">${
-        orderCache.length ? 'No orders match these filters.' : 'No orders yet.'
-      }</td></tr>`;
-
-  $$('[data-order]').forEach((b) => (b.onclick = () => openOrder(b.dataset.order)));
-  $$('[data-advance]').forEach((b) => (b.onclick = () => advanceOrder(b.dataset.advance)));
-  $$('[data-resend]').forEach((b) => (b.onclick = () => resendNotification(b.dataset.resend)));
-  $$('[data-delete-order]').forEach((b) => (b.onclick = () => removeOrder(b.dataset.deleteOrder)));
+    ? pageItems.map(orderRow).join('')
+    : `<tr><td colspan="9"><div class="empty">${
+        shopOrders().length
+          ? orderFilter === 'done'
+            ? 'Shipped and collected orders are archived here.'
+            : 'Nothing here. Try another tab, or look in Archive.'
+          : 'No online shop orders yet.'
+      }</div></td></tr>`;
 
   renderPager($('#ordersPagination'), ordersPage, totalPages, (page) => {
     ordersPage = page;
     renderOrders();
   });
 }
+
+$('#orderStats').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ofilter]');
+  if (!b) return;
+  orderFilter = orderFilter === b.dataset.ofilter ? 'open' : b.dataset.ofilter;
+  ordersPage = 1;
+  renderOrders();
+});
+$('#orderFilter').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ofilter]');
+  if (!b) return;
+  orderFilter = b.dataset.ofilter;
+  ordersPage = 1;
+  renderOrders();
+});
+$('#ordersBody').addEventListener('click', (e) => {
+  const view = e.target.closest('[data-view-order]');
+  if (view) return openOrder(view.dataset.viewOrder);
+  const resend = e.target.closest('[data-resend]');
+  if (resend) return resendNotification(resend.dataset.resend);
+});
+$('#ordersBody').addEventListener('change', (e) => {
+  const tick = e.target.dataset.otick;
+  const row = e.target.closest('[data-shop-order]');
+  if (!tick || !row) return;
+  const on = e.target.checked;
+  const status = { paid: on ? 'paid' : 'awaiting payment', packed: on ? 'packed' : 'paid', shipped: on ? 'mailed' : 'packed' }[tick];
+  advanceOrder(row.dataset.shopOrder, status, { quiet: true });
+});
+$$('[data-goto]').forEach((a) => {
+  a.onclick = (e) => {
+    e.preventDefault();
+    const btn = $(`[data-admin-tab="${a.dataset.goto}"]`);
+    if (btn) btn.click();
+  };
+});
 
 /** Only cancelled/completed orders are safe to delete — stock is already settled either way. */
 function isDeletableOrder(o) {
@@ -1328,17 +1425,20 @@ async function removeOrder(id) {
   }
 }
 
-async function advanceOrder(id, explicitStatus) {
+async function advanceOrder(id, explicitStatus, { quiet = false } = {}) {
   try {
     await api(`/api/admin/orders/${encodeURIComponent(id)}/status`, {
       method: 'POST',
       body: JSON.stringify(explicitStatus ? { status: explicitStatus } : {}),
     });
     await Promise.all([loadOrders(), loadProducts(), loadStats()]);
-    closeModals();
-    toast('Order updated');
+    if (!quiet) {
+      closeModals();
+      toast('Order updated');
+    }
   } catch (err) {
     toast(err.message, true);
+    renderOrders();
   }
 }
 
@@ -2223,7 +2323,7 @@ const resetOrdersPage = () => {
   ordersPage = 1;
   renderOrders();
 };
-$('#orderStatusFilter').onchange = resetOrdersPage;
+$('#orderSort').onchange = resetOrdersPage;
 $('#orderSearch').oninput = resetOrdersPage;
 $('#orderFrom').onchange = resetOrdersPage;
 $('#orderTo').onchange = resetOrdersPage;

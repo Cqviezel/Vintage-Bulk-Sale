@@ -114,33 +114,35 @@
 
     <section class="admin-tab" id="orders">
       <div class="admin-top">
-        <div><h1>Orders</h1><p>Move each order from payment through to delivery.</p></div>
+        <div><h1>Orders</h1><p>Online shop orders, from payment through to delivery. Claim sale orders are on <a href="#" data-goto="claimLeftovers">Claim Sales</a>.</p></div>
         <div class="actions">
           <button class="btn" id="refreshOrders">Refresh</button>
-          <a class="btn" href="/api/admin/orders/export.csv">Export CSV</a>
+          <a class="btn" href="/api/admin/orders/export.csv?source=store">Export CSV</a>
         </div>
       </div>
+
+      <div class="tracker-stats" id="orderStats"></div>
+
       <div class="panel">
-        <div class="panel-head">
-          <div><h2>All Orders</h2><div class="small muted">Filter by status, buyer or date.</div></div>
+        <div class="panel-head tracker-head">
+          <div class="scope-toggle tracker-filter" id="orderFilter" role="tablist" aria-label="Show"></div>
           <div class="panel-controls">
-            <select id="orderStatusFilter">
-              <option value="">All statuses</option>
-              <option value="awaiting payment">Awaiting payment</option>
-              <option value="paid">Paid</option>
-              <option value="packed">Packed</option>
-              <option value="mailed">Mailed</option>
-              <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
+            <select id="orderSort" aria-label="Sort by">
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="total">Highest total</option>
             </select>
-            <input id="orderSearch" placeholder="Order, buyer, telegram, email">
-            <input id="orderFrom" type="date" title="From date" style="max-width:150px">
-            <input id="orderTo" type="date" title="To date" style="max-width:150px">
+            <input id="orderFrom" type="date" title="Placed from" aria-label="Placed from">
+            <input id="orderTo" type="date" title="Placed to" aria-label="Placed to">
+            <input id="orderSearch" type="search" placeholder="Order, buyer, Telegram or email" aria-label="Search orders">
           </div>
         </div>
         <div class="table-wrap">
-          <table>
-            <thead><tr><th>Order</th><th>Buyer</th><th>Items</th><th>Total</th><th>Delivery</th><th>Status</th><th>Telegram</th><th>Actions</th></tr></thead>
+          <table class="tracker">
+            <thead><tr>
+              <th>Order</th><th>Buyer</th><th>Items</th><th class="r">Total</th><th>Delivery</th>
+              <th class="c">Paid</th><th class="c">Packed</th><th class="c">Shipped</th><th></th>
+            </tr></thead>
             <tbody id="ordersBody"></tbody>
           </table>
         </div>
