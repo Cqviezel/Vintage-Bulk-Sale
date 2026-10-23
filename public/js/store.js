@@ -246,6 +246,10 @@ async function load() {
     renderHero();
     renderLeftoversPromo();
     wireTelegramLinks();
+    if (STORE_MODE === 'main' && location.hash === '#latest') {
+      history.replaceState(null, '', location.pathname + location.search);
+      goToLatestDrop({ preventDefault() {} });
+    }
   } catch (err) {
     $('#productGrid').innerHTML =
       `<div class="empty">Could not load the catalogue.<br><span class="small">${esc(err.message)}</span></div>`;
@@ -1350,6 +1354,7 @@ function resetFilters() {
 }
 
 function goToAllCards(e) {
+  if (STORE_MODE === 'leftovers') return; // plain link to the main store
   e.preventDefault();
   resetFilters();
   currentPage = 1;
@@ -1358,6 +1363,7 @@ function goToAllCards(e) {
 }
 
 function goToLatestDrop(e) {
+  if (STORE_MODE === 'leftovers') return; // plain link to /#latest
   e.preventDefault();
   resetFilters();
   $('#storePrice').value = 'new';
@@ -1538,16 +1544,18 @@ function claimSaleLabel(date) {
 function applyStoreMode() {
   const leftovers = STORE_MODE === 'leftovers';
   $$('[data-store-link]').forEach((a) => a.classList.toggle('current', a.dataset.storeLink === STORE_MODE));
-  $$('.nav-main').forEach((a) => a.classList.toggle('hidden', !leftovers));
   if (!leftovers) return;
+
+  $$('[data-nav="all-cards"], #mobileAllCards').forEach((a) => (a.href = '/'));
+  $$('#latestDrop, #mobileLatestDrop, [data-latest]').forEach((a) => (a.href = '/#latest'));
 
   document.body.classList.add('store-leftovers');
   $('.hero h1').innerHTML = 'Claim Sale Leftovers<br><em>Last Chance Cards</em>';
   $('.hero p').innerHTML = 'Cards nobody claimed in our Telegram claim sales.<br>Each is a single copy at its claim sale price.';
   $('#heroLatest').closest('.hero-links').innerHTML =
-    '<a href="/">Back To Main Store</a><span aria-hidden="true">&middot;</span><a href="#" id="joinTelegram">Join The Claim Channel</a>';
-  $('#catalogue .section-head h2').textContent = 'Leftover Cards';
-  $('#catalogue .section-head p').textContent = 'Condition isn\'t graded for leftovers. Open a card to see its Telegram post and photos.';
+    '<a href="/">Browse All Cards</a><span aria-hidden="true">&middot;</span><a href="#" id="joinTelegram">Join The Claim Channel</a>';
+  $('#catalogue .section-head h2').textContent = 'Leftover Claim Sale Cards';
+  $('#catalogue .section-head p').textContent = 'Each card links to its Telegram post, where you can check its condition.';
   $('#leftoversPromo').classList.add('hidden');
   $('.features').classList.add('hidden');
   $('#newSection').classList.add('hidden');

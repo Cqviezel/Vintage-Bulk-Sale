@@ -440,15 +440,23 @@ input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0
 .lp-cta{flex-shrink:0;font-size:14px;font-weight:700;color:var(--gold-ink);white-space:nowrap}
 
 /* leftovers page: warm amber banner instead of the shop's green */
-body.store-leftovers .hero{background:
-  radial-gradient(600px 320px at 100% 0%,rgba(255,226,160,.35),transparent 60%),
-  radial-gradient(500px 340px at 0% 120%,rgba(255,255,255,.08),transparent 60%),
-  linear-gradient(150deg,#5a3f12,#7a5719 55%,#8c6a24)}
-body.store-leftovers .hero h1 em{color:#ffe3a3}
-body.store-leftovers .hero p,body.store-leftovers .hero-links{color:#f1e2c0}
-body.store-leftovers .hero-chip::before{background:#ffd36b;box-shadow:0 0 0 4px rgba(255,211,107,.25)}
-body.store-leftovers .hero-search button{background:#7a5719}
-body.store-leftovers .hero-search button:hover{background:#5a3f12}
+body.store-leftovers .hero{color:var(--text);border:1px solid var(--gold-border);background:
+  radial-gradient(600px 300px at 100% 0%,rgba(226,196,127,.35),transparent 65%),
+  radial-gradient(500px 300px at 0% 100%,rgba(226,196,127,.18),transparent 65%),
+  linear-gradient(180deg,#fdf9ef,#f8efd9)}
+body.store-leftovers .hero::after{background-image:linear-gradient(rgba(122,92,28,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(122,92,28,.06) 1px,transparent 1px)}
+body.store-leftovers .hero h1{color:var(--text)}
+body.store-leftovers .hero h1 em{color:var(--gold)}
+body.store-leftovers .hero p{color:var(--text-2)}
+body.store-leftovers .hero-chip{background:#fff;border-color:var(--gold-border);color:var(--gold-ink)}
+body.store-leftovers .hero-chip::before{background:var(--gold);box-shadow:0 0 0 4px rgba(184,145,63,.18)}
+body.store-leftovers .hero-search{border:1px solid var(--gold-border);box-shadow:0 14px 34px -18px rgba(122,92,28,.45)}
+body.store-leftovers .hero-search:focus-within{box-shadow:0 14px 34px -18px rgba(122,92,28,.45),0 0 0 3px rgba(184,145,63,.3)}
+body.store-leftovers .hero-search button{background:var(--brand)}
+body.store-leftovers .hero-search button:hover{background:var(--brand-hover)}
+body.store-leftovers .hero-links{color:var(--text-3)}
+body.store-leftovers .hero-links a{color:var(--gold-ink)}
+body.store-leftovers .hero-links a:hover{color:#3f3213}
 body.store-leftovers .catalogue{margin-top:32px}
 .qv-details dd a{color:var(--brand-ink);text-decoration:underline;text-underline-offset:3px}
 
