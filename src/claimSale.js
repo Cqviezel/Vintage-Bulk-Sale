@@ -211,6 +211,7 @@ function decideOutcome(comments, listedPrice) {
 
 /* --------------------------------------------------------- card matching --- */
 
+
 const normSet = (s) => String(s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
 const normNum = (n) => String(n || '').toLowerCase().replace(/^0+(?=\d)/, '');
 
@@ -405,6 +406,7 @@ async function savePostPhoto({ client, channel }, postId) {
 /** Puts one unclaimed card on /leftovers. Returns the new product id. */
 async function listLeftover(conn, post, condition) {
   const card = await matchCard(post.parsed);
+  // WOTC pictures may show a 1st Edition stamp; the store labels those cards Unlimited.
   const image = card.image || (await savePostPhoto(conn, post.photoPostId));
   const id = 'p' + crypto.randomBytes(8).toString('hex');
   insertLeftover.run({

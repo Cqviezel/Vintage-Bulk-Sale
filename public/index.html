@@ -124,13 +124,6 @@
     <span class="lp-cta">Browse Leftovers &rarr;</span>
   </a>
 
-  <section class="rail-section hidden" id="setsSection">
-    <div class="rail-head">
-      <h2>Shop By Set</h2>
-      <a href="#catalogue" data-nav="all-cards">All Cards &rarr;</a>
-    </div>
-    <div class="set-rail" id="setRail"></div>
-  </section>
 
   <section class="rail-section hidden" id="newSection">
     <div class="rail-head">
@@ -162,6 +155,7 @@
         <option value="">All conditions</option>
         <option>NM</option><option>LP</option><option>MP</option><option>HP</option>
       </select>
+      <select id="storeSale" tabindex="-1"><option value="">All sales</option></select>
       <select id="storePriceRange" tabindex="-1">
         <option value="">Any price</option>
         <option value="u5">Under $5</option><option value="5-20">$5 to $20</option>
@@ -180,11 +174,15 @@
           <button class="close" id="facetsClose" aria-label="Close filters">&times;</button>
         </div>
         <div class="facets-body">
+          <section class="facet hidden" id="facetSaleWrap">
+            <h4>Claim Sale</h4>
+            <div class="facet-list" id="facetSale"></div>
+          </section>
           <section class="facet">
             <h4>Price</h4>
             <div class="chip-group" id="facetPrice"></div>
           </section>
-          <section class="facet">
+          <section class="facet" id="facetConditionWrap">
             <h4>Condition</h4>
             <div class="chip-group" id="facetCondition"></div>
           </section>

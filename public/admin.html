@@ -203,7 +203,7 @@
           <div class="notice">
             <b>This runs by itself.</b> Every few hours the site reads your Claim Sale Channel. Once a card post is a day old,
             it counts as <b>claimed</b> if a buyer commented "claim", you replied "ok" to an offer, or the buyer accepted your counter.
-            Anything else, including offers nobody agreed to, is listed on <b>/leftovers</b> in the condition set in Settings.
+            Anything else, including offers nobody agreed to, is listed on <b>/leftovers</b>, where buyers are pointed to the Telegram post for its condition.
             If someone claims a listed card late on Telegram, it's taken off the site and you get a Telegram message.
           </div>
           <div class="form-grid" style="align-items:end;margin-top:16px">
@@ -274,7 +274,6 @@
         <div><label for="settingTelegram">Public Telegram Channel</label><input id="settingTelegram" placeholder="@crazedtcg"></div>
         <div><label for="settingClaimTelegram">Claim Sale Channel</label><input id="settingClaimTelegram" placeholder="@crazedsale"></div>
         <div><label for="settingAutoLeftovers">Claim Sale Leftovers</label><select id="settingAutoLeftovers"><option value="on">List unclaimed cards automatically</option><option value="off">Off</option></select></div>
-        <div><label for="settingLeftoverCondition">Leftover Card Condition</label><select id="settingLeftoverCondition"><option>NM</option><option>LP</option><option>MP</option><option>HP</option></select></div>
         <div><label for="settingMailing">Tracked Mailing Fee</label><input id="settingMailing" type="number" step="0.01" min="0"></div>
         <div><label for="settingMinimum">Minimum Card Subtotal</label><input id="settingMinimum" type="number" step="0.01" min="0"></div>
         <div><label for="settingReservation">Reservation Minutes</label><input id="settingReservation" type="number" min="0"></div>

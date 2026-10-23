@@ -116,6 +116,15 @@ const SET_ERAS = [
   },
 ];
 
+// Wizards of the Coast era sets. Their reference pictures are often 1st Edition scans,
+// so any copy not listed as 1st Edition is labelled Unlimited for buyers.
+const WOTC_SETS = new Set([
+  ...SET_ERAS.slice(0, 5).flatMap((era) => era.sets),
+  'Southern Islands',
+  'Wizards Black Star Promos',
+]);
+const isUnlimitedWotc = (p) => WOTC_SETS.has(p.set) && p.variant !== '1st Edition';
+
 const SET_ERA_LOOKUP = new Map();
 SET_ERAS.forEach((era) => era.sets.forEach((name, i) => SET_ERA_LOOKUP.set(name, { era, order: i })));
 
@@ -253,7 +262,7 @@ async function load() {
 
 /* ------------------------------------------------------------ rendering --- */
 
-/** Live stock count in the hero, plus the "Shop by set" and "Just added" rails. */
+/** Live stock count in the hero, plus the "Just added" rail (main shop only). */
 function renderHero() {
   const count = catalog.reduce((n, p) => n + (Number(p.qty) || 0), 0);
   const chip = $('#heroStock');
@@ -264,33 +273,12 @@ function renderHero() {
     chip.hidden = false;
   }
 
-  // Busiest sets first, so the rail leads with where most of the stock is.
-  const setCounts = countBy('set');
-  const topSets = [...setCounts].filter(([set]) => set).sort((a, b) => b[1] - a[1]).slice(0, 12);
-  $('#setsSection').classList.toggle('hidden', topSets.length < 2);
-  $('#setRail').innerHTML = topSets
-    .map(([set, n]) => {
-      const symbol = setSymbolByName.get(set);
-      return `<button type="button" class="set-tile" data-rail-set="${esc(set)}">
-        <span class="set-tile-ico">${symbol ? `<img src="${esc(symbol)}" alt="" loading="lazy">` : esc(set.charAt(0))}</span>
-        <span class="set-tile-name">${esc(set)}</span>
-        <span class="set-tile-n">${n} card${n === 1 ? '' : 's'}</span>
-      </button>`;
-    })
-    .join('');
-  $$('#setRail [data-rail-set]').forEach((b) => {
-    b.onclick = () => {
-      resetFilters();
-      setFilter('storeSet', b.dataset.railSet);
-      $('#catalogue').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    };
-  });
 
   const fresh = catalog
     .filter((p) => p.image)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 12);
-  $('#newSection').classList.toggle('hidden', fresh.length < 4);
+  $('#newSection').classList.toggle('hidden', fresh.length < 4 || STORE_MODE === 'leftovers');
   $('#newRail').innerHTML = fresh
     .map(
       (p) => `<button type="button" class="new-card" data-rail-view="${esc(p.id)}">
@@ -478,6 +466,7 @@ function renderProducts() {
   const condition = $('#storeCondition').value;
   const variant = $('#storeVariant').value;
   const priceRange = $('#storePriceRange').value;
+  const sale = $('#storeSale').value;
 
   const list = catalog.filter(
     (p) =>
@@ -485,7 +474,8 @@ function renderProducts() {
       (!set || p.set === set) &&
       (!condition || p.condition === condition) &&
       (!variant || p.variant === variant) &&
-      inPriceRange(Number(p.price), priceRange)
+      inPriceRange(Number(p.price), priceRange) &&
+      (!sale || p.claimSale === sale)
   );
 
   if (sort === 'asc') list.sort((a, b) => a.price - b.price);
@@ -513,10 +503,11 @@ function renderProducts() {
           <div class="meta">${p.setSymbol ? `<img class="set-icon" src="${esc(p.setSymbol)}" alt="" loading="lazy">` : ''}${esc(p.set)}${p.number ? ' &middot; ' + esc(p.number) : ''}</div>
           <h3>${esc(p.name)}</h3>
           <div class="tags">
-            <span class="tag">${esc(p.condition)}</span>
-          ${p.channel === 'claim' && p.claimSale ? `<span class="tag claim-tag">${esc(claimSaleLabel(p.claimSale))}</span>` : ''}
-            ${p.channel === 'claim' && p.claimSale ? `<span class="tag claim-tag">${esc(claimSaleLabel(p.claimSale))}</span>` : ''}
+            ${p.channel === 'claim'
+              ? `<span class="tag claim-tag">${esc(claimSaleLabel(p.claimSale))}</span>`
+              : `<span class="tag">${esc(p.condition)}</span>`}
             ${p.variant && p.variant !== 'Normal' ? `<span class="tag variant">${esc(p.variant)}</span>` : ''}
+            ${isUnlimitedWotc(p) ? '<span class="tag unlimited-tag">Unlimited</span>' : ''}
             ${p.qty > 1 ? `<span class="stock-note">${p.qty} in stock</span>` : ''}
           </div>
           <div class="product-buy">
@@ -623,6 +614,21 @@ function renderFacets() {
       aria-pressed="${on}"${n || on ? '' : ' hidden'}>${esc(r.label)}<span>${n}</span></button>`;
   }).join('');
   $('#facetCondition').innerHTML = chipGroup('storeCondition', countBy('condition'));
+
+  // Leftovers page: filter by which claim sale, newest first; no condition filter.
+  if (STORE_MODE === 'leftovers') {
+    const currentSale = $('#storeSale').value;
+    const saleCounts = countBy('claimSale');
+    const sales = [...saleCounts.keys()].filter(Boolean).sort().reverse();
+    $('#storeSale').innerHTML = '<option value="">All sales</option>' + sales.map((d) => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+    $('#storeSale').value = currentSale;
+    const saleRow = (value, label, n) => `<button type="button" class="facet-row${currentSale === value ? ' on' : ''}" data-facet="storeSale" data-value="${esc(value)}">
+      <span class="fr-name">${esc(label)}</span><span class="fr-n">${n}</span></button>`;
+    $('#facetSale').innerHTML =
+      saleRow('', 'All sales', catalog.length) + sales.map((d) => saleRow(d, claimSaleLabel(d), saleCounts.get(d))).join('');
+    $('#facetSaleWrap').classList.remove('hidden');
+    $('#facetConditionWrap').classList.add('hidden');
+  }
   $('#facetVariant').innerHTML = chipGroup('storeVariant', countBy('variant'));
 
   const setCounts = countBy('set');
@@ -647,7 +653,7 @@ function renderFacets() {
     b.onclick = () => {
       const { facet, value } = b.dataset;
       // Tapping the active chip again turns it off; set rows always select.
-      setFilter(facet, facet !== 'storeSet' && $('#' + facet).value === value ? '' : value);
+      setFilter(facet, facet !== 'storeSet' && facet !== 'storeSale' && $('#' + facet).value === value ? '' : value);
     };
   });
   const more = $('#facetMore');
@@ -665,6 +671,7 @@ function renderFacets() {
     ['storeCondition', $('#storeCondition').value],
     ['storeVariant', $('#storeVariant').value],
     ['storePriceRange', (PRICE_RANGES.find((r) => r.value === currentRange) || {}).label],
+    ['storeSale', $('#storeSale').value && claimSaleLabel($('#storeSale').value)],
   ].filter(([, label]) => label);
   const bar = $('#activeFilters');
   bar.hidden = !active.length;
@@ -750,17 +757,24 @@ function openQuickView(id) {
         <div class="meta">${p.setSymbol ? `<img class="set-icon" src="${esc(p.setSymbol)}" alt="" loading="lazy">` : ''}${esc(p.set)}${p.number ? ' &middot; ' + esc(p.number) : ''}</div>
         <div class="qv-price">${money(p.price)}</div>
         <div class="tags">
-          <span class="tag">${esc(p.condition)}</span>
+          ${p.channel === 'claim'
+            ? `<span class="tag claim-tag">${esc(claimSaleLabel(p.claimSale))}</span>`
+            : `<span class="tag">${esc(p.condition)}</span>`}
           ${p.variant && p.variant !== 'Normal' ? `<span class="tag variant">${esc(p.variant)}</span>` : ''}
+          ${isUnlimitedWotc(p) ? '<span class="tag unlimited-tag">Unlimited</span>' : ''}
           <span class="tag stock">${p.qty} available</span>
         </div>
         <dl class="qv-details">
           <div><dt>Set</dt><dd>${esc(p.set || '—')}</dd></div>
           ${p.number ? `<div><dt>Number</dt><dd>${esc(p.number)}</dd></div>` : ''}
-          <div><dt>Condition</dt><dd>${esc(CONDITION_NAMES[p.condition] || p.condition)}</dd></div>
+          ${p.channel === 'claim'
+            ? `<div><dt>Condition</dt><dd>${p.claimLink ? `<a href="${esc(p.claimLink)}" target="_blank" rel="noopener">Refer to Telegram post &nearr;</a>` : 'Refer to Telegram post'}</dd></div>`
+            : `<div><dt>Condition</dt><dd>${esc(CONDITION_NAMES[p.condition] || p.condition)}</dd></div>`}
           ${p.variant ? `<div><dt>Variant</dt><dd>${esc(p.variant)}</dd></div>` : ''}
+          ${WOTC_SETS.has(p.set) ? `<div><dt>Edition</dt><dd>${isUnlimitedWotc(p) ? 'Unlimited' : '1st Edition'}</dd></div>` : ''}
           ${p.artist ? `<div><dt>Artist</dt><dd>${esc(p.artist)}</dd></div>` : ''}
         </dl>
+        ${isUnlimitedWotc(p) ? '<div class="notice warn" style="margin-top:14px">This is an <b>Unlimited</b> print, not 1st Edition. The reference picture may show a 1st Edition stamp.</div>' : ''}
         ${p.notes ? `<div class="notice" style="margin-top:14px">${esc(p.notes)}</div>` : ''}
         <div id="quickViewAddWrap" style="margin-top:16px">
           ${cartQty > 0 ? cartControlHtml(p.id, cartQty, p.qty) : `<button class="add" id="quickViewAdd">Add To Cart</button>`}
@@ -980,7 +994,9 @@ function renderCart() {
       <div>
         <h4>${esc(p.name)}</h4>
         <div class="small muted">${esc(p.set)} &middot; ${esc(
-              p.variant && p.variant !== 'Normal' ? `${p.condition}, ${p.variant}` : p.condition
+              [p.channel === 'claim' ? claimSaleLabel(p.claimSale) : p.condition, p.variant !== 'Normal' && p.variant, isUnlimitedWotc(p) && 'Unlimited']
+                .filter(Boolean)
+                .join(', ')
             )}</div>
         ${
           p.qty > 1
@@ -1313,7 +1329,7 @@ if (backToTopBtn) {
   backToTopBtn.onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-['storeSearch', 'storeSet', 'storePrice', 'storeCondition', 'storeVariant', 'storePriceRange'].forEach((id) => {
+['storeSearch', 'storeSet', 'storePrice', 'storeCondition', 'storeVariant', 'storePriceRange', 'storeSale'].forEach((id) => {
   $('#' + id).addEventListener('input', () => {
     currentPage = 1;
     renderProducts();
@@ -1330,6 +1346,7 @@ function resetFilters() {
   $('#storeCondition').value = '';
   $('#storeVariant').value = '';
   $('#storePriceRange').value = '';
+  $('#storeSale').value = '';
 }
 
 function goToAllCards(e) {
@@ -1511,11 +1528,11 @@ function wireTelegramLinks() {
   $$('[data-main-link]').forEach((a) => bind(a, main, 'No Telegram channel is configured yet.'));
   $$('[data-claim-link]').forEach((a) => bind(a, claim, 'No claim sale channel is configured yet.'));
 }
-/** "2026-10-22" -> "22 Oct claim sale". */
+/** "2026-10-22" -> "22 Oct Sale". */
 function claimSaleLabel(date) {
   const [y, m, d] = String(date).split('-').map(Number);
-  if (!y || !m || !d) return 'Claim sale';
-  return `${d} ${SHOW_MONTHS[m - 1] || ''} claim sale`;
+  if (!y || !m || !d) return 'Claim Sale';
+  return `${d} ${SHOW_MONTHS[m - 1] || ''} Sale`;
 }
 
 function applyStoreMode() {
@@ -1524,14 +1541,16 @@ function applyStoreMode() {
   $$('.nav-main').forEach((a) => a.classList.toggle('hidden', !leftovers));
   if (!leftovers) return;
 
+  document.body.classList.add('store-leftovers');
   $('.hero h1').innerHTML = 'Claim Sale Leftovers<br><em>Last Chance Cards</em>';
-  $('.hero p').innerHTML = 'Cards nobody claimed in our Telegram claim sales.<br>Grab them here at the claim sale price before they\'re gone.';
-  $('#joinTelegram').textContent = 'Join The Claim Channel';
+  $('.hero p').innerHTML = 'Cards nobody claimed in our Telegram claim sales.<br>Each is a single copy at its claim sale price.';
+  $('#heroLatest').closest('.hero-links').innerHTML =
+    '<a href="/">Back To Main Store</a><span aria-hidden="true">&middot;</span><a href="#" id="joinTelegram">Join The Claim Channel</a>';
   $('#catalogue .section-head h2').textContent = 'Leftover Cards';
-  $('#catalogue .section-head p').textContent = 'Unclaimed cards from recent claim sales. Each one is a single copy.';
-  $('#newSection .rail-head h2').textContent = 'Latest Leftovers';
-  $('#newSeeAll').innerHTML = 'See All Leftovers &rarr;';
+  $('#catalogue .section-head p').textContent = 'Condition isn\'t graded for leftovers. Open a card to see its Telegram post and photos.';
   $('#leftoversPromo').classList.add('hidden');
+  $('.features').classList.add('hidden');
+  $('#newSection').classList.add('hidden');
 }
 
 /** On the main shop, a strip pointing to /leftovers whenever there are any. */

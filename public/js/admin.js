@@ -1837,7 +1837,6 @@ async function loadSettings() {
     $('#settingTelegram').value = s.telegram;
     $('#settingClaimTelegram').value = s.claimTelegram || '';
     $('#settingAutoLeftovers').value = s.autoLeftovers === 'off' ? 'off' : 'on';
-    $('#settingLeftoverCondition').value = s.leftoverCondition || 'NM';
     $('#settingMailing').value = s.mailing;
     $('#settingMinimum').value = s.minimum;
     $('#settingReservation').value = s.reservation;
@@ -1889,7 +1888,6 @@ $('#saveSettings').onclick = async () => {
         telegram: $('#settingTelegram').value,
         claimTelegram: $('#settingClaimTelegram').value,
         autoLeftovers: $('#settingAutoLeftovers').value,
-        leftoverCondition: $('#settingLeftoverCondition').value,
         mailing: $('#settingMailing').value,
         minimum: $('#settingMinimum').value,
         reservation: $('#settingReservation').value,
