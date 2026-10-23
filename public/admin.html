@@ -8,27 +8,34 @@
 <link rel="icon" href="/img/favicon.png" sizes="64x64">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/css/styles.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/admin.css">
 </head>
 <body>
 
 <div class="admin-layout">
   <aside class="sidebar">
-    <div class="brand">CRAZED TCG<small>SELLER ADMIN</small></div>
-    <nav class="admin-nav">
-      <button class="active" data-admin-tab="dashboard">Dashboard</button>
-      <button data-admin-tab="products">Products</button>
-      <button data-admin-tab="claimLeftovers">Claim Leftovers</button>
-      <button data-admin-tab="orders">Orders</button>
-      <button data-admin-tab="analytics">Analytics</button>
-      <button data-admin-tab="tradeShows">Trade Shows</button>
-      <button data-admin-tab="promoCodes">Promo Codes</button>
-      <button data-admin-tab="settings">Settings</button>
+    <a class="brand" href="/admin">
+      <img src="/img/logo-460.jpg" alt="" width="32" height="32">
+      <span><b>Crazed TCG</b><small>Seller admin</small></span>
+    </a>
+    <nav class="admin-nav" aria-label="Admin">
+      <div class="nav-label">Overview</div>
+      <button class="active" data-admin-tab="dashboard"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Dashboard</button>
+      <button data-admin-tab="analytics"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg>Analytics</button>
+      <div class="nav-label">Sales</div>
+      <button data-admin-tab="orders"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v18l-3.5-2-3.5 2-3.5-2L5 21z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>Orders</button>
+      <button data-admin-tab="claimLeftovers"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>Claim Leftovers</button>
+      <button data-admin-tab="promoCodes"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>Promo Codes</button>
+      <div class="nav-label">Catalogue</div>
+      <button data-admin-tab="products"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 9 5-9 5-9-5 9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg>Products</button>
+      <button data-admin-tab="tradeShows"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Trade Shows</button>
+      <div class="nav-label">Store</div>
+      <button data-admin-tab="settings"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
     </nav>
     <div class="sidebar-foot">
-      <a href="/" target="_blank" rel="noopener">View storefront &nearr;</a>
-      <button id="logout">Sign out</button>
+      <a href="/" target="_blank" rel="noopener" title="View storefront"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg><span>View Storefront</span></a>
+      <button id="logout" title="Sign out"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg><span>Sign Out</span></button>
     </div>
   </aside>
 
@@ -37,9 +44,9 @@
       <div class="admin-top">
         <div>
           <h1>Dashboard</h1>
-          <p>Live inventory and orders, straight from the database.</p>
+          <p>Today's stock and the latest orders at a glance.</p>
         </div>
-        <div class="actions"><button class="btn primary open-product-modal">Add Product</button></div>
+        <div class="actions"><button class="btn primary open-product-modal"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add Product</button></div>
       </div>
       <div class="stats">
         <div class="stat"><span>Live Products</span><strong id="statLive">—</strong></div>
@@ -62,19 +69,25 @@
 
     <section class="admin-tab" id="products">
       <div class="admin-top">
-        <div><h1>Products</h1><p>Manage inventory, images and storefront visibility.</p></div>
+        <div><h1>Products</h1><p>Your inventory, prices and what shows on the store.</p></div>
         <div class="actions">
+          <details class="menu">
+            <summary class="btn"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>More</summary>
+            <div class="menu-list">
+              <button class="btn" id="openBulkImport">Bulk Import CSV</button>
+              <a class="btn" href="/api/admin/products/export.csv">Export CSV</a>
+              <hr>
+              <button class="btn" id="backfillArtist" title="Look up the artist for any product missing one">Fill In Missing Artists</button>
+              <button class="btn" id="backfillSetSymbols" title="Fill in the set icon for any product missing one">Fill In Missing Set Icons</button>
+            </div>
+          </details>
           <button class="btn" id="openSetImport">Add by Set</button>
-          <button class="btn" id="openBulkImport">Bulk Import CSV</button>
-          <button class="btn" id="backfillArtist" title="Look up the artist for any product missing one">Backfill Artists</button>
-          <button class="btn" id="backfillSetSymbols" title="Fill in the set icon for any product missing one">Backfill Set Icons</button>
-          <a class="btn" href="/api/admin/products/export.csv" style="display:inline-flex;align-items:center">Export CSV</a>
-          <button class="btn primary open-product-modal">Add Product</button>
+          <button class="btn primary open-product-modal"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add Product</button>
         </div>
       </div>
       <div class="panel">
         <div class="panel-head">
-          <div><h2>Inventory</h2><div class="small muted">Live products with stock appear immediately on the storefront.</div></div>
+          <div><h2>Inventory</h2><div class="small muted">Live products with stock show on the store straight away.</div></div>
           <div class="panel-controls">
             <div class="view-toggle">
               <button class="active" data-view="list" type="button">List</button>
@@ -97,15 +110,15 @@
 
     <section class="admin-tab" id="orders">
       <div class="admin-top">
-        <div><h1>Orders</h1><p>Move orders from awaiting payment through completion.</p></div>
+        <div><h1>Orders</h1><p>Move each order from payment through to delivery.</p></div>
         <div class="actions">
           <button class="btn" id="refreshOrders">Refresh</button>
-          <a class="btn" href="/api/admin/orders/export.csv" style="display:inline-flex;align-items:center">Export CSV</a>
+          <a class="btn" href="/api/admin/orders/export.csv">Export CSV</a>
         </div>
       </div>
       <div class="panel">
         <div class="panel-head">
-          <div><h2>Order History</h2><div class="small muted">Filter by status, buyer/contact, or date placed.</div></div>
+          <div><h2>All Orders</h2><div class="small muted">Filter by status, buyer or date.</div></div>
           <div class="panel-controls">
             <select id="orderStatusFilter">
               <option value="">All statuses</option>
@@ -267,41 +280,60 @@
 
     <section class="admin-tab" id="settings">
       <div class="admin-top">
-        <div><h1>Settings</h1><p>Storefront copy, fees and Telegram status.</p></div>
+        <div><h1>Settings</h1><p>Store details, Telegram, delivery and payment.</p></div>
         <button class="btn primary" id="saveSettings">Save Changes</button>
       </div>
-      <div class="panel"><div class="panel-body"><div class="form-grid">
-        <div><label for="settingStoreName">Store Name</label><input id="settingStoreName"></div>
-        <div><label for="settingTelegram">Public Telegram Channel</label><input id="settingTelegram" placeholder="@crazedtcg"></div>
-        <div><label for="settingClaimTelegram">Claim Sale Channel</label><input id="settingClaimTelegram" placeholder="@crazedsale"></div>
-        <div><label for="settingAutoLeftovers">Claim Sale Leftovers</label><select id="settingAutoLeftovers"><option value="on">List unclaimed cards automatically</option><option value="off">Off</option></select></div>
-        <div><label for="settingMailing">Tracked Mailing Fee</label><input id="settingMailing" type="number" step="0.01" min="0"></div>
-        <div><label for="settingMinimum">Minimum Card Subtotal</label><input id="settingMinimum" type="number" step="0.01" min="0"></div>
-        <div><label for="settingReservation">Reservation Minutes</label><input id="settingReservation" type="number" min="0"></div>
-        <div><label for="settingContactTelegram">Order Contact Telegram</label><input id="settingContactTelegram" placeholder="@Cqvie"></div>
-        <div><label for="settingPaynowPayee">PayNow Payee Name (optional)</label><input id="settingPaynowPayee" placeholder="Shown under the QR"></div>
-        <div class="full"><label for="settingPaynow">PayNow Instructions</label><textarea id="settingPaynow"></textarea></div>
 
-        <div class="full">
-          <label>PayNow QR Code</label>
-          <div class="upload-row">
-            <div class="image-preview" style="aspect-ratio:1"><img id="paynowQrPreview" alt="PayNow QR"></div>
-            <div style="flex:1;min-width:220px">
-              <input id="paynowQrFile" type="file" accept="image/*">
-              <div class="small muted" style="margin-top:8px">
-                Shown to buyers on the order confirmation screen. Upload a screenshot of your
-                PayNow QR from your banking app.
-              </div>
-              <div class="actions" style="margin-top:10px">
-                <button class="btn" id="uploadPaynowQr" type="button">Upload QR</button>
-                <button class="btn danger" id="removePaynowQr" type="button">Remove</button>
+      <div class="settings-grid">
+        <section class="settings-section">
+          <div class="section-intro"><h3>Store</h3><p>The name shown across your storefront.</p></div>
+          <div class="form-grid">
+            <div class="full"><label for="settingStoreName">Store Name</label><input id="settingStoreName"></div>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <div class="section-intro"><h3>Telegram</h3><p>Where the store's Telegram links go, and who buyers message about orders.</p></div>
+          <div class="form-grid">
+            <div><label for="settingTelegram">Main Channel</label><input id="settingTelegram" placeholder="@crazedtcg"></div>
+            <div><label for="settingClaimTelegram">Claim Sale Channel</label><input id="settingClaimTelegram" placeholder="@crazedsale"></div>
+            <div><label for="settingContactTelegram">Order Contact</label><input id="settingContactTelegram" placeholder="@Cqvie"></div>
+            <div><label for="settingAutoLeftovers">Claim Sale Leftovers</label><select id="settingAutoLeftovers"><option value="on">List unclaimed cards automatically</option><option value="off">Off</option></select></div>
+            <div class="full" id="telegramStatus"></div>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <div class="section-intro"><h3>Checkout &amp; Delivery</h3><p>Fees and limits applied at checkout.</p></div>
+          <div class="form-grid">
+            <div><label for="settingMailing">Tracked Mailing Fee ($)</label><input id="settingMailing" type="number" step="0.01" min="0"></div>
+            <div><label for="settingMinimum">Minimum Card Subtotal ($)</label><input id="settingMinimum" type="number" step="0.01" min="0"></div>
+            <div><label for="settingReservation">Reservation Minutes</label><input id="settingReservation" type="number" min="0"></div>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <div class="section-intro"><h3>PayNow</h3><p>Shown to buyers on the order confirmation screen.</p></div>
+          <div class="form-grid">
+            <div class="full"><label for="settingPaynowPayee">Payee Name (optional)</label><input id="settingPaynowPayee" placeholder="Shown under the QR"></div>
+            <div class="full"><label for="settingPaynow">Payment Instructions</label><textarea id="settingPaynow"></textarea></div>
+            <div class="full">
+              <label>PayNow QR Code</label>
+              <div class="upload-row">
+                <div class="image-preview" style="aspect-ratio:1"><img id="paynowQrPreview" alt="PayNow QR"></div>
+                <div style="flex:1;min-width:220px">
+                  <input id="paynowQrFile" type="file" accept="image/*">
+                  <div class="field-hint">Upload a screenshot of your PayNow QR from your banking app.</div>
+                  <div class="actions" style="margin-top:10px">
+                    <button class="btn" id="uploadPaynowQr" type="button">Upload QR</button>
+                    <button class="btn danger" id="removePaynowQr" type="button">Remove</button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-
-        <div class="full" id="telegramStatus"></div>
-      </div></div></div>
+        </section>
+      </div>
     </section>
   </main>
 </div>
@@ -353,8 +385,8 @@
             <div class="image-preview"><img id="productPreview" alt=""></div>
             <div style="flex:1;min-width:220px">
               <input id="productImageFile" type="file" accept="image/*">
-              <div class="small muted" style="margin-top:8px">JPG, PNG, WEBP or GIF up to 6&nbsp;MB. Uploads are stored on the server and replace the URL above.</div>
-              <button class="btn" id="clearUploadedImage" type="button" style="margin-top:10px">Clear image</button>
+              <div class="field-hint">JPG, PNG, WEBP or GIF up to 6&nbsp;MB. Replaces the image URL above.</div>
+              <button class="btn" id="clearUploadedImage" type="button" style="margin-top:10px">Clear Image</button>
             </div>
           </div>
         </div>
@@ -391,11 +423,11 @@
             </div>
           </div>
           <div class="full">
-            <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:12px;color:var(--ink)">
+            <label style="display:flex;align-items:center;gap:8px;margin:0;font-weight:500;color:var(--text)">
               <input type="checkbox" id="bulkFetchImages" checked style="width:auto;min-height:0">
               Look up card images from the Pok&eacute;mon TCG API for rows with no image
             </label>
-            <label style="display:flex;align-items:center;gap:8px;margin:8px 0 0;font-size:12px;color:var(--ink)">
+            <label style="display:flex;align-items:center;gap:8px;margin:8px 0 0;font-weight:500;color:var(--text)">
               <input type="checkbox" id="bulkSkipDuplicates" checked style="width:auto;min-height:0">
               Skip rows that already exist (same name, set, number and condition)
             </label>

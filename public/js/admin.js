@@ -160,36 +160,34 @@ function formatShortDate(iso) {
 function svgBarChart(daily, valueFn, tooltipFn) {
   if (!daily.length) return '<div class="empty">No data for this range.</div>';
 
+  // Drawn in a fixed 1000-unit-wide box that scales to the panel, so a week of data
+  // fills the chart instead of huddling in one corner.
   const max = Math.max(1, ...daily.map(valueFn));
-  const barW = 14;
-  const gap = 4;
-  const height = 160;
-  const plotH = height - 24;
-  const width = daily.length * (barW + gap);
-  // A "Aug 12"-sized label needs ~32px of its own — cramming one onto every bar (as a
-  // flat "10 labels max" rule would for date ranges under 20 days) makes them overlap.
-  const labelEvery = Math.max(1, Math.ceil(daily.length / 10), Math.ceil(32 / (barW + gap)));
+  const width = 1000;
+  const height = 220;
+  const pad = 24;
+  const plotH = height - 34;
+  const slot = (width - pad * 2) / daily.length;
+  const barW = Math.max(2, Math.min(44, slot * 0.68));
+  // Keep date labels ~70 units apart so they never overlap.
+  const labelEvery = Math.max(1, Math.ceil(70 / slot));
 
-  let lastLabelIndex = -Infinity;
   const bars = daily
     .map((d, i) => {
       const v = valueFn(d);
-      const h = v > 0 ? Math.max(2, Math.round((v / max) * plotH)) : 0;
-      const x = i * (barW + gap);
+      const h = v > 0 ? Math.max(3, Math.round((v / max) * (plotH - 8))) : 0;
+      const x = pad + i * slot + (slot - barW) / 2;
       const y = plotH - h;
-      const isLast = i === daily.length - 1;
-      const dueForLabel = i - lastLabelIndex >= labelEvery;
-      const showLabel = dueForLabel || (isLast && i - lastLabelIndex >= labelEvery / 2);
-      if (showLabel) lastLabelIndex = i;
-      const label = showLabel ? formatShortDate(d.date) : '';
-      return `<rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="2">
+      const label = i % labelEvery === 0 ? formatShortDate(d.date) : '';
+      return `<rect x="${x.toFixed(1)}" y="${y}" width="${barW.toFixed(1)}" height="${h}" rx="3">
         <title>${tooltipFn(d)}</title>
       </rect>
-      ${label ? `<text x="${x + barW / 2}" y="${height - 6}" font-size="9" text-anchor="middle">${esc(label)}</text>` : ''}`;
+      ${label ? `<text x="${(x + barW / 2).toFixed(1)}" y="${height - 8}" font-size="13" text-anchor="middle">${esc(label)}</text>` : ''}`;
     })
     .join('');
 
-  return `<div class="an-chart"><svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${bars}</svg></div>`;
+  return `<div class="an-chart"><svg width="100%" viewBox="0 0 ${width} ${height}" role="img">
+    <line x1="${pad}" x2="${width - pad}" y1="${plotH + 0.5}" y2="${plotH + 0.5}" class="an-axis"/>${bars}</svg></div>`;
 }
 
 function renderAnalytics(data) {
@@ -2097,6 +2095,13 @@ $('#claimRunNow').onclick = async () => {
 };
 
 /* ---------------------------------------------------------------- wiring --- */
+
+// "More" menus close after a choice, or on a click anywhere else.
+document.addEventListener('click', (e) => {
+  $$('details.menu[open]').forEach((menu) => {
+    if (!menu.contains(e.target) || e.target.closest('.menu-list .btn')) menu.removeAttribute('open');
+  });
+});
 
 $$('[data-admin-tab]').forEach((b) => {
   b.onclick = () => {
