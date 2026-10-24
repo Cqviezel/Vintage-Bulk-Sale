@@ -445,15 +445,14 @@ function renderTradeShows() {
       <article class="show-card${live ? ' is-live' : ''}">
         <div class="show-date" aria-hidden="true"><span class="mon">${esc(mon)}</span><span class="day">${esc(day)}</span></div>
         <div class="show-body">
-          ${badge}
-          <h3>${esc(s.venue)}</h3>
+          <h3><span class="name">${esc(s.venue)}</span>${badge}</h3>
           <ul class="show-facts">
             <li>${cal}${esc(showDayRange(s.startDate, s.endDate))}</li>
             ${s.location ? `<li>${pin}${esc(s.location)}</li>` : ''}
-            ${s.tableNo ? `<li>${table}Find us at <b>${esc(s.tableNo)}</b></li>` : ''}
+            ${s.tableNo ? `<li>${table}<b>${esc(s.tableNo)}</b></li>` : ''}
           </ul>
-          ${s.location ? `<a class="show-link" href="${esc(maps)}" target="_blank" rel="noopener">Get Directions &rarr;</a>` : ''}
         </div>
+        ${s.location ? `<a class="show-link" href="${esc(maps)}" target="_blank" rel="noopener">Directions &rarr;</a>` : ''}
       </article>`;
     })
     .join('');

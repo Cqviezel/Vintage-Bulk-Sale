@@ -111,23 +111,24 @@ img{display:block;max-width:100%;height:auto}
 
 /* ---------- trade shows ---------- */
 .shows{margin-top:44px}
-.show-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
-.show-card{display:flex;gap:18px;padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-xs);transition:border-color .15s,box-shadow .15s}
-.show-card:hover{border-color:var(--border-strong);box-shadow:var(--shadow-md)}
-.show-card.is-live{border-color:#bfd8c6;box-shadow:0 0 0 1px #bfd8c6}
-.show-date{flex:0 0 auto;width:64px;align-self:flex-start;overflow:hidden;border-radius:12px;border:1px solid var(--border);background:var(--surface);text-align:center;box-shadow:var(--shadow-xs)}
-.show-date .mon{display:block;padding:4px 0;background:var(--brand);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--gold-bright)}
-.show-date .day{display:block;padding:8px 2px 9px;font-size:18px;font-weight:800;letter-spacing:-.02em;color:var(--text);white-space:nowrap}
-.show-body{min-width:0;flex:1;display:flex;flex-direction:column;align-items:flex-start}
-.show-body h3{font-size:16px;font-weight:700;letter-spacing:-.01em;line-height:1.3}
-.show-badge{display:inline-flex;align-items:center;gap:6px;height:22px;margin-bottom:8px;padding:0 9px;border-radius:99px;background:var(--gold-soft);border:1px solid var(--gold-border);font-size:11.5px;font-weight:700;color:var(--gold-ink)}
+.show-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,440px),1fr));gap:10px}
+.show-card{display:flex;align-items:center;gap:14px;padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-xs);transition:border-color .15s}
+.show-card:hover{border-color:var(--border-strong)}
+.show-card.is-live{border-color:#bfd8c6}
+.show-date{flex:0 0 auto;width:50px;overflow:hidden;border-radius:9px;border:1px solid var(--border);background:var(--surface);text-align:center}
+.show-date .mon{display:block;padding:2px 0;background:var(--brand);font-size:9.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--gold-bright)}
+.show-date .day{display:block;padding:4px 2px 5px;font-size:14px;font-weight:800;letter-spacing:-.02em;color:var(--text);white-space:nowrap}
+.show-body{min-width:0;flex:1}
+.show-body h3{display:flex;align-items:flex-start;gap:8px;font-size:14px;font-weight:700;line-height:1.3;min-width:0}
+.show-body h3 .name{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.show-badge{flex-shrink:0;display:inline-flex;align-items:center;gap:5px;height:19px;padding:0 7px;border-radius:99px;background:var(--gold-soft);border:1px solid var(--gold-border);font-size:10.5px;font-weight:700;color:var(--gold-ink)}
 .show-badge.live{background:var(--brand-soft);border-color:#cfdcd3;color:var(--brand-ink)}
-.show-badge.live::before{content:"";width:7px;height:7px;border-radius:50%;background:#3fae64;box-shadow:0 0 0 3px rgba(63,174,100,.2)}
-.show-facts{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:6px}
-.show-facts li{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--text-2)}
-.show-facts .i{color:var(--text-3)}
+.show-badge.live::before{content:"";width:6px;height:6px;border-radius:50%;background:#3fae64}
+.show-facts{list-style:none;margin:3px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:2px 12px}
+.show-facts li{display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--text-2);white-space:nowrap}
+.show-facts .i{width:13px;height:13px;color:var(--text-3)}
 .show-facts b{color:var(--text)}
-.show-link{margin-top:14px;font-size:13.5px;font-weight:650;color:var(--brand-ink)}
+.show-link{flex-shrink:0;font-size:13px;font-weight:650;color:var(--brand-ink)}
 .show-link:hover{text-decoration:underline;text-underline-offset:3px}
 
 /* ---------- catalogue ---------- */
