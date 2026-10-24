@@ -611,6 +611,7 @@ const openClaimOrdersFor = db.prepare(
   "SELECT delivery, fee FROM orders WHERE source = 'claim' AND buyer_key = ? AND status IN ('awaiting payment', 'paid', 'packed')"
 );
 const MAIL_PAID = 'Tracked Mailing (Paid)';
+const HOLD_PAID = 'Hold Mailing (Paid)';
 const orderIdTaken = db.prepare('SELECT 1 FROM orders WHERE id = ?');
 const insertClaimOrder = db.prepare(
   `INSERT INTO orders (id, buyer, telegram, telegram_user_id, email, phone, address, delivery, subtotal, discount, promo_code, fee, total, status, notify_state, source, claim_sale, buyer_key)
@@ -653,11 +654,13 @@ async function addClaimToOrder(post, outcome) {
   if (!order) {
     // A buyer whose earlier parcel hasn't shipped yet doesn't pay mailing twice: if
     // they've been charged mailing on it, this order rides along fee-free; if they're
-    // holding cards for a later parcel, this one is held too.
+    // holding cards for a later parcel, this one is held too (and stays fee-free if
+    // the held parcel's mailing is already paid).
     const others = openClaimOrdersFor.all(key);
+    const holdPaid = others.some((o) => o.delivery === HOLD_PAID);
     const paidMail = others.some((o) => o.delivery === 'Tracked Mailing' && o.fee > 0);
     const holding = others.some((o) => o.delivery === 'Hold Mailing');
-    const delivery = paidMail ? MAIL_PAID : holding ? 'Hold Mailing' : 'Tracked Mailing';
+    const delivery = holdPaid ? HOLD_PAID : paidMail ? MAIL_PAID : holding ? 'Hold Mailing' : 'Tracked Mailing';
     const userId = Number(outcome.buyerId);
     order = {
       id: newClaimOrderId(),

@@ -1894,8 +1894,9 @@ let trackerSettings = null;
 let trackerFilter = 'open';
 const trackerOpen = new Set();
 
-const isHeld = (o) => o.delivery === 'Hold Mailing';
-const isMailPaid = (o) => o.delivery === 'Tracked Mailing (Paid)';
+const isHeld = (o) => o.delivery === 'Hold Mailing' || o.delivery === 'Hold Mailing (Paid)';
+// Mailing was paid on an earlier order, whether this one goes out now or is held.
+const isMailPaid = (o) => o.delivery === 'Tracked Mailing (Paid)' || o.delivery === 'Hold Mailing (Paid)';
 let trackerSort = 'newest';
 const TRACKER_SORTS = {
   newest: (a, b) => String(b.sale).localeCompare(String(a.sale)) || String(b.createdAt).localeCompare(String(a.createdAt)),
@@ -1950,7 +1951,7 @@ function trackerRow(o) {
   const heldOthers = isHeld(o)
     ? trackerOrders.filter((x) => x !== o && x.telegram && x.telegram === o.telegram && isHeld(x) && !isDone(x) && x.status !== 'cancelled').length
     : 0;
-  const delivery = isHeld(o) ? 'hold' : o.delivery === 'Self-Pickup' ? 'pickup' : isMailPaid(o) ? 'mailpaid' : 'mail';
+  const delivery = isHeld(o) ? (isMailPaid(o) ? 'holdpaid' : 'hold') : o.delivery === 'Self-Pickup' ? 'pickup' : isMailPaid(o) ? 'mailpaid' : 'mail';
   const open = trackerOpen.has(o.id);
   const tick = (field, on, label, disabled) =>
     `<td class="c"><input type="checkbox" class="tick" data-tick="${field}"${on ? ' checked' : ''}${disabled ? ' disabled' : ''} aria-label="${label}"></td>`;
@@ -1968,11 +1969,12 @@ function trackerRow(o) {
       </td>
       <td><span class="trk-sale">${esc(saleLabel(o.sale))}</span><div class="small muted">${esc(o.id)}</div></td>
       <td class="trk-cards"><span class="small">${esc(o.items.map((i) => i.label).join(', '))}</span><div class="small muted">${o.items.length} card${o.items.length === 1 ? '' : 's'}</div></td>
-      <td class="r"><b>${money(o.total)}</b>${o.fee ? `<div class="small muted">incl. ${money(o.fee)} mailing</div>` : isHeld(o) ? '<div class="small muted">mailing later</div>' : isMailPaid(o) ? '<div class="small muted">mailing already paid</div>' : ''}</td>
+      <td class="r"><b>${money(o.total)}</b>${o.fee ? `<div class="small muted">incl. ${money(o.fee)} mailing</div>` : isMailPaid(o) ? '<div class="small muted">mailing already paid</div>' : isHeld(o) ? '<div class="small muted">mailing later</div>' : ''}</td>
       <td><select class="trk-delivery" data-delivery aria-label="Delivery"${cancelled ? ' disabled' : ''}>
         <option value="mail"${delivery === 'mail' ? ' selected' : ''}>Mail</option>
         <option value="mailpaid"${delivery === 'mailpaid' ? ' selected' : ''} title="Mailed, but the buyer already paid mailing on an earlier order">Mail – Paid</option>
         <option value="hold"${delivery === 'hold' ? ' selected' : ''}>Hold</option>
+        <option value="holdpaid"${delivery === 'holdpaid' ? ' selected' : ''} title="Held for a later parcel, mailing already paid">Hold – Paid</option>
         <option value="pickup"${delivery === 'pickup' ? ' selected' : ''}>Pickup</option>
       </select></td>
       ${tick('billed', o.billed || paid, 'Billed', cancelled || paid)}
