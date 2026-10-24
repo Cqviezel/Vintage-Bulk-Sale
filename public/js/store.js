@@ -294,6 +294,7 @@ function renderHero() {
     )
     .join('');
   $$('#newRail [data-rail-view]').forEach((b) => (b.onclick = () => openQuickView(b.dataset.railView)));
+  updateRailArrows();
 }
 
 // Cached so the search box below can re-filter without recomputing groups from
@@ -405,6 +406,21 @@ function formatShowDate(startDate, endDate) {
   return { mon, day: `${start.d}–${SHOW_MONTHS[end.m - 1] || ''} ${end.d}` };
 }
 
+const SHOW_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** "Sat 14 – Sun 15 Nov 2026" (or a single day). Dates are calendar dates, no time zone. */
+function showDayRange(startDate, endDate) {
+  const dayOf = (iso) => {
+    const { y, m, d } = parseIsoDate(iso);
+    return { y, m, d, wd: SHOW_DAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()] };
+  };
+  const a = dayOf(startDate);
+  if (!endDate || endDate === startDate) return `${a.wd} ${a.d} ${SHOW_MONTHS[a.m - 1]} ${a.y}`;
+  const b = dayOf(endDate);
+  const sameMonth = a.y === b.y && a.m === b.m;
+  return `${a.wd} ${a.d}${sameMonth ? '' : ' ' + SHOW_MONTHS[a.m - 1]} – ${b.wd} ${b.d} ${SHOW_MONTHS[b.m - 1]} ${b.y}`;
+}
+
 function renderTradeShows() {
   const section = $('#showsSection');
   if (!tradeShows.length) {
@@ -413,18 +429,32 @@ function renderTradeShows() {
   }
   section.classList.remove('hidden');
 
+  // Today in Singapore, as YYYY-MM-DD, to flag the show that's on now.
+  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  const pin = '<svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>';
+  const cal = '<svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>';
+  const table = '<svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h18M5 9v11M19 9v11M3 5h18v4H3z"/></svg>';
+
   $('#showsRow').innerHTML = tradeShows
-    .map((s) => {
+    .map((s, i) => {
       const { mon, day } = formatShowDate(s.startDate, s.endDate);
+      const live = s.startDate <= today && (s.endDate || s.startDate) >= today;
+      const badge = live ? '<span class="show-badge live">Happening Now</span>' : i === 0 ? '<span class="show-badge">Next Up</span>' : '';
+      const maps = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([s.location, 'Singapore'].filter(Boolean).join(', '))}`;
       return `
-      <div class="show-card">
-        <div class="show-date"><span class="mon">${esc(mon)}</span><span class="day">${esc(day)}</span></div>
+      <article class="show-card${live ? ' is-live' : ''}">
+        <div class="show-date" aria-hidden="true"><span class="mon">${esc(mon)}</span><span class="day">${esc(day)}</span></div>
         <div class="show-body">
-          <div class="venue">${esc(s.venue)}</div>
-          <div class="place">${esc(s.location)}</div>
+          ${badge}
+          <h3>${esc(s.venue)}</h3>
+          <ul class="show-facts">
+            <li>${cal}${esc(showDayRange(s.startDate, s.endDate))}</li>
+            ${s.location ? `<li>${pin}${esc(s.location)}</li>` : ''}
+            ${s.tableNo ? `<li>${table}Find us at <b>${esc(s.tableNo)}</b></li>` : ''}
+          </ul>
+          ${s.location ? `<a class="show-link" href="${esc(maps)}" target="_blank" rel="noopener">Get Directions &rarr;</a>` : ''}
         </div>
-        ${s.tableNo ? `<div class="show-table">${esc(s.tableNo)}</div>` : ''}
-      </div>`;
+      </article>`;
     })
     .join('');
 }
@@ -1389,6 +1419,27 @@ $('#heroSearchForm').onsubmit = (e) => {
 };
 
 $('#cartBarOpen').onclick = () => $('#cartOpen').click();
+
+/** Greys out the arrow at either end, and hides both when everything already fits. */
+function updateRailArrows() {
+  const rail = $('#newRail');
+  const arrows = $('#newSection .rail-arrows');
+  if (!rail || !arrows) return;
+  const max = rail.scrollWidth - rail.clientWidth;
+  arrows.classList.toggle('hidden', max <= 4);
+  $('#newSection [data-rail-scroll="-1"]').disabled = rail.scrollLeft <= 4;
+  $('#newSection [data-rail-scroll="1"]').disabled = rail.scrollLeft >= max - 4;
+}
+$$('#newSection [data-rail-scroll]').forEach((b) => {
+  b.onclick = () => {
+    const rail = $('#newRail');
+    rail.scrollBy({ left: Number(b.dataset.railScroll) * Math.max(240, rail.clientWidth * 0.8), behavior: 'smooth' });
+    // Some browsers skip scroll events during smooth scrolling; refresh once it settles.
+    setTimeout(updateRailArrows, 500);
+  };
+});
+$('#newRail').addEventListener('scroll', updateRailArrows, { passive: true });
+window.addEventListener('resize', updateRailArrows);
 
 function closeMobileNavMenu() {
   $('#mobileNavMenu').classList.add('hidden');

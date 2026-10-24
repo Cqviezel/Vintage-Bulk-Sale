@@ -126,7 +126,13 @@
   <section class="rail-section hidden" id="newSection">
     <div class="rail-head">
       <h2>Just Added</h2>
-      <a href="#catalogue" id="newSeeAll">See All New Cards &rarr;</a>
+      <div class="rail-tools">
+        <a href="#catalogue" id="newSeeAll">See All New Cards &rarr;</a>
+        <div class="rail-arrows">
+          <button class="rail-arrow" type="button" data-rail-scroll="-1" aria-label="Scroll left"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+          <button class="rail-arrow" type="button" data-rail-scroll="1" aria-label="Scroll right"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+        </div>
+      </div>
     </div>
     <div class="new-rail" id="newRail"></div>
   </section>
@@ -134,9 +140,9 @@
   <section class="shows hidden" id="showsSection">
     <div class="section-head">
       <h2>Find Us In Person</h2>
-      <p>Come say hi and shop the binders at these upcoming events.</p>
+      <p>Come say hi, dig through the binders and pick up your claimed cards at these events.</p>
     </div>
-    <div class="shows-row" id="showsRow"></div>
+    <div class="show-grid" id="showsRow"></div>
   </section>
 
   <main class="catalogue" id="catalogue">
