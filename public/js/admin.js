@@ -1991,7 +1991,9 @@ function trackerRow(o) {
                 .map(
                   (i) => `<li>${i.image ? `<img src="${esc(i.image)}" alt="">` : '<i class="trk-noimg"></i>'}<span>${
                     i.postId ? `<a href="https://t.me/${esc(String(trackerSettings && trackerSettings.claimTelegram || '').replace(/^@/, ''))}/${i.postId}" target="_blank" rel="noopener">${esc(i.label)}</a>` : esc(i.label)
-                  }</span><b>${money(i.price)}</b></li>`
+                  }</span><b>${money(i.price)}</b>${
+                    shipped || cancelled ? '' : `<button class="trk-unclaim" type="button" data-unclaim="${i.id}" title="Remove from bill and list on /leftovers" aria-label="Unclaim ${esc(i.label)}">&times;</button>`
+                  }</li>`
                 )
                 .join('')}${o.fee ? `<li><i class="trk-noimg"></i><span>Mailing</span><b>${money(o.fee)}</b></li>` : ''}</ul>
               <div>
@@ -1999,7 +2001,7 @@ function trackerRow(o) {
                 <div class="bill-actions">
                   <button class="btn primary" type="button" data-copy>Copy Message</button>
                   ${user ? `<a class="btn" href="https://t.me/${esc(encodeURIComponent(user))}" target="_blank" rel="noopener">Open Chat</a>` : ''}
-                  <span class="small muted">Copying ticks Billed.</span>
+                  <span class="small muted">Copying ticks Billed. &times; on a card unclaims it.</span>
                 </div>
               </div>
             </div>
@@ -2120,6 +2122,34 @@ $('#trackerBody').addEventListener('click', async (e) => {
     trackerOpen.has(id) ? trackerOpen.delete(id) : trackerOpen.add(id);
     return renderTracker();
   }
+  const unclaim = e.target.closest('[data-unclaim]');
+  if (unclaim) {
+    const o = trackerOrders.find((x) => x.id === id);
+    const item = o && o.items.find((i) => String(i.id) === unclaim.dataset.unclaim);
+    if (!item) return;
+    const last = o.items.length === 1;
+    const paid = o.status !== 'awaiting payment';
+    if (
+      !confirm(
+        `Unclaim "${item.label}" (${money(item.price)}) from ${o.buyer}?\n\nIt comes off the bill and goes on /leftovers.` +
+          (last ? ' It is their only card on this order, so the order is deleted.' : ' The bill is marked unbilled so you can send the new total.') +
+          (paid ? '\n\nThis order is already paid; refund the buyer yourself.' : '')
+      )
+    )
+      return;
+    unclaim.disabled = true;
+    try {
+      const res = await api(`/api/admin/claim-orders/${encodeURIComponent(id)}/items/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+      trackerOrders = res.order ? trackerOrders.map((x) => (x.id === id ? res.order : x)) : trackerOrders.filter((x) => x.id !== id);
+      if (!res.order) trackerOpen.delete(id);
+      renderTracker();
+      toast(`${res.name} unclaimed and listed on /leftovers${res.orderDeleted ? '; order deleted' : ''}`);
+    } catch (err) {
+      unclaim.disabled = false;
+      toast(err.message, true);
+    }
+    return;
+  }
   if (e.target.closest('[data-copy]')) {
     const box = e.target.closest('.trk-detail').querySelector('.bill-msg');
     try {
@@ -2144,6 +2174,7 @@ const ON_SITE = {
   pulled: '<span class="status status-hidden">Pulled (claimed late)</span>',
   expired: '<span class="status status-hidden">Taken down after 1 week</span>',
   claimed: '<span class="status status-sold">Not listed</span>',
+  unclaimed: '<span class="status status-live">Listed (unclaimed)</span>',
 };
 
 function claimRowHtml(l, i) {

@@ -325,6 +325,8 @@ tr.trk-detail:hover td{background:var(--subtle)}
 .trk-detail .bill-items img,.trk-noimg{display:block;width:28px;height:38px;object-fit:contain;flex-shrink:0;border-radius:3px;background:var(--hover)}
 .trk-noimg{background:transparent}
 .trk-detail .bill-items li>span{flex:1;min-width:0}
+.trk-unclaim{flex-shrink:0;width:26px;height:26px;padding:0;border:1px solid transparent;border-radius:6px;background:none;color:var(--text-2);font-size:17px;line-height:1;cursor:pointer}
+.trk-unclaim:hover:not(:disabled){background:var(--red-soft);border-color:#f0d3d0;color:var(--red-ink)}
 .trk-detail .bill-msg{width:100%;background:var(--surface)}
 .trk-detail .bill-actions{margin-top:8px}
 @media (max-width:1100px){.tracker-stats{grid-template-columns:repeat(3,minmax(0,1fr))}.trk-detail-grid{grid-template-columns:1fr}}

@@ -741,6 +741,7 @@ function toClaimOrder(o) {
     billed: Boolean(o.billed_at),
     createdAt: o.created_at,
     items: orders.getOrderItems(o.id).map((i) => ({
+      id: i.id,
       label: i.label || [i.name, i.number, i.set_name].filter(Boolean).join(' '),
       price: i.price,
       image: i.image,
@@ -772,6 +773,23 @@ router.patch('/claim-orders/:id', (req, res) => {
     if (!result.ok) return res.status(result.httpStatus).json({ error: result.error });
   }
   res.json(toClaimOrder(orders.findOrder(row.id)));
+});
+
+// The buyer backed out of one card: off the bill and onto /leftovers.
+router.delete('/claim-orders/:id/items/:itemId', async (req, res) => {
+  const row = orders.findOrder(req.params.id);
+  if (!row || row.source !== 'claim') return res.status(404).json({ error: 'Claim order not found.' });
+  const item = orders.getOrderItems(row.id).find((i) => String(i.id) === String(req.params.itemId));
+  if (!item) return res.status(404).json({ error: 'That card is not on this order.' });
+  try {
+    const result = await claimSale.unclaimItem(item.id);
+    const left = orders.findOrder(row.id);
+    res.json({ ...result, order: left ? toClaimOrder(left) : null });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    console.error('[claim-sale] unclaim failed:', err);
+    res.status(500).json({ error: 'Could not remove that card: ' + err.message });
+  }
 });
 
 router.post('/claim-sales/list-now', async (req, res) => {

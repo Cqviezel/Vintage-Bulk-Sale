@@ -42,6 +42,7 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR
 
 // One row per card post we've reached a decision on, so each is handled once.
 //   outcome: 'claimed' | 'listed' (on /leftovers) | 'pulled' (listed, then claimed late)
+//            | 'unclaimed' (claimed, then removed from the bill by hand and listed)
 db.exec(`
   CREATE TABLE IF NOT EXISTS claim_posts (
     channel      TEXT NOT NULL,
@@ -89,7 +90,7 @@ const staleLeftovers = db.prepare(
   "SELECT id, name FROM products WHERE channel = 'claim' AND status = 'live' AND created_at <= datetime('now', ?)"
 );
 const markExpired = db.prepare(
-  "UPDATE claim_posts SET outcome = 'expired', updated_at = datetime('now') WHERE product_id = ? AND outcome = 'listed'"
+  "UPDATE claim_posts SET outcome = 'expired', updated_at = datetime('now') WHERE product_id = ? AND outcome IN ('listed', 'unclaimed')"
 );
 
 /** Takes leftovers down once they've been up for LISTING_DAYS. Returns their names. */
@@ -613,6 +614,7 @@ const openClaimOrdersFor = db.prepare(
 const MAIL_PAID = 'Tracked Mailing (Paid)';
 const HOLD_PAID = 'Hold Mailing (Paid)';
 const orderIdTaken = db.prepare('SELECT 1 FROM orders WHERE id = ?');
+const orderById = db.prepare('SELECT * FROM orders WHERE id = ?');
 const insertClaimOrder = db.prepare(
   `INSERT INTO orders (id, buyer, telegram, telegram_user_id, email, phone, address, delivery, subtotal, discount, promo_code, fee, total, status, notify_state, source, claim_sale, buyer_key)
    VALUES (@id, @buyer, @telegram, @telegram_user_id, '', '', '', @delivery, 0, 0, '', @fee, @fee, 'awaiting payment', 'sent', 'claim', @claim_sale, @buyer_key)`
@@ -689,6 +691,69 @@ async function addClaimToOrder(post, outcome) {
   return order.id;
 }
 
+/* -------------------------------------------------------------- unclaim --- */
+
+const claimItemById = db.prepare('SELECT * FROM order_items WHERE id = ?');
+const deleteClaimItem = db.prepare('DELETE FROM order_items WHERE id = ?');
+const itemsLeft = db.prepare('SELECT COUNT(*) AS n FROM order_items WHERE order_id = ?');
+const deleteClaimOrder = db.prepare("DELETE FROM orders WHERE id = ? AND source = 'claim'");
+
+/**
+ * A buyer backed out: takes one card off their bill and lists it on /leftovers. The
+ * bill is recalculated and marked unbilled; an order left with no cards is deleted.
+ * The post is recorded as 'unclaimed' so the timer and scans don't bill it again.
+ */
+async function unclaimItem(itemId) {
+  const item = claimItemById.get(Number(itemId));
+  const order = item && orderById.get(item.order_id);
+  if (!order || order.source !== 'claim') throw Object.assign(new Error('Claimed card not found.'), { status: 404 });
+  if (['mailed', 'completed'].includes(order.status)) {
+    throw Object.assign(new Error('This order has already gone out.'), { status: 409 });
+  }
+
+  const settings = getSettings();
+  const ref = channelRef(settings.claimTelegram);
+  let image = item.image;
+  if (!image && item.claim_post_id && telegramUserbot.isConfigured()) {
+    // Unmatched cards have no official picture; use the post's photo, as listing does.
+    try {
+      image = await savePostPhoto(await openChannel(settings.claimTelegram), item.claim_post_id);
+    } catch (err) {
+      console.error('[claim-sale] unclaim photo failed:', err.message);
+    }
+  }
+
+  const id = 'p' + crypto.randomBytes(8).toString('hex');
+  const result = db.transaction(() => {
+    insertLeftover.run({
+      id,
+      name: item.name,
+      set_name: item.set_name,
+      set_symbol: '',
+      number: item.number,
+      condition: ['NM', 'LP', 'MP', 'HP'].includes(settings.leftoverCondition) ? settings.leftoverCondition : 'NM',
+      variant: item.variant || 'Normal',
+      price: item.price,
+      image: image || '',
+      artist: '',
+      claim_sale: order.claim_sale,
+      claim_link: item.claim_post_id && ref.startsWith('@') ? `https://t.me/${ref.slice(1)}/${item.claim_post_id}` : '',
+    });
+    if (item.claim_post_id && ref) {
+      savePost.run({ channel: ref, post_id: item.claim_post_id, outcome: 'unclaimed', product_id: id, product_name: item.name, reply_count: 0 });
+      setMatchVersion.run(MATCH_VERSION, ref, item.claim_post_id);
+    }
+    deleteClaimItem.run(item.id);
+    if (itemsLeft.get(order.id).n === 0) {
+      deleteClaimOrder.run(order.id);
+      return { orderId: order.id, orderDeleted: true };
+    }
+    recalcOrder.run({ id: order.id });
+    return { orderId: order.id, orderDeleted: false };
+  })();
+  return { ...result, productId: id, name: item.name };
+}
+
 /* ------------------------------------------------------------ manual scan --- */
 
 /** One sale day, every card and its outcome, for the admin Claim Leftovers tab. */
@@ -709,7 +774,8 @@ async function scanSale({ date }) {
       ...outcome,
       onSite: rec ? rec.outcome : '',
     });
-    if (outcome.status === 'claimed' && !(rec && rec.outcome === 'listed')) await addClaimToOrder(post, outcome);
+    // A card removed from a bill by hand stays unclaimed, though its comments still say "claim".
+    if (outcome.status === 'claimed' && !(rec && ['listed', 'unclaimed'].includes(rec.outcome))) await addClaimToOrder(post, outcome);
   }
   return { channel: conn.ref, date, listings };
 }
@@ -901,6 +967,7 @@ function startAutoRun({ everyHours = 0.5, firstDelayMinutes = 2 } = {}) {
 module.exports = {
   scanSale,
   listNow,
+  unclaimItem,
   autoRun,
   getStatus,
   startAutoRun,
