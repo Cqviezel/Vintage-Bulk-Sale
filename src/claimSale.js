@@ -71,7 +71,7 @@ const productById = db.prepare('SELECT * FROM products WHERE id = ?');
 // Bumped whenever matchCard gets smarter; listings made by an older version are
 // matched again once (e.g. version 1 could pick Base Set 2 Gyarados for a caption
 // that said "Hitmonchan 7 Base Set").
-const MATCH_VERSION = 2;
+const MATCH_VERSION = 3;
 if (!db.prepare('PRAGMA table_info(claim_posts)').all().some((c) => c.name === 'match_version')) {
   db.exec('ALTER TABLE claim_posts ADD COLUMN match_version INTEGER NOT NULL DEFAULT 1');
 }
@@ -260,7 +260,13 @@ function decideOutcome(comments, listedPrice) {
 /* --------------------------------------------------------- card matching --- */
 
 
-const normSet = (s) => String(s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
+// "&" and "and" are dropped, so "Sun Moon", "Sun and Moon" and "Sun & Moon" all compare equal.
+const normSet = (s) =>
+  String(s || '')
+    .toLowerCase()
+    .replace(/&/g, ' ')
+    .replace(/\band\b/g, ' ')
+    .replace(/[^a-z0-9]/g, '');
 const normNum = (n) => String(n || '').toLowerCase().replace(/^0+(?=\d)/, '');
 // "Moltres & Zapdos & Articuno-GX" and "Moltres & Zapdos & Articuno GX" compare equal.
 const normName = (s) => String(s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
@@ -317,6 +323,21 @@ const PROMO_SETS = [
   [/^hgss\d/i, 'hsp'],
   [/^dp\d/i, 'dpp'],
 ];
+
+// Wording in a caption that names a promo set whose card numbers carry no prefix
+// ("Treecko 016 EX Deck Tin Nintendo Promo").
+const PROMO_HINTS = [
+  [/\bnintendo\b/i, 'np'],
+  [/\b(?:wizards|wotc)\b/i, 'basep'],
+  [/\b(?:dp|diamond (?:and |& )?pearl)\b/i, 'dpp'],
+  [/\b(?:hgss|heart ?gold)\b/i, 'hsp'],
+  [/\b(?:bw|black (?:and |& )?white)\b/i, 'bwp'],
+  [/\bxy\b/i, 'xyp'],
+  [/\b(?:sm|sun (?:and |& )?moon)\b/i, 'smp'],
+  [/\b(?:swsh|sword (?:and |& )?shield)\b/i, 'swshp'],
+  [/\b(?:sv|scarlet (?:and |& )?violet)\b/i, 'svp'],
+];
+const PROMO_SET_IDS = ['basep', 'np', 'dpp', 'hsp', 'bwp', 'xyp', 'smp', 'swshp', 'svp'];
 
 const cardResult = (card, set) => ({
   matched: true,
@@ -378,6 +399,17 @@ async function matchCard(parsed) {
       const set = sets.find((s) => s.id === promo[1]);
       const hit = set && (await findInSet(set, name, parsed.number.replace(/\s+/g, '').toUpperCase()));
       if (hit) return hit;
+    }
+
+    // "Promo" in the caption: the promo set the wording points at, then any promo
+    // set holding a card with this exact name and number.
+    if (/\bpromo\b/i.test(parsed.title || '') && parsed.number) {
+      const hinted = PROMO_HINTS.filter(([re]) => re.test(parsed.title)).map(([, id]) => id);
+      for (const id of [...new Set([...hinted, ...PROMO_SET_IDS])]) {
+        const set = sets.find((s) => s.id === id);
+        const hit = set && (await findInSet(set, name, parsed.number));
+        if (hit && (hinted.includes(id) || normNum(hit.number) === normNum(parsed.number))) return hit;
+      }
     }
 
     // Set named in the caption (with or without a number).

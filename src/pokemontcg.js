@@ -194,12 +194,14 @@ async function lookup({ name, set, number }, signal) {
 
   const criteria = { set: cleanSet, number: String(number || '') };
 
+  let lastError = null;
   for (const attempt of attempts) {
     let cards;
     try {
       cards = await request(attempt.q, signal);
     } catch (err) {
       if (err.rateLimited) throw err;
+      lastError = err;
       continue; // try the next, broader query
     }
     if (!cards.length) continue;
@@ -215,6 +217,9 @@ async function lookup({ name, set, number }, signal) {
     return remember(key, result);
   }
 
+  // An API outage is not "no such card": don't remember it, and let the caller know
+  // so it can try again later instead of settling for no picture.
+  if (lastError) throw lastError;
   return remember(key, null);
 }
 
