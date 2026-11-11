@@ -553,6 +553,7 @@ async function handleForwardCallback(cq) {
   forwardLocks.add(adminMsgId);
   try {
     let sent = 0;
+    const failures = [];
     const targets = forwardTargets();
     for (const target of targets) {
       const result =
@@ -580,6 +581,7 @@ async function handleForwardCallback(cq) {
         sent++;
       } else {
         console.error(`[telegram] forward to ${target.chat} (${target.via}) failed: ${result.reason}`);
+        failures.push(`${target.chat} (${target.via}): ${String(result.reason).slice(0, 300)}`);
       }
     }
     await answerCallbackQuery(
@@ -590,7 +592,10 @@ async function handleForwardCallback(cq) {
     await post('editMessageText', {
       chat_id: cq.message.chat.id,
       message_id: cq.message.message_id,
-      text: sent ? `✅ Forwarded to ${sent} channel${sent === 1 ? '' : 's'}.` : '❌ Forward failed for all channels.',
+      // The reasons go in the message too, so a failure can be read without the server logs.
+      text:
+        (sent ? `✅ Forwarded to ${sent} channel${sent === 1 ? '' : 's'}.` : '❌ Forward failed for all channels.') +
+        (failures.length ? `\n\nFailed:\n${failures.map((f) => '• ' + f).join('\n')}`.slice(0, 3500) : ''),
       reply_markup: { inline_keyboard: [] },
     });
   } finally {
