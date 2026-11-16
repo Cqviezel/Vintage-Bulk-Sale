@@ -87,11 +87,26 @@ can be sent to its own topic instead of dumping everything into General:
 |---|---|
 | `TELEGRAM_TOPIC_SALES` | New orders (and Admin → Orders → Resend) |
 | `TELEGRAM_TOPIC_OUT_OF_STOCK` | A card sells out |
+| `TELEGRAM_TOPIC_CSI_TRACKER` | CoolStuffInc stock tracker (see below). Unlike the others, the tracker only runs when this is set. |
 
 Get a topic's thread ID from its **Copy Link** in Telegram — it's the number after the
 chat ID, e.g. `https://t.me/c/<chat>/<THIS NUMBER>`. Leave either blank and that
 notification kind falls back to General. **Send test message** always posts to General,
 regardless of these settings.
+
+### CoolStuffInc stock tracker
+
+When `TELEGRAM_TOPIC_CSI_TRACKER` is set, the server checks CoolStuffInc's vintage
+Pokemon singles about once an hour (HS, Platinum, Diamond & Pearl, EX, and the older
+promo pages; the list is `SETS` in `src/csiTracker.js`). After each check it posts
+what was restocked, sold, sold out, or changed price to that topic. The first check only
+saves a starting point. Data is kept in `csi-tracker.db` next to `store.db`, and
+`CSI_TRACKER_INTERVAL_MINUTES` changes how often it checks (default 60).
+
+"Sold" is an estimate based on stock going down between checks. CoolStuffInc never
+shows more than "20+", so sales from listings above 20 are not counted until they
+drop below 20. To run it by hand and get an HTML report: `npm run csi-track`
+(`--notify` also posts to the topic).
 
 ### Current stock report
 
