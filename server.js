@@ -18,6 +18,7 @@ const publicRoutes = require('./src/routes/public');
 const { router: customerRoutes } = require('./src/routes/customer');
 const adminRoutes = require('./src/routes/admin');
 const claimSale = require('./src/claimSale');
+const csiTracker = require('./src/csiTracker');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -190,6 +191,9 @@ const server = app.listen(PORT, HOST, () => {
   if (telegramUserbot2.isConfigured()) {
     telegramUserbot2.start().catch((err) => console.error('[telegram] userbot2 login failed:', err.message));
   }
+  // CoolStuffInc stock tracker: scans hourly and posts changes to its own topic.
+  // Only runs when TELEGRAM_TOPIC_CSI_TRACKER is set.
+  csiTracker.startAutoRun();
 });
 
 async function shutdown(signal) {
@@ -200,6 +204,7 @@ async function shutdown(signal) {
   telegram.stopPolling();
   telegramUserbot.stop().catch(() => {});
   telegramUserbot2.stop().catch(() => {});
+  csiTracker.stop();
   await telegram.flushRestocks().catch((err) => console.error('[telegram] flush on shutdown failed:', err.message));
   server.close(() => {
     try {
