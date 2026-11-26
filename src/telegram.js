@@ -791,6 +791,24 @@ async function loadBotIdentity() {
   }
 }
 
+// Buyers' Telegram login needs the bot's ID. It used to be looked up only at startup, so
+// one failed getMe (Telegram slow while Railway booted) left login "not set up" until the
+// next restart. Customer pages call this instead; it retries at most once a minute.
+let identityTriedAt = 0;
+let identityLoading = null;
+async function ensureBotIdentity() {
+  if (botId || !process.env.TELEGRAM_BOT_TOKEN) return;
+  if (identityLoading) return identityLoading;
+  if (Date.now() - identityTriedAt < 60_000) return;
+  identityTriedAt = Date.now();
+  identityLoading = loadBotIdentity()
+    .catch(() => {})
+    .finally(() => {
+      identityLoading = null;
+    });
+  return identityLoading;
+}
+
 function productKey(p) {
   return [p.name, p.set_name, p.number, p.condition, p.variant]
     .map((v) => String(v || '').trim().toLowerCase())
@@ -1205,6 +1223,7 @@ module.exports = {
   buildMessage,
   getBotUsername,
   getBotId,
+  ensureBotIdentity,
   startPolling,
   stopPolling,
 };
