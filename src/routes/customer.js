@@ -54,7 +54,8 @@ function publicCustomer(c) {
   return { id: c.id, username: c.username, firstName: c.firstName };
 }
 
-router.get('/me', (req, res) => {
+router.get('/me', async (req, res) => {
+  await telegram.ensureBotIdentity();
   res.json({
     botId: telegram.getBotId(),
     botUsername: telegram.getBotUsername(),
