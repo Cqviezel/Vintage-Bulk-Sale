@@ -9,23 +9,10 @@ const { db } = require('./db');
 const getCachedEntity = db.prepare(
   'SELECT class_name, entity_id, access_hash FROM telegram_entity_cache2 WHERE chat_ref = ?'
 );
-const deleteCachedEntity = db.prepare('DELETE FROM telegram_entity_cache2 WHERE chat_ref = ?');
 const upsertCachedEntity = db.prepare(
   `INSERT INTO telegram_entity_cache2 (chat_ref, class_name, entity_id, access_hash) VALUES (@chat_ref, @class_name, @entity_id, @access_hash)
    ON CONFLICT(chat_ref) DO UPDATE SET class_name = excluded.class_name, entity_id = excluded.entity_id, access_hash = excluded.access_hash, cached_at = datetime('now')`
 );
-
-// A cached peer Telegram no longer accepts for this account (the account was re-logged
-// as a different user, or left and rejoined the channel). Resolving again fixes it.
-const isStalePeerError = (err) =>
-  /CHANNEL_INVALID|PEER_ID_INVALID|CHANNEL_PRIVATE|channel is invalid|Could not find the input entity/i.test(
-    String((err && (err.errorMessage || err.message)) || err)
-  );
-// The session string no longer logs in: only a fresh TELEGRAM_USERBOT2_SESSION fixes it.
-const isLoggedOutError = (err) =>
-  /AUTH_KEY_UNREGISTERED|AUTH_KEY_DUPLICATED|SESSION_REVOKED|SESSION_EXPIRED|USER_DEACTIVATED/i.test(
-    String((err && (err.errorMessage || err.message)) || err)
-  );
 
 // Rebuilds just enough of the Input peer variant to forward with — no live resolve.
 function inputPeerFromCache(row) {
@@ -49,8 +36,7 @@ function inputPeerFromCache(row) {
  * a peer's access_hash is only valid for the account that resolved it, so the two
  * accounts must never read each other's cached entries.
  */
-async function resolveChat(client, chatRef, { fresh = false } = {}) {
-  if (fresh) deleteCachedEntity.run(chatRef);
+async function resolveChat(client, chatRef) {
   const cached = getCachedEntity.get(chatRef);
   const cachedPeer = cached && inputPeerFromCache(cached);
   if (cachedPeer) return cachedPeer;
@@ -135,37 +121,18 @@ async function forwardMessage({ fromChat, messageId, toChat, threadId }) {
   }
   try {
     const client = await connect();
-    const send = async (fresh) => {
-      const [fromEntity, toEntity] = await Promise.all([
-        resolveChat(client, fromChat, { fresh }),
-        resolveChat(client, toChat, { fresh }),
-      ]);
-      await client.invoke(
-        new Api.messages.ForwardMessages({
-          fromPeer: fromEntity,
-          id: [messageId],
-          randomId: [randomLong()],
-          toPeer: toEntity,
-          topMsgId: threadId || undefined,
-        })
-      );
-    };
-    try {
-      await send(false);
-    } catch (err) {
-      if (!isStalePeerError(err)) throw err;
-      await send(true);
-    }
+    const [fromEntity, toEntity] = await Promise.all([resolveChat(client, fromChat), resolveChat(client, toChat)]);
+    await client.invoke(
+      new Api.messages.ForwardMessages({
+        fromPeer: fromEntity,
+        id: [messageId],
+        randomId: [randomLong()],
+        toPeer: toEntity,
+        topMsgId: threadId || undefined,
+      })
+    );
     return { ok: true };
   } catch (err) {
-    if (isLoggedOutError(err)) {
-      // Drop the dead connection so a redeploy with a new session isn't needed twice.
-      stop().catch(() => {});
-      return {
-        ok: false,
-        reason: `userbot2 is logged out of Telegram (${err.errorMessage || err.message}). Run "npm run telegram-userbot2-login-qr" and replace TELEGRAM_USERBOT2_SESSION.`,
-      };
-    }
     return { ok: false, reason: err.message };
   }
 }
